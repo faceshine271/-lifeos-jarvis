@@ -1,84 +1,87 @@
 require('dotenv').config();
-
 const express = require('express');
 const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const twilio = require('twilio');
 const path = require('path');
-
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 3000;
-
-console.log("🚀 Starting LifeOS Jarvis...");
+console.log("Starting LifeOS Jarvis...");
 
 /* ===========================
    GOOGLE SHEETS AUTH
 =========================== */
-
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-
 if (!SPREADSHEET_ID) {
-  console.error("❌ Missing SPREADSHEET_ID in .env");
+  console.error("Missing SPREADSHEET_ID");
   process.exit(1);
 }
 
-const auth = new google.auth.GoogleAuth({
-  keyFile: path.join(__dirname, 'google-credentials.json'),
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+let auth;
+if (process.env.GOOGLE_CREDENTIALS) {
+  console.log("Using GOOGLE_CREDENTIALS env var");
+  const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+  auth = new google.auth.JWT(
+    creds.client_email,
+    null,
+    creds.private_key,
+    ['https://www.googleapis.com/auth/spreadsheets']
+  );
+} else {
+  console.log("Using google-credentials.json file");
+  auth = new google.auth.GoogleAuth({
+    keyFile: path.join(__dirname, 'google-credentials.json'),
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+}
 
 const sheets = google.sheets({ version: 'v4', auth });
-console.log("✅ Google Auth Ready");
+console.log("Google Auth Ready");
 
 /* ===========================
    TWILIO CLIENT
 =========================== */
-
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
-
 const TWILIO_NUMBER = '+18884310969';
 const MY_NUMBER = '+18167392734';
-console.log("✅ Twilio Ready");
+console.log("Twilio Ready");
 
 /* ===========================
    CLAUDE API KEY
 =========================== */
-
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 if (!CLAUDE_API_KEY) {
-  console.error("⚠️ Missing CLAUDE_API_KEY — voice AI conversation won't work");
+  console.error("Missing CLAUDE_API_KEY");
 }
-console.log("✅ Claude API Ready");
+console.log("Claude API Ready");
 
 /* ===========================
-   In-memory conversation history per call
+   In-memory conversation history
 =========================== */
-
 const callHistory = {};
 
 /* ===========================
    HELPERS
 =========================== */
-
 async function getAllTabNames() {
   const res = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
     fields: 'sheets.properties.title',
   });
-  return res.data.sheets.map(s => s.properties.title);
+  return res.data.sheets.map(function(s) { return s.properties.title; });
 }
 
 async function getTabData(tabName) {
   try {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `'${tabName}'!A1:ZZ`,
+      range: "'" + tabName + "'!A1:ZZ",
     });
     const rows = res.data.values || [];
     if (rows.length === 0) return { tab: tabName, headers: [], rowCount: 0, rows: [] };
@@ -88,178 +91,203 @@ async function getTabData(tabName) {
   }
 }
 
+async function getTabRowCount(tabName) {
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "'" + tabName + "'!A:A",
+    });
+    return res.data.values ? res.data.values.length - 1 : 0;
+  } catch (err) {
+    return 0;
+  }
+}
+
 /* ===========================
    Build Life OS context for Claude
 =========================== */
-
 async function buildLifeOSContext() {
   const tabs = await getAllTabNames();
-  let totalRows = 0;
-  const tabSummaries = [];
+  var context = "LIFE OS SYSTEM: " + tabs.length + " tabs\n";
+  context += "Tabs: " + tabs.join(', ') + "\n\n";
 
-  for (const tab of tabs) {
-    const data = await getTabData(tab);
-    totalRows += data.rowCount;
-    tabSummaries.push(`- ${tab}: ${data.rowCount} rows, columns: [${data.headers.join(', ')}]`);
-  }
-
-  let context = `LIFE OS OVERVIEW:\n`;
-  context += `Total tabs: ${tabs.length}\n`;
-  context += `Total data points: ${totalRows}\n\n`;
-  context += `TAB DETAILS:\n${tabSummaries.join('\n')}\n\n`;
-
-  // Pull key data snapshots
-  // Debt
+  // Debt snapshot
   try {
-    const debt = await getTabData('Ultimate_Debt_Tracker_Advanced');
-    if (debt.rows.length > 0) {
-      const statusCol = debt.headers.indexOf('Status');
-      const nameCol = debt.headers.indexOf('Account Name');
-      const balCol = debt.headers.indexOf('Current_Balance');
-      const typeCol = debt.headers.indexOf('Account Type');
-
-      const activeDebts = debt.rows.filter(r => statusCol === -1 || (r[statusCol] || '').toLowerCase() === 'active');
-
-      let totalBal = 0;
-      const debtLines = activeDebts.slice(0, 15).map(r => {
-        const bal = parseFloat((r[balCol] || '0').replace(/[$,]/g, ''));
-        if (!isNaN(bal)) totalBal += bal;
-        return `  ${r[nameCol] || 'Unknown'} (${r[typeCol] || '?'}): $${r[balCol] || '0'}`;
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "'Ultimate_Debt_Tracker_Advanced'!A1:N30",
+    });
+    const rows = res.data.values || [];
+    if (rows.length > 1) {
+      const headers = rows[0];
+      const nameCol = headers.indexOf('Account Name');
+      const balCol = headers.indexOf('Current_Balance');
+      const typeCol = headers.indexOf('Account Type');
+      const statusCol = headers.indexOf('Status');
+      var totalActive = 0;
+      var totalBalance = 0;
+      var debtLines = [];
+      rows.slice(1).forEach(function(r) {
+        var status = statusCol >= 0 ? (r[statusCol] || '') : 'active';
+        if (status.toLowerCase() === 'active') {
+          totalActive++;
+          var bal = parseFloat((r[balCol] || '0').replace(/[$,]/g, ''));
+          if (!isNaN(bal)) totalBalance += bal;
+          debtLines.push("  " + (r[nameCol] || '?') + " (" + (r[typeCol] || '?') + "): $" + (r[balCol] || '0'));
+        }
       });
-
-      context += `\nACTIVE DEBTS (${activeDebts.length} accounts, ~$${Math.round(totalBal).toLocaleString()} total):\n${debtLines.join('\n')}\n`;
+      context += "FINANCES: " + totalActive + " active accounts, ~$" + Math.round(totalBalance).toLocaleString() + " total\n";
+      context += debtLines.slice(0, 10).join('\n') + '\n\n';
     }
   } catch (e) {}
 
   // Screen time
   try {
-    const dash = await getTabData('Dashboard');
-    if (dash.rows.length > 0) {
-      context += `\nSCREEN TIME:\n`;
-      context += `  Daily screen time: ${dash.rows[0][0] || '?'} hours\n`;
-      context += `  Top app: ${dash.rows[0][1] || '?'}\n`;
-
-      const topApps = dash.rows.slice(1, 8).map(r => `  ${r[0] || '?'}: ${r[4] || '?'} hrs/day`);
-      if (topApps.length > 0) context += `  Top apps:\n${topApps.join('\n')}\n`;
+    const res2 = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "'Dashboard'!A1:F20",
+    });
+    const rows2 = res2.data.values || [];
+    if (rows2.length > 1) {
+      context += "SCREEN TIME: " + (rows2[1][0] || '?') + " hours daily\n";
+      context += "Top app: " + (rows2[1][1] || '?') + "\n\n";
     }
   } catch (e) {}
 
-  // Recent gratitude
+  // Gratitude
   try {
-    const grat = await getTabData('Gratitude_Memory');
-    if (grat.rows.length > 0) {
-      const recent = grat.rows.slice(-5).reverse();
-      const gratLines = recent.map(r => `  - ${r[0] || '?'} (${r[1] || ''})`);
-      context += `\nRECENT GRATITUDE ENTRIES:\n${gratLines.join('\n')}\n`;
+    const res3 = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "'Gratitude_Memory'!A1:B6",
+    });
+    const rows3 = res3.data.values || [];
+    if (rows3.length > 1) {
+      var gratCount = await getTabRowCount('Gratitude_Memory');
+      context += "GRATITUDE: " + gratCount + " total entries\n";
+      rows3.slice(1, 6).forEach(function(r) {
+        context += "  - " + (r[0] || '?') + " (" + (r[1] || '') + ")\n";
+      });
+      context += '\n';
     }
   } catch (e) {}
 
-  // Priority tasks
-  const taskTabs = ['Tasks', 'Daily_Log', 'Focus_Log', 'Jira_Log'];
-  for (const tabName of taskTabs) {
+  // Tasks
+  var taskTabs = ['Tasks', 'Daily_Log', 'Focus_Log', 'Jira_Log'];
+  for (var i = 0; i < taskTabs.length; i++) {
     try {
-      const response = await sheets.spreadsheets.values.get({
+      var taskRes = await sheets.spreadsheets.values.get({
         spreadsheetId: SPREADSHEET_ID,
-        range: `'${tabName}'!A2:B5`,
+        range: "'" + taskTabs[i] + "'!A2:B5",
       });
-      const rows = response.data.values;
-      if (rows && rows.length > 0 && rows[0][0]) {
-        const taskLines = rows.map(r => `  - ${r[0]}${r[1] ? ' (' + r[1] + ')' : ''}`);
-        context += `\nTOP TASKS (from ${tabName}):\n${taskLines.join('\n')}\n`;
+      var taskRows = taskRes.data.values;
+      if (taskRows && taskRows.length > 0 && taskRows[0][0]) {
+        context += "TOP TASKS (from " + taskTabs[i] + "):\n";
+        taskRows.forEach(function(r) {
+          context += "  - " + r[0] + (r[1] ? ' (' + r[1] + ')' : '') + "\n";
+        });
+        context += '\n';
         break;
       }
     } catch (e) {}
   }
 
+  // Identity
+  try {
+    const res4 = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "'Trace_Identity_Profile'!A1:A20",
+    });
+    const rows4 = res4.data.values || [];
+    if (rows4.length > 1) {
+      context += "IDENTITY PROFILE:\n";
+      rows4.slice(0, 15).forEach(function(r) {
+        context += "  " + (r[0] || '') + "\n";
+      });
+      context += '\n';
+    }
+  } catch (e) {}
+
+  // Business
+  try {
+    var bizCount = await getTabRowCount('Business_Idea_Ledger');
+    context += "BUSINESS: " + bizCount + " ideas tracked\n\n";
+  } catch (e) {}
+
+  console.log("Context built: " + context.length + " chars");
   return context;
 }
 
 /* ===========================
    Call Claude API
 =========================== */
-
 async function askClaude(systemPrompt, messages) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': CLAUDE_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: messages,
-    }),
-  });
-
-  const data = await response.json();
-
-  if (data.content && data.content.length > 0) {
-    return data.content[0].text;
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': CLAUDE_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: messages,
+      }),
+    });
+    const data = await response.json();
+    if (data.error) {
+      console.error("Claude API Error: " + JSON.stringify(data.error));
+      return "There was an error: " + (data.error.message || 'Unknown error');
+    }
+    if (data.content && data.content.length > 0) {
+      return data.content[0].text;
+    }
+    return "I got an unexpected response.";
+  } catch (err) {
+    console.error("Claude fetch error: " + err.message);
+    return "I had trouble connecting to my AI brain.";
   }
-
-  return "I'm having trouble processing that right now.";
 }
 
 /* ===========================
-   POST /voice — Initial greeting when call connects
+   POST /voice — Initial greeting
 =========================== */
-
-app.post('/voice', async (req, res) => {
-  const twiml = new twilio.twiml.VoiceResponse();
-  const callSid = req.body.CallSid || 'unknown';
-
-  // Initialize conversation history for this call
-  callHistory[callSid] = [];
+app.post('/voice', async function(req, res) {
+  var twiml = new twilio.twiml.VoiceResponse();
+  var callSid = req.body.CallSid || 'unknown';
+  callHistory[callSid] = {};
 
   try {
-    const lifeContext = await buildLifeOSContext();
+    console.log("Call connected, building briefing...");
+    var lifeContext = await buildLifeOSContext();
+    var systemPrompt = "You are Jarvis, Trace's personal Life OS AI agent. You are on a phone call with Trace.\n\nRULES:\n- Keep responses SHORT (3-5 sentences max). This is a phone call.\n- Be direct, confident, and motivational.\n- Speak naturally like a real assistant.\n- Reference actual numbers and data.\n- After briefing, ask what Trace wants to dig into.\n- Never use markdown, bullet points, or formatting.\n\nLIFE OS DATA:\n" + lifeContext;
 
-    // Store the context for this call
-    callHistory[callSid].context = lifeContext;
-
-    // Build opening briefing with Claude
-    const systemPrompt = `You are Jarvis, Trace's personal Life OS AI agent. You are calling Trace on the phone to give him a briefing.
-
-RULES:
-- Keep responses SHORT (2-4 sentences max). This is a phone call, not an essay.
-- Be direct, confident, and motivational.
-- Speak naturally like a real assistant, not a robot.
-- Reference actual data from the Life OS context below.
-- After the briefing, ask Trace what he wants to know or do.
-
-LIFE OS DATA:
-${lifeContext}`;
-
-    const greeting = await askClaude(systemPrompt, [
-      { role: 'user', content: 'Give Trace a quick opening briefing covering his system overview, finances, and top priorities. End by asking what he wants to dig into.' }
+    var greeting = await askClaude(systemPrompt, [
+      { role: 'user', content: 'Give Trace a quick opening briefing: system overview, key financial numbers, screen time, and top priority. End by asking what he wants to know more about.' }
     ]);
 
-    callHistory[callSid].systemPrompt = systemPrompt;
-    callHistory[callSid].messages = [
-      { role: 'assistant', content: greeting }
-    ];
+    console.log("Jarvis: " + greeting);
 
-    // Speak the greeting, then listen
-    const gather = twiml.gather({
+    callHistory[callSid] = {
+      systemPrompt: systemPrompt,
+      messages: [{ role: 'assistant', content: greeting }],
+    };
+
+    var gather = twiml.gather({
       input: 'speech',
       action: '/conversation',
       method: 'POST',
       speechTimeout: 3,
       language: 'en-US',
     });
-
     gather.say({ voice: 'Polly.Matthew' }, greeting);
-
-    // If no input, prompt again
     twiml.say({ voice: 'Polly.Matthew' }, "I didn't catch that. What would you like to know?");
     twiml.redirect('/voice-listen');
-
   } catch (err) {
-    console.error("❌ Voice Error:", err.message);
-    twiml.say("There was an error starting your briefing. Please try again.");
+    console.error("Voice Error: " + err.message);
+    twiml.say("There was an error starting your briefing.");
   }
 
   res.type('text/xml');
@@ -267,42 +295,35 @@ ${lifeContext}`;
 });
 
 /* ===========================
-   POST /voice-listen — Re-prompt for input
+   POST /voice-listen
 =========================== */
-
-app.post('/voice-listen', async (req, res) => {
-  const twiml = new twilio.twiml.VoiceResponse();
-
-  const gather = twiml.gather({
+app.post('/voice-listen', function(req, res) {
+  var twiml = new twilio.twiml.VoiceResponse();
+  var gather = twiml.gather({
     input: 'speech',
     action: '/conversation',
     method: 'POST',
     speechTimeout: 3,
     language: 'en-US',
   });
-
   gather.say({ voice: 'Polly.Matthew' }, "I'm listening. What do you want to know?");
-
-  twiml.say({ voice: 'Polly.Matthew' }, "I still didn't hear anything. Call back when you're ready. Goodbye.");
-
+  twiml.say({ voice: 'Polly.Matthew' }, "Goodbye, Trace. Jarvis out.");
   res.type('text/xml');
   res.send(twiml.toString());
 });
 
 /* ===========================
-   POST /conversation — Handle back-and-forth
+   POST /conversation — Back and forth
 =========================== */
+app.post('/conversation', async function(req, res) {
+  var twiml = new twilio.twiml.VoiceResponse();
+  var callSid = req.body.CallSid || 'unknown';
+  var userSpeech = req.body.SpeechResult || '';
 
-app.post('/conversation', async (req, res) => {
-  const twiml = new twilio.twiml.VoiceResponse();
-  const callSid = req.body.CallSid || 'unknown';
-  const userSpeech = req.body.SpeechResult || '';
+  console.log("Trace said: " + userSpeech);
 
-  console.log(`🎤 Trace said: "${userSpeech}"`);
-
-  // Check for goodbye
-  const goodbyeWords = ['goodbye', 'bye', 'hang up', 'end call', 'that\'s all', 'nothing', 'i\'m good'];
-  if (goodbyeWords.some(w => userSpeech.toLowerCase().includes(w))) {
+  var goodbyeWords = ['goodbye', 'bye', 'hang up', 'end call', "that's all", 'nothing', "i'm good", 'no', 'nope'];
+  if (goodbyeWords.some(function(w) { return userSpeech.toLowerCase().includes(w); })) {
     twiml.say({ voice: 'Polly.Matthew' }, "Copy that, Trace. Go execute. Jarvis out.");
     twiml.hangup();
     delete callHistory[callSid];
@@ -311,29 +332,23 @@ app.post('/conversation', async (req, res) => {
   }
 
   try {
-    // Get or rebuild conversation state
-    const history = callHistory[callSid] || {};
-    const systemPrompt = history.systemPrompt || `You are Jarvis, Trace's personal Life OS AI agent on a phone call.
-Keep responses SHORT (2-4 sentences). Be direct and useful.`;
+    var history = callHistory[callSid] || {};
+    var systemPrompt = history.systemPrompt || "You are Jarvis, Trace's AI agent. Keep responses short (2-4 sentences).";
+    var messages = history.messages || [];
 
-    const messages = history.messages || [];
-
-    // Add user message
     messages.push({ role: 'user', content: userSpeech });
 
-    // If user asks about specific tab data, try to fetch it
-    let extraContext = '';
-    const lowerSpeech = userSpeech.toLowerCase();
+    var extraContext = '';
+    var lowerSpeech = userSpeech.toLowerCase();
 
-    // Dynamic data fetch based on what user asks about
-    const dataKeywords = {
+    var dataKeywords = {
       'debt': 'Ultimate_Debt_Tracker_Advanced',
       'finance': 'Ultimate_Debt_Tracker_Advanced',
       'money': 'Ultimate_Debt_Tracker_Advanced',
       'loan': 'Ultimate_Debt_Tracker_Advanced',
+      'balance': 'Ultimate_Debt_Tracker_Advanced',
       'screen time': 'Dashboard',
       'productivity': 'Dashboard',
-      'app': 'Dashboard',
       'phone usage': 'Dashboard',
       'gratitude': 'Gratitude_Memory',
       'grateful': 'Gratitude_Memory',
@@ -348,13 +363,19 @@ Keep responses SHORT (2-4 sentences). Be direct and useful.`;
       'win': 'Wins',
     };
 
-    for (const [keyword, tabName] of Object.entries(dataKeywords)) {
-      if (lowerSpeech.includes(keyword)) {
+    var keywords = Object.keys(dataKeywords);
+    for (var i = 0; i < keywords.length; i++) {
+      if (lowerSpeech.includes(keywords[i])) {
         try {
-          const tabData = await getTabData(tabName);
-          if (tabData.rows.length > 0) {
-            const sample = tabData.rows.slice(-10).map(r => r.join(' | ')).join('\n');
-            extraContext += `\n\nDETAILED DATA FROM ${tabName} (last 10 rows):\nHeaders: ${tabData.headers.join(', ')}\n${sample}`;
+          var fetchRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'" + dataKeywords[keywords[i]] + "'!A1:N20",
+          });
+          var fetchRows = fetchRes.data.values || [];
+          if (fetchRows.length > 0) {
+            var fetchHeaders = fetchRows[0].join(', ');
+            var fetchData = fetchRows.slice(1, 15).map(function(r) { return r.join(' | '); }).join('\n');
+            extraContext = "\n\n[FRESH DATA FROM " + dataKeywords[keywords[i]] + "]\nHeaders: " + fetchHeaders + "\n" + fetchData;
           }
         } catch (e) {}
         break;
@@ -362,36 +383,28 @@ Keep responses SHORT (2-4 sentences). Be direct and useful.`;
     }
 
     if (extraContext) {
-      messages[messages.length - 1].content += `\n\n[SYSTEM: Here is fresh data for this question]${extraContext}`;
+      messages[messages.length - 1].content += extraContext;
     }
 
-    // Ask Claude
-    const response = await askClaude(systemPrompt, messages);
+    var response = await askClaude(systemPrompt, messages);
+    console.log("Jarvis: " + response);
 
-    console.log(`🤖 Jarvis: "${response}"`);
-
-    // Store in history
     messages.push({ role: 'assistant', content: response });
-    callHistory[callSid] = { ...history, messages };
+    callHistory[callSid] = { systemPrompt: history.systemPrompt, messages: messages };
 
-    // Speak response and listen again
-    const gather = twiml.gather({
+    var gather = twiml.gather({
       input: 'speech',
       action: '/conversation',
       method: 'POST',
       speechTimeout: 3,
       language: 'en-US',
     });
-
     gather.say({ voice: 'Polly.Matthew' }, response);
-
-    // If no response, prompt
     twiml.say({ voice: 'Polly.Matthew' }, "Anything else, Trace?");
     twiml.redirect('/voice-listen');
-
   } catch (err) {
-    console.error("❌ Conversation Error:", err.message);
-    twiml.say({ voice: 'Polly.Matthew' }, "I had trouble processing that. Can you repeat?");
+    console.error("Conversation Error: " + err.message);
+    twiml.say({ voice: 'Polly.Matthew' }, "I had trouble with that. Can you repeat?");
     twiml.redirect('/voice-listen');
   }
 
@@ -400,135 +413,117 @@ Keep responses SHORT (2-4 sentences). Be direct and useful.`;
 });
 
 /* ===========================
-   GET /call — Trigger Jarvis to call you
+   GET /call — Trigger call
 =========================== */
-
-app.get('/call', async (req, res) => {
+app.get('/call', async function(req, res) {
   try {
-    console.log("📞 Initiating call to Trace...");
-
-    const baseUrl = req.query.url || process.env.BASE_URL;
+    console.log("Initiating call to Trace...");
+    var baseUrl = req.query.url || process.env.BASE_URL;
 
     if (!baseUrl) {
       return res.status(400).json({
-        error: "Need a public URL for Twilio to reach your server.",
-        steps: [
-          "1. Install ngrok: npm install -g ngrok",
-          "2. Run: ngrok http 3000",
-          "3. Copy the https URL",
-          "4. Visit: localhost:3000/call?url=YOUR_NGROK_URL",
-        ],
+        error: "Need a public URL.",
+        hint: "Use: /call?url=https://lifeos-jarvis.onrender.com",
       });
     }
 
-    const call = await twilioClient.calls.create({
+    var call = await twilioClient.calls.create({
       to: MY_NUMBER,
       from: TWILIO_NUMBER,
-      url: `${baseUrl}/voice`,
+      url: baseUrl + '/voice',
     });
 
-    console.log(`✅ Call initiated: ${call.sid}`);
-    res.json({
-      message: "📞 Calling you now, Trace.",
-      callSid: call.sid,
-    });
-
+    console.log("Call initiated: " + call.sid);
+    res.json({ message: "Calling you now, Trace.", callSid: call.sid });
   } catch (err) {
-    console.error("❌ Call Error:", err.message);
+    console.error("Call Error: " + err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 /* ===========================
-   GET /tabs
+   GET /briefing
 =========================== */
-
-app.get('/tabs', async (req, res) => {
+app.get('/briefing', async function(req, res) {
   try {
-    const tabs = await getAllTabNames();
-    res.json({ tabCount: tabs.length, tabs });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    console.log("Building briefing...");
+    var context = await buildLifeOSContext();
+    var response = await askClaude(
+      "You are Jarvis, Trace's Life OS agent. Be concise and direct. No markdown. Reference real data.\n\nLIFE OS DATA:\n" + context,
+      [{ role: 'user', content: 'Give me my full Life OS briefing.' }]
+    );
+    res.json({ briefing: response });
+  } catch (err) {
+    console.error("Briefing Error: " + err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ===========================
-   GET /tab/:name
+   ALL OTHER ENDPOINTS
 =========================== */
-
-app.get('/tab/:name', async (req, res) => {
-  try {
-    const data = await getTabData(req.params.name);
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+app.get('/tabs', async function(req, res) {
+  try { var tabs = await getAllTabNames(); res.json({ tabCount: tabs.length, tabs: tabs }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* ===========================
-   GET /scan
-=========================== */
+app.get('/tab/:name', async function(req, res) {
+  try { res.json(await getTabData(req.params.name)); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
 
-app.get('/scan', async (req, res) => {
+app.get('/scan', async function(req, res) {
   try {
-    const tabs = await getAllTabNames();
-    const results = [];
-    for (const tab of tabs) {
-      const data = await getTabData(tab);
+    var tabs = await getAllTabNames();
+    var results = [];
+    for (var i = 0; i < tabs.length; i++) {
+      var data = await getTabData(tabs[i]);
       results.push({ tab: data.tab, headers: data.headers, rowCount: data.rowCount, error: data.error || null });
     }
-    const totalRows = results.reduce((sum, t) => sum + t.rowCount, 0);
-    res.json({ totalTabs: tabs.length, totalRows, tabs: results });
+    var totalRows = results.reduce(function(sum, t) { return sum + t.rowCount; }, 0);
+    res.json({ totalTabs: tabs.length, totalRows: totalRows, tabs: results });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* ===========================
-   GET /scan/full
-=========================== */
-
-app.get('/scan/full', async (req, res) => {
+app.get('/scan/full', async function(req, res) {
   try {
-    const tabs = await getAllTabNames();
-    const results = [];
-    for (const tab of tabs) { results.push(await getTabData(tab)); }
-    const totalRows = results.reduce((sum, t) => sum + t.rowCount, 0);
-    res.json({ totalTabs: tabs.length, totalRows, tabs: results });
+    var tabs = await getAllTabNames();
+    var results = [];
+    for (var i = 0; i < tabs.length; i++) { results.push(await getTabData(tabs[i])); }
+    var totalRows = results.reduce(function(sum, t) { return sum + t.rowCount; }, 0);
+    res.json({ totalTabs: tabs.length, totalRows: totalRows, tabs: results });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* ===========================
-   GET /search?q=keyword
-=========================== */
-
-app.get('/search', async (req, res) => {
+app.get('/search', async function(req, res) {
   try {
-    const query = (req.query.q || '').toLowerCase().trim();
+    var query = (req.query.q || '').toLowerCase().trim();
     if (!query) return res.status(400).json({ error: "Provide ?q=search_term" });
-    const tabs = await getAllTabNames();
-    const matches = [];
-    for (const tab of tabs) {
-      const data = await getTabData(tab);
+    var tabs = await getAllTabNames();
+    var matches = [];
+    for (var t = 0; t < tabs.length; t++) {
+      var data = await getTabData(tabs[t]);
       if (data.error) continue;
-      data.rows.forEach((row, i) => {
-        if (row.join(' ').toLowerCase().includes(query)) {
-          const obj = {};
-          data.headers.forEach((h, j) => { obj[h] = row[j] || ''; });
-          matches.push({ tab, row: i + 2, data: obj });
+      for (var r = 0; r < data.rows.length; r++) {
+        if (data.rows[r].join(' ').toLowerCase().includes(query)) {
+          var obj = {};
+          for (var h = 0; h < data.headers.length; h++) { obj[data.headers[h]] = data.rows[r][h] || ''; }
+          matches.push({ tab: tabs[t], row: r + 2, data: obj });
         }
-      });
+      }
     }
-    res.json({ query, matchCount: matches.length, matches });
+    res.json({ query: query, matchCount: matches.length, matches: matches });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* ===========================
-   GET /summary
-=========================== */
-
-app.get('/summary', async (req, res) => {
+app.get('/summary', async function(req, res) {
   try {
-    const tabs = await getAllTabNames();
-    const summary = { totalTabs: tabs.length, categories: {} };
-    for (const tab of tabs) {
-      const data = await getTabData(tab);
-      let cat = 'other';
-      const l = tab.toLowerCase();
+    var tabs = await getAllTabNames();
+    var summary = { totalTabs: tabs.length, categories: {} };
+    for (var i = 0; i < tabs.length; i++) {
+      var count = await getTabRowCount(tabs[i]);
+      var cat = 'other';
+      var l = tabs[i].toLowerCase();
       if (l.includes('debt') || l.includes('finance') || l.includes('loan')) cat = 'finance';
       else if (l.includes('chat') || l.includes('message')) cat = 'conversations';
       else if (l.includes('business') || l.includes('idea')) cat = 'business';
@@ -539,38 +534,24 @@ app.get('/summary', async (req, res) => {
       else if (l.includes('test') || l.includes('eval')) cat = 'testing';
       else if (l.includes('taxonomy') || l.includes('setting')) cat = 'system';
       if (!summary.categories[cat]) summary.categories[cat] = [];
-      summary.categories[cat].push({ tab, headers: data.headers, rowCount: data.rowCount });
+      summary.categories[cat].push({ tab: tabs[i], rowCount: count });
     }
     res.json(summary);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/* ===========================
-   GET /briefing — Text preview
-=========================== */
-
-app.get('/briefing', async (req, res) => {
+app.get('/priority', async function(req, res) {
   try {
-    const context = await buildLifeOSContext();
-    const response = await askClaude(
-      `You are Jarvis, Trace's Life OS agent. Give a concise briefing based on this data:\n\n${context}`,
-      [{ role: 'user', content: 'Give me my full Life OS briefing.' }]
-    );
-    res.json({ briefing: response });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-/* ===========================
-   GET /priority
-=========================== */
-
-app.get('/priority', async (req, res) => {
-  try {
-    const taskTabs = ['Tasks', 'Daily_Log', 'Focus_Log', 'Jira_Log'];
-    for (const tabName of taskTabs) {
+    var taskTabs = ['Tasks', 'Daily_Log', 'Focus_Log', 'Jira_Log'];
+    for (var i = 0; i < taskTabs.length; i++) {
       try {
-        const r = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `'${tabName}'!A2:B10` });
-        if (r.data.values && r.data.values.length > 0) return res.json({ source: tabName, task: r.data.values[0][0], detail: r.data.values[0][1] || '' });
+        var r = await sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: "'" + taskTabs[i] + "'!A2:B10",
+        });
+        if (r.data.values && r.data.values.length > 0) {
+          return res.json({ source: taskTabs[i], task: r.data.values[0][0], detail: r.data.values[0][1] || '' });
+        }
       } catch (e) {}
     }
     res.json({ message: "No tasks found." });
@@ -580,25 +561,7 @@ app.get('/priority', async (req, res) => {
 /* ===========================
    START SERVER
 =========================== */
-
-app.listen(PORT, () => {
-  console.log(`🔥 LifeOS Jarvis running on port ${PORT}`);
-  console.log('');
-  console.log('📡 Available endpoints:');
-  console.log(`   GET  /tabs         → List all tab names`);
-  console.log(`   GET  /tab/:name    → Get full data from one tab`);
-  console.log(`   GET  /scan         → Overview of every tab`);
-  console.log(`   GET  /scan/full    → Full data dump`);
-  console.log(`   GET  /search?q=    → Search across all tabs`);
-  console.log(`   GET  /summary      → Categorized summary`);
-  console.log(`   GET  /priority     → Top priority task`);
-  console.log(`   GET  /briefing     → Preview AI briefing`);
-  console.log(`   GET  /call         → 📞 Jarvis calls you (needs ngrok URL)`);
-  console.log(`   POST /voice        → Twilio voice webhook`);
-  console.log(`   POST /conversation → Twilio conversation webhook`);
-  console.log('');
-  console.log('🧠 To make Jarvis call you:');
-  console.log('   1. Run: ngrok http 3000');
-  console.log('   2. Visit: localhost:3000/call?url=YOUR_NGROK_URL');
-  console.log('');
+app.listen(PORT, function() {
+  console.log("LifeOS Jarvis running on port " + PORT);
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call?url= /voice /conversation");
 });
