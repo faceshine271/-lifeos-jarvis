@@ -1188,10 +1188,214 @@ app.post('/gmail/archive', async function(req, res) {
 });
 
 /* ===========================
+   GET /dashboard — Live Web Dashboard
+=========================== */
+
+app.get('/dashboard', async function(req, res) {
+  try {
+    // Fetch key data
+    var tabs = await getAllTabNames();
+    var context = await buildLifeOSContext();
+
+    // Parse numbers from context
+    var screenTimeMatch = context.match(/Screen time[:\s]*([\d.]+)/i);
+    var gratitudeMatch = context.match(/([\d,]+)\s*gratitude/i);
+    var businessMatch = context.match(/([\d,]+)\s*business idea/i);
+    var debtMatch = context.match(/\$([.\d]+)\s*total balance/i);
+
+    var screenTime = screenTimeMatch ? screenTimeMatch[1] : '?';
+    var gratitudeCount = gratitudeMatch ? gratitudeMatch[1] : '?';
+    var businessCount = businessMatch ? businessMatch[1] : '?';
+    var debtAmount = debtMatch ? debtMatch[1] : '0';
+
+    // Get email count
+    var emailAccounts = Object.keys(gmailTokens);
+    var totalUnread = 0;
+    for (var ea = 0; ea < emailAccounts.length; ea++) {
+      var emails = await getUnreadEmails(emailAccounts[ea], 50);
+      totalUnread += emails.length;
+    }
+
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>J.A.R.V.I.S. — LifeOS Command Center</title>';
+    html += '<style>';
+
+    // Base
+    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
+    html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+    html += 'body { background: #020810; color: #c0d8f0; font-family: "Rajdhani", sans-serif; min-height: 100vh; overflow-x: hidden; }';
+
+    // Animated background grid
+    html += '.bg-grid { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }';
+    html += '.bg-grid::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px); background-size: 60px 60px; animation: gridMove 20s linear infinite; }';
+    html += '@keyframes gridMove { 0% { transform: translate(0,0); } 100% { transform: translate(60px,60px); } }';
+
+    // Scanning line
+    html += '.scan-line { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, #00d4ff, transparent); z-index: 1; animation: scanDown 4s ease-in-out infinite; opacity: 0.4; }';
+    html += '@keyframes scanDown { 0% { top: 0; } 50% { top: 100%; } 100% { top: 0; } }';
+
+    // Corner brackets
+    html += '.corner { position: fixed; z-index: 2; width: 30px; height: 30px; border-color: #00d4ff30; border-style: solid; }';
+    html += '.corner-tl { top: 15px; left: 15px; border-width: 2px 0 0 2px; }';
+    html += '.corner-tr { top: 15px; right: 15px; border-width: 2px 2px 0 0; }';
+    html += '.corner-bl { bottom: 15px; left: 15px; border-width: 0 0 2px 2px; }';
+    html += '.corner-br { bottom: 15px; right: 15px; border-width: 0 2px 2px 0; }';
+
+    // Content wrapper
+    html += '.content { position: relative; z-index: 3; }';
+
+    // Header
+    html += '.header { padding: 50px 40px 30px; text-align: center; position: relative; }';
+    html += '.header::after { content: ""; position: absolute; bottom: 0; left: 10%; width: 80%; height: 1px; background: linear-gradient(90deg, transparent, #00d4ff40, transparent); }';
+    html += '.jarvis-title { font-family: "Orbitron", monospace; font-size: 3.5em; font-weight: 900; letter-spacing: 15px; color: #00d4ff; text-shadow: 0 0 40px rgba(0,212,255,0.4), 0 0 80px rgba(0,212,255,0.1); animation: titleGlow 3s ease-in-out infinite; }';
+    html += '@keyframes titleGlow { 0%,100% { text-shadow: 0 0 40px rgba(0,212,255,0.4), 0 0 80px rgba(0,212,255,0.1); } 50% { text-shadow: 0 0 60px rgba(0,212,255,0.6), 0 0 120px rgba(0,212,255,0.2), 0 0 180px rgba(0,212,255,0.1); } }';
+    html += '.status-bar { display: flex; justify-content: center; gap: 30px; margin-top: 20px; font-family: "Orbitron", monospace; font-size: 0.7em; letter-spacing: 3px; color: #4a6a8a; }';
+    html += '.status-item { display: flex; align-items: center; gap: 8px; }';
+    html += '.status-dot { width: 6px; height: 6px; border-radius: 50%; animation: dotPulse 2s infinite; }';
+    html += '.status-dot.green { background: #00ff66; box-shadow: 0 0 10px #00ff66; }';
+    html += '.status-dot.blue { background: #00d4ff; box-shadow: 0 0 10px #00d4ff; }';
+    html += '@keyframes dotPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.7); } }';
+
+    // Hex ring animation
+    html += '.hex-container { display: flex; justify-content: center; margin: 10px 0 20px; }';
+    html += '.hex-ring { width: 120px; height: 120px; position: relative; animation: hexSpin 15s linear infinite; }';
+    html += '.hex-ring::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 2px solid #00d4ff20; border-radius: 50%; }';
+    html += '.hex-ring::after { content: ""; position: absolute; top: 10px; left: 10px; width: calc(100% - 20px); height: calc(100% - 20px); border: 1px solid #00d4ff10; border-radius: 50%; animation: hexSpin 10s linear infinite reverse; }';
+    html += '@keyframes hexSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+    html += '.hex-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-family: "Orbitron"; font-size: 1.8em; font-weight: 900; color: #00d4ff; }';
+
+    // Stats grid
+    html += '.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; padding: 30px 40px; max-width: 1400px; margin: 0 auto; }';
+    html += '.card { background: rgba(10,20,35,0.8); border: 1px solid #0a2a4a; border-radius: 4px; padding: 30px; position: relative; overflow: hidden; animation: cardFadeIn 0.6s ease-out both; }';
+    html += '.card::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: borderScan 3s linear infinite; }';
+    html += '@keyframes borderScan { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }';
+    html += '@keyframes cardFadeIn { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }';
+    html += '.card:nth-child(1) { animation-delay: 0.1s; --accent: #00d4ff; }';
+    html += '.card:nth-child(2) { animation-delay: 0.2s; --accent: #ff4757; }';
+    html += '.card:nth-child(3) { animation-delay: 0.3s; --accent: #00ff66; }';
+    html += '.card:nth-child(4) { animation-delay: 0.4s; --accent: #a855f7; }';
+    html += '.card:nth-child(5) { animation-delay: 0.5s; --accent: #00ff66; }';
+    html += '.card:nth-child(6) { animation-delay: 0.6s; --accent: #ff9f43; }';
+    html += '.card .label { font-family: "Orbitron"; font-size: 0.65em; letter-spacing: 3px; color: #4a6a8a; text-transform: uppercase; }';
+    html += '.card .value { font-family: "Orbitron"; font-size: 3em; font-weight: 700; margin: 15px 0 8px; color: var(--accent); text-shadow: 0 0 30px color-mix(in srgb, var(--accent) 30%, transparent); }';
+    html += '.card .sub { font-size: 0.95em; color: #3a5a7a; letter-spacing: 1px; }';
+    html += '.card .bar { height: 3px; background: #0a1520; margin-top: 15px; border-radius: 2px; overflow: hidden; }';
+    html += '.card .bar-fill { height: 100%; background: var(--accent); border-radius: 2px; animation: barGrow 2s ease-out both; }';
+    html += '@keyframes barGrow { 0% { width: 0; } }';
+
+    // Actions
+    html += '.actions { display: flex; justify-content: center; gap: 15px; padding: 20px 40px 40px; flex-wrap: wrap; }';
+    html += '.holo-btn { font-family: "Orbitron"; font-size: 0.75em; letter-spacing: 3px; padding: 14px 30px; background: transparent; border: 1px solid #00d4ff30; color: #00d4ff; text-decoration: none; text-transform: uppercase; position: relative; overflow: hidden; transition: all 0.3s; cursor: pointer; }';
+    html += '.holo-btn:hover { background: #00d4ff15; border-color: #00d4ff; box-shadow: 0 0 30px #00d4ff20, inset 0 0 30px #00d4ff10; }';
+    html += '.holo-btn::after { content: ""; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: linear-gradient(transparent, rgba(0,212,255,0.05), transparent); transform: rotate(45deg); animation: btnShine 3s linear infinite; }';
+    html += '@keyframes btnShine { 0% { transform: translateX(-100%) rotate(45deg); } 100% { transform: translateX(100%) rotate(45deg); } }';
+    html += '.holo-btn.green { border-color: #00ff6630; color: #00ff66; }';
+    html += '.holo-btn.green:hover { background: #00ff6615; border-color: #00ff66; box-shadow: 0 0 30px #00ff6620; }';
+
+    // Systems grid
+    html += '.systems { padding: 0 40px 40px; max-width: 1400px; margin: 0 auto; }';
+    html += '.systems-title { font-family: "Orbitron"; font-size: 0.8em; letter-spacing: 5px; color: #4a6a8a; margin-bottom: 20px; text-transform: uppercase; }';
+    html += '.systems-grid { display: flex; flex-wrap: wrap; gap: 8px; }';
+    html += '.sys-chip { background: rgba(0,212,255,0.03); border: 1px solid #0a2a4a; padding: 8px 16px; font-family: "Rajdhani"; font-size: 0.85em; letter-spacing: 1px; color: #3a5a7a; transition: all 0.3s; cursor: default; position: relative; }';
+    html += '.sys-chip:hover { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,0.08); box-shadow: 0 0 15px rgba(0,212,255,0.1); }';
+    html += '.sys-chip::before { content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background: #00d4ff; opacity: 0; transition: opacity 0.3s; }';
+    html += '.sys-chip:hover::before { opacity: 1; }';
+
+    // Clock
+    html += '.clock { font-family: "Orbitron"; font-size: 0.7em; letter-spacing: 5px; color: #2a4a6a; text-align: center; padding: 30px; }';
+
+    // Footer
+    html += '.footer { text-align: center; padding: 20px; font-family: "Orbitron"; font-size: 0.6em; letter-spacing: 4px; color: #1a2a3a; border-top: 1px solid #0a1520; }';
+
+    // Floating particles
+    html += '.particle { position: fixed; width: 2px; height: 2px; background: #00d4ff; border-radius: 50%; pointer-events: none; z-index: 1; opacity: 0; animation: particleFloat 8s linear infinite; }';
+    html += '@keyframes particleFloat { 0% { opacity: 0; transform: translateY(100vh); } 10% { opacity: 0.6; } 90% { opacity: 0.6; } 100% { opacity: 0; transform: translateY(-20vh); } }';
+
+    html += '</style></head><body>';
+
+    // Background effects
+    html += '<div class="bg-grid"></div>';
+    html += '<div class="scan-line"></div>';
+    html += '<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>';
+
+    // Floating particles
+    for (var p = 0; p < 20; p++) {
+      var left = Math.floor(Math.random() * 100);
+      var delay = (Math.random() * 8).toFixed(1);
+      var size = (Math.random() * 2 + 1).toFixed(0);
+      html += '<div class="particle" style="left:' + left + '%;width:' + size + 'px;height:' + size + 'px;animation-delay:' + delay + 's;"></div>';
+    }
+
+    html += '<div class="content">';
+
+    // Header
+    html += '<div class="header">';
+    html += '<div class="hex-container"><div class="hex-ring"><div class="hex-center">' + tabs.length + '</div></div></div>';
+    html += '<div class="jarvis-title">J.A.R.V.I.S.</div>';
+    html += '<div style="font-family:Rajdhani;font-size:1.1em;letter-spacing:8px;color:#3a5a7a;margin-top:5px;text-transform:uppercase;">LifeOS Command Center</div>';
+    html += '<div class="status-bar">';
+    html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
+    html += '<div class="status-item"><div class="status-dot blue"></div>AI ACTIVE</div>';
+    html += '<div class="status-item"><div class="status-dot green"></div>' + emailAccounts.length + ' EMAIL LINKED</div>';
+    html += '<div class="status-item"><div class="status-dot blue"></div>VOICE READY</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Stats Grid
+    html += '<div class="grid">';
+
+    var screenPct = Math.min(100, Math.round((parseFloat(screenTime) / 24) * 100));
+    html += '<div class="card"><div class="label">Active Systems</div><div class="value">' + tabs.length + '</div><div class="sub">Tracking all life domains</div><div class="bar"><div class="bar-fill" style="width:100%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Screen Time</div><div class="value">' + screenTime + 'h</div><div class="sub">' + (parseFloat(screenTime) > 10 ? 'WARNING — Exceeds optimal threshold' : 'Within optimal range') + '</div><div class="bar"><div class="bar-fill" style="width:' + screenPct + '%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Gratitude Index</div><div class="value">' + gratitudeCount + '</div><div class="sub">Lifetime entries — exceptional consistency</div><div class="bar"><div class="bar-fill" style="width:95%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Business Intel</div><div class="value">' + businessCount + '</div><div class="sub">Ideas tracked and evaluated</div><div class="bar"><div class="bar-fill" style="width:76%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Financial Status</div><div class="value">$' + debtAmount + '</div><div class="sub">Total debt — ' + (parseFloat(debtAmount) === 0 ? 'CLEAR' : 'Active balance') + '</div><div class="bar"><div class="bar-fill" style="width:' + (parseFloat(debtAmount) === 0 ? 100 : 30) + '%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Inbox Status</div><div class="value">' + totalUnread + '</div><div class="sub">Unread across ' + emailAccounts.length + ' account(s)</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, totalUnread * 3) + '%"></div></div></div>';
+
+    html += '</div>';
+
+    // Actions
+    html += '<div class="actions">';
+    html += '<a class="holo-btn green" href="/call?key=' + (process.env.CALL_SECRET || '') + '">Initiate Call</a>';
+    html += '<a class="holo-btn" href="/briefing" target="_blank">Full Briefing</a>';
+    html += '<a class="holo-btn" href="/gmail/summary" target="_blank">Email Intel</a>';
+    html += '<a class="holo-btn" href="/scan" target="_blank">System Scan</a>';
+    html += '<a class="holo-btn" href="/gmail/auth" target="_blank">Link Account</a>';
+    html += '</div>';
+
+    // All Systems
+    html += '<div class="systems">';
+    html += '<div class="systems-title">Active Subsystems (' + tabs.length + ')</div>';
+    html += '<div class="systems-grid">';
+    for (var t = 0; t < tabs.length; t++) {
+      html += '<div class="sys-chip">' + tabs[t].replace(/_/g, ' ') + '</div>';
+    }
+    html += '</div></div>';
+
+    // Live clock
+    html += '<div class="clock" id="clock"></div>';
+    html += '<script>function updateClock(){var d=new Date();var h=String(d.getHours()).padStart(2,"0");var m=String(d.getMinutes()).padStart(2,"0");var s=String(d.getSeconds()).padStart(2,"0");document.getElementById("clock").textContent=h+":"+m+":"+s+" // "+d.toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"}).toUpperCase();}setInterval(updateClock,1000);updateClock();<\/script>';
+
+    // Footer
+    html += '<div class="footer">J.A.R.V.I.S. v2.0 // Built by Trace // Claude AI + Google Sheets + Twilio + Gmail</div>';
+
+    html += '</div></body></html>';
+    res.send(html);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
    START SERVER
 =========================== */
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard");
 });
