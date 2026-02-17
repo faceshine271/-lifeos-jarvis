@@ -556,11 +556,65 @@ app.post('/whatsapp', async function(req, res) {
       if (!emailContext) {
         twiml.message("No Gmail accounts connected. Visit https://lifeos-jarvis.onrender.com/gmail/auth to connect.");
       } else {
+        // Store emails for later actions
+        var accounts = Object.keys(gmailTokens);
+        var cachedEmails = [];
+        for (var ea = 0; ea < accounts.length; ea++) {
+          var fetched = await getUnreadEmails(accounts[ea], 10);
+          fetched.forEach(function(e) { e.account = accounts[ea]; });
+          cachedEmails = cachedEmails.concat(fetched);
+        }
+        whatsappHistory[from] = whatsappHistory[from] || {};
+        whatsappHistory[from].cachedEmails = cachedEmails;
+
         var emailSummary = await askClaude(
           "You are Jarvis on WhatsApp. Be very concise. No markdown. Number each email.",
           [{ role: 'user', content: 'Prioritize these emails. Tell me which to respond to first:\n' + emailContext }]
         );
         twiml.message(emailSummary);
+      }
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // Email actions: delete, archive, reply
+    if (lowerMsg.includes('delete') && (lowerMsg.includes('email') || lowerMsg.includes('mail'))) {
+      var cached = (whatsappHistory[from] || {}).cachedEmails || [];
+      if (cached.length === 0) {
+        twiml.message("No emails loaded. Text 'email' first to scan your inbox.");
+      } else {
+        var searchTerm = lowerMsg.replace('delete', '').replace('all', '').replace('emails', '').replace('email', '').replace('from', '').replace('the', '').trim();
+        var deleted = 0;
+        for (var d = 0; d < cached.length; d++) {
+          if (cached[d].from.toLowerCase().includes(searchTerm) || cached[d].subject.toLowerCase().includes(searchTerm)) {
+            await deleteEmail(cached[d].account, cached[d].id);
+            deleted++;
+          }
+        }
+        if (deleted > 0) {
+          twiml.message("Done. Deleted " + deleted + " email(s) matching '" + searchTerm + "'.");
+        } else {
+          twiml.message("No emails found matching '" + searchTerm + "'. Text 'email' to see your inbox.");
+        }
+      }
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    if (lowerMsg.includes('archive') && (lowerMsg.includes('email') || lowerMsg.includes('mail'))) {
+      var cached2 = (whatsappHistory[from] || {}).cachedEmails || [];
+      if (cached2.length === 0) {
+        twiml.message("No emails loaded. Text 'email' first.");
+      } else {
+        var searchTerm2 = lowerMsg.replace('archive', '').replace('all', '').replace('emails', '').replace('email', '').replace('from', '').replace('the', '').trim();
+        var archived = 0;
+        for (var ar = 0; ar < cached2.length; ar++) {
+          if (cached2[ar].from.toLowerCase().includes(searchTerm2) || cached2[ar].subject.toLowerCase().includes(searchTerm2)) {
+            await archiveEmail(cached2[ar].account, cached2[ar].id);
+            archived++;
+          }
+        }
+        twiml.message(archived > 0 ? "Archived " + archived + " email(s) matching '" + searchTerm2 + "'." : "No emails found matching '" + searchTerm2 + "'.");
       }
       res.type('text/xml');
       return res.send(twiml.toString());
