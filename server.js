@@ -439,6 +439,12 @@ app.post('/conversation', async function(req, res) {
 =========================== */
 
 app.get('/call', async function(req, res) {
+  // Require secret key to prevent unauthorized calls
+  var secret = process.env.CALL_SECRET;
+  if (secret && req.query.key !== secret) {
+    return res.status(403).json({ error: "Unauthorized. Add ?key=YOUR_SECRET to trigger a call." });
+  }
+
   try {
     console.log("Initiating call to Trace...");
     var baseUrl = req.query.url || process.env.BASE_URL || ('https://' + req.get('host'));
