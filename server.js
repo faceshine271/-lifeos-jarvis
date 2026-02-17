@@ -462,6 +462,120 @@ app.get('/call', async function(req, res) {
 });
 
 /* ===========================
+   POST /whatsapp — WhatsApp messages
+=========================== */
+
+var whatsappHistory = {};
+
+app.post('/whatsapp', async function(req, res) {
+  var from = req.body.From || '';
+  var userMessage = req.body.Body || '';
+  var twiml = new twilio.twiml.MessagingResponse();
+
+  console.log("WhatsApp from " + from + ": " + userMessage);
+
+  try {
+    // Build context on first message or if user says "briefing"
+    var history = whatsappHistory[from] || {};
+    var lowerMsg = userMessage.toLowerCase().trim();
+
+    // Special commands
+    if (lowerMsg === 'briefing' || lowerMsg === 'brief' || lowerMsg === 'status') {
+      var context = await buildLifeOSContext();
+      var briefing = await askClaude(
+        "You are Jarvis, Trace's Life OS agent on WhatsApp. Be concise. Use short paragraphs. No markdown formatting.\n\nLIFE OS DATA:\n" + context,
+        [{ role: 'user', content: 'Give me a quick Life OS briefing.' }]
+      );
+      twiml.message(briefing);
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    if (lowerMsg === 'call' || lowerMsg === 'call me') {
+      try {
+        var baseUrl = process.env.BASE_URL || 'https://lifeos-jarvis.onrender.com';
+        await twilioClient.calls.create({
+          to: MY_NUMBER,
+          from: TWILIO_NUMBER,
+          url: baseUrl + '/voice',
+        });
+        twiml.message("Calling you now, Trace.");
+      } catch (callErr) {
+        twiml.message("Call failed: " + callErr.message);
+      }
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // Regular conversation with Claude
+    if (!history.systemPrompt) {
+      var context2 = await buildLifeOSContext();
+      history.systemPrompt = "You are Jarvis, Trace's personal Life OS AI agent on WhatsApp.\n\nRULES:\n- Keep responses SHORT (2-4 sentences). This is WhatsApp, not email.\n- Be direct, confident, and motivational.\n- Reference actual data.\n- No markdown, no bullet points, no formatting.\n\nLIFE OS DATA:\n" + context2;
+      history.messages = [];
+    }
+
+    history.messages.push({ role: 'user', content: userMessage });
+
+    // Fetch extra data based on keywords
+    var extraContext = '';
+    var dataKeywords = {
+      'debt': 'Ultimate_Debt_Tracker_Advanced',
+      'finance': 'Ultimate_Debt_Tracker_Advanced',
+      'money': 'Ultimate_Debt_Tracker_Advanced',
+      'screen time': 'Dashboard',
+      'gratitude': 'Gratitude_Memory',
+      'business': 'Business_Idea_Ledger',
+      'idea': 'Business_Idea_Ledger',
+      'identity': 'Trace_Identity_Profile',
+      'focus': 'Focus_Log',
+      'reading': 'Reading_Log',
+      'win': 'Wins',
+    };
+
+    var keywords = Object.keys(dataKeywords);
+    for (var i = 0; i < keywords.length; i++) {
+      if (lowerMsg.includes(keywords[i])) {
+        try {
+          var fetchRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'" + dataKeywords[keywords[i]] + "'!A1:N20",
+          });
+          var fetchRows = fetchRes.data.values || [];
+          if (fetchRows.length > 0) {
+            var fetchHeaders = fetchRows[0].join(', ');
+            var fetchData = fetchRows.slice(1, 15).map(function(r) { return r.join(' | '); }).join('\n');
+            extraContext = "\n\n[FRESH DATA FROM " + dataKeywords[keywords[i]] + "]\nHeaders: " + fetchHeaders + "\n" + fetchData;
+          }
+        } catch (e) {}
+        break;
+      }
+    }
+
+    if (extraContext) {
+      history.messages[history.messages.length - 1].content += extraContext;
+    }
+
+    var response = await askClaude(history.systemPrompt, history.messages);
+    console.log("Jarvis WhatsApp: " + response);
+
+    // Keep only last 10 messages to avoid token limits
+    history.messages.push({ role: 'assistant', content: response });
+    if (history.messages.length > 20) {
+      history.messages = history.messages.slice(-10);
+    }
+    whatsappHistory[from] = history;
+
+    twiml.message(response);
+  } catch (err) {
+    console.error("WhatsApp Error: " + err.message);
+    twiml.message("Error: " + err.message);
+  }
+
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+/* ===========================
    GET /briefing
 =========================== */
 
