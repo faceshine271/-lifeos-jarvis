@@ -4,58 +4,98 @@ const bodyParser = require('body-parser');
 const { google } = require('googleapis');
 const twilio = require('twilio');
 const path = require('path');
+const fs = require('fs');
+
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 3000;
+
 console.log("Starting LifeOS Jarvis...");
 
 /* ===========================
    GOOGLE SHEETS AUTH
 =========================== */
+
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+
 if (!SPREADSHEET_ID) {
   console.error("Missing SPREADSHEET_ID");
   process.exit(1);
 }
 
-let auth;
+var auth;
+
+// Method 1: Full JSON credentials (single env var)
 if (process.env.GOOGLE_CREDENTIALS) {
-  console.log("Using GOOGLE_CREDENTIALS env var");
-  const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-  auth = new google.auth.JWT(
-    creds.client_email,
-    null,
-    creds.private_key,
-    ['https://www.googleapis.com/auth/spreadsheets']
-  );
-} else {
-  console.log("Using google-credentials.json file");
-  auth = new google.auth.GoogleAuth({
-    keyFile: path.join(__dirname, 'google-credentials.json'),
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
+  try {
+    console.log("Using GOOGLE_CREDENTIALS env var");
+    var creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+    auth = new google.auth.JWT(
+      creds.client_email,
+      null,
+      creds.private_key,
+      ['https://www.googleapis.com/auth/spreadsheets']
+    );
+  } catch (e) {
+    console.error("Failed to parse GOOGLE_CREDENTIALS: " + e.message);
+    console.log("Falling back to other auth methods...");
+  }
 }
 
-const sheets = google.sheets({ version: 'v4', auth });
+// Method 2: Separate env vars (GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY)
+if (!auth && process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+  console.log("Using GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY env vars");
+  var privateKey = process.env.GOOGLE_PRIVATE_KEY;
+  // Fix escaped newlines if needed
+  if (privateKey.indexOf('\\n') !== -1) {
+    privateKey = privateKey.replace(/\\n/g, '\n');
+  }
+  auth = new google.auth.JWT(
+    process.env.GOOGLE_CLIENT_EMAIL,
+    null,
+    privateKey,
+    ['https://www.googleapis.com/auth/spreadsheets']
+  );
+}
+
+// Method 3: Local JSON keyfile
+if (!auth) {
+  var keyfilePath = path.join(__dirname, 'google-credentials.json');
+  if (fs.existsSync(keyfilePath)) {
+    console.log("Using google-credentials.json file");
+    auth = new google.auth.GoogleAuth({
+      keyFile: keyfilePath,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+  } else {
+    console.error("No Google credentials found! Set GOOGLE_CREDENTIALS or GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY env vars, or add google-credentials.json file.");
+    process.exit(1);
+  }
+}
+
+var sheets = google.sheets({ version: 'v4', auth: auth });
 console.log("Google Auth Ready");
 
 /* ===========================
    TWILIO CLIENT
 =========================== */
-const twilioClient = twilio(
+
+var twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
-const TWILIO_NUMBER = '+18884310969';
-const MY_NUMBER = '+18167392734';
+
+var TWILIO_NUMBER = '+18884310969';
+var MY_NUMBER = '+18167392734';
 console.log("Twilio Ready");
 
 /* ===========================
    CLAUDE API KEY
 =========================== */
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
+
+var CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 if (!CLAUDE_API_KEY) {
   console.error("Missing CLAUDE_API_KEY");
 }
@@ -64,13 +104,15 @@ console.log("Claude API Ready");
 /* ===========================
    In-memory conversation history
 =========================== */
-const callHistory = {};
+
+var callHistory = {};
 
 /* ===========================
    HELPERS
 =========================== */
+
 async function getAllTabNames() {
-  const res = await sheets.spreadsheets.get({
+  var res = await sheets.spreadsheets.get({
     spreadsheetId: SPREADSHEET_ID,
     fields: 'sheets.properties.title',
   });
@@ -79,11 +121,11 @@ async function getAllTabNames() {
 
 async function getTabData(tabName) {
   try {
-    const res = await sheets.spreadsheets.values.get({
+    var res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: "'" + tabName + "'!A1:ZZ",
     });
-    const rows = res.data.values || [];
+    var rows = res.data.values || [];
     if (rows.length === 0) return { tab: tabName, headers: [], rowCount: 0, rows: [] };
     return { tab: tabName, headers: rows[0], rowCount: rows.length - 1, rows: rows.slice(1) };
   } catch (err) {
@@ -93,7 +135,7 @@ async function getTabData(tabName) {
 
 async function getTabRowCount(tabName) {
   try {
-    const res = await sheets.spreadsheets.values.get({
+    var res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: "'" + tabName + "'!A:A",
     });
@@ -106,24 +148,25 @@ async function getTabRowCount(tabName) {
 /* ===========================
    Build Life OS context for Claude
 =========================== */
+
 async function buildLifeOSContext() {
-  const tabs = await getAllTabNames();
+  var tabs = await getAllTabNames();
   var context = "LIFE OS SYSTEM: " + tabs.length + " tabs\n";
   context += "Tabs: " + tabs.join(', ') + "\n\n";
 
   // Debt snapshot
   try {
-    const res = await sheets.spreadsheets.values.get({
+    var res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: "'Ultimate_Debt_Tracker_Advanced'!A1:N30",
     });
-    const rows = res.data.values || [];
+    var rows = res.data.values || [];
     if (rows.length > 1) {
-      const headers = rows[0];
-      const nameCol = headers.indexOf('Account Name');
-      const balCol = headers.indexOf('Current_Balance');
-      const typeCol = headers.indexOf('Account Type');
-      const statusCol = headers.indexOf('Status');
+      var headers = rows[0];
+      var nameCol = headers.indexOf('Account Name');
+      var balCol = headers.indexOf('Current_Balance');
+      var typeCol = headers.indexOf('Account Type');
+      var statusCol = headers.indexOf('Status');
       var totalActive = 0;
       var totalBalance = 0;
       var debtLines = [];
@@ -143,11 +186,11 @@ async function buildLifeOSContext() {
 
   // Screen time
   try {
-    const res2 = await sheets.spreadsheets.values.get({
+    var res2 = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: "'Dashboard'!A1:F20",
     });
-    const rows2 = res2.data.values || [];
+    var rows2 = res2.data.values || [];
     if (rows2.length > 1) {
       context += "SCREEN TIME: " + (rows2[1][0] || '?') + " hours daily\n";
       context += "Top app: " + (rows2[1][1] || '?') + "\n\n";
@@ -156,11 +199,11 @@ async function buildLifeOSContext() {
 
   // Gratitude
   try {
-    const res3 = await sheets.spreadsheets.values.get({
+    var res3 = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: "'Gratitude_Memory'!A1:B6",
     });
-    const rows3 = res3.data.values || [];
+    var rows3 = res3.data.values || [];
     if (rows3.length > 1) {
       var gratCount = await getTabRowCount('Gratitude_Memory');
       context += "GRATITUDE: " + gratCount + " total entries\n";
@@ -193,11 +236,11 @@ async function buildLifeOSContext() {
 
   // Identity
   try {
-    const res4 = await sheets.spreadsheets.values.get({
+    var res4 = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
       range: "'Trace_Identity_Profile'!A1:A20",
     });
-    const rows4 = res4.data.values || [];
+    var rows4 = res4.data.values || [];
     if (rows4.length > 1) {
       context += "IDENTITY PROFILE:\n";
       rows4.slice(0, 15).forEach(function(r) {
@@ -220,9 +263,10 @@ async function buildLifeOSContext() {
 /* ===========================
    Call Claude API
 =========================== */
+
 async function askClaude(systemPrompt, messages) {
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    var response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -236,7 +280,7 @@ async function askClaude(systemPrompt, messages) {
         messages: messages,
       }),
     });
-    const data = await response.json();
+    var data = await response.json();
     if (data.error) {
       console.error("Claude API Error: " + JSON.stringify(data.error));
       return "There was an error: " + (data.error.message || 'Unknown error');
@@ -254,6 +298,7 @@ async function askClaude(systemPrompt, messages) {
 /* ===========================
    POST /voice — Initial greeting
 =========================== */
+
 app.post('/voice', async function(req, res) {
   var twiml = new twilio.twiml.VoiceResponse();
   var callSid = req.body.CallSid || 'unknown';
@@ -283,6 +328,7 @@ app.post('/voice', async function(req, res) {
       language: 'en-US',
     });
     gather.say({ voice: 'Polly.Matthew' }, greeting);
+
     twiml.say({ voice: 'Polly.Matthew' }, "I didn't catch that. What would you like to know?");
     twiml.redirect('/voice-listen');
   } catch (err) {
@@ -297,6 +343,7 @@ app.post('/voice', async function(req, res) {
 /* ===========================
    POST /voice-listen
 =========================== */
+
 app.post('/voice-listen', function(req, res) {
   var twiml = new twilio.twiml.VoiceResponse();
   var gather = twiml.gather({
@@ -315,6 +362,7 @@ app.post('/voice-listen', function(req, res) {
 /* ===========================
    POST /conversation — Back and forth
 =========================== */
+
 app.post('/conversation', async function(req, res) {
   var twiml = new twilio.twiml.VoiceResponse();
   var callSid = req.body.CallSid || 'unknown';
@@ -400,6 +448,7 @@ app.post('/conversation', async function(req, res) {
       language: 'en-US',
     });
     gather.say({ voice: 'Polly.Matthew' }, response);
+
     twiml.say({ voice: 'Polly.Matthew' }, "Anything else, Trace?");
     twiml.redirect('/voice-listen');
   } catch (err) {
@@ -415,24 +464,16 @@ app.post('/conversation', async function(req, res) {
 /* ===========================
    GET /call — Trigger call
 =========================== */
+
 app.get('/call', async function(req, res) {
   try {
     console.log("Initiating call to Trace...");
-    var baseUrl = req.query.url || process.env.BASE_URL;
-
-    if (!baseUrl) {
-      return res.status(400).json({
-        error: "Need a public URL.",
-        hint: "Use: /call?url=https://lifeos-jarvis.onrender.com",
-      });
-    }
-
+    var baseUrl = req.query.url || process.env.BASE_URL || ('https://' + req.get('host'));
     var call = await twilioClient.calls.create({
       to: MY_NUMBER,
       from: TWILIO_NUMBER,
       url: baseUrl + '/voice',
     });
-
     console.log("Call initiated: " + call.sid);
     res.json({ message: "Calling you now, Trace.", callSid: call.sid });
   } catch (err) {
@@ -444,6 +485,7 @@ app.get('/call', async function(req, res) {
 /* ===========================
    GET /briefing
 =========================== */
+
 app.get('/briefing', async function(req, res) {
   try {
     console.log("Building briefing...");
@@ -462,14 +504,22 @@ app.get('/briefing', async function(req, res) {
 /* ===========================
    ALL OTHER ENDPOINTS
 =========================== */
+
 app.get('/tabs', async function(req, res) {
-  try { var tabs = await getAllTabNames(); res.json({ tabCount: tabs.length, tabs: tabs }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    var tabs = await getAllTabNames();
+    res.json({ tabCount: tabs.length, tabs: tabs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/tab/:name', async function(req, res) {
-  try { res.json(await getTabData(req.params.name)); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    res.json(await getTabData(req.params.name));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/scan', async function(req, res) {
@@ -482,17 +532,23 @@ app.get('/scan', async function(req, res) {
     }
     var totalRows = results.reduce(function(sum, t) { return sum + t.rowCount; }, 0);
     res.json({ totalTabs: tabs.length, totalRows: totalRows, tabs: results });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/scan/full', async function(req, res) {
   try {
     var tabs = await getAllTabNames();
     var results = [];
-    for (var i = 0; i < tabs.length; i++) { results.push(await getTabData(tabs[i])); }
+    for (var i = 0; i < tabs.length; i++) {
+      results.push(await getTabData(tabs[i]));
+    }
     var totalRows = results.reduce(function(sum, t) { return sum + t.rowCount; }, 0);
     res.json({ totalTabs: tabs.length, totalRows: totalRows, tabs: results });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/search', async function(req, res) {
@@ -507,13 +563,17 @@ app.get('/search', async function(req, res) {
       for (var r = 0; r < data.rows.length; r++) {
         if (data.rows[r].join(' ').toLowerCase().includes(query)) {
           var obj = {};
-          for (var h = 0; h < data.headers.length; h++) { obj[data.headers[h]] = data.rows[r][h] || ''; }
+          for (var h = 0; h < data.headers.length; h++) {
+            obj[data.headers[h]] = data.rows[r][h] || '';
+          }
           matches.push({ tab: tabs[t], row: r + 2, data: obj });
         }
       }
     }
     res.json({ query: query, matchCount: matches.length, matches: matches });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/summary', async function(req, res) {
@@ -537,7 +597,9 @@ app.get('/summary', async function(req, res) {
       summary.categories[cat].push({ tab: tabs[i], rowCount: count });
     }
     res.json(summary);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/priority', async function(req, res) {
@@ -555,13 +617,16 @@ app.get('/priority', async function(req, res) {
       } catch (e) {}
     }
     res.json({ message: "No tasks found." });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ===========================
    START SERVER
 =========================== */
+
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call?url= /voice /conversation");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation");
 });
