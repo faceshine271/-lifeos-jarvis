@@ -1361,25 +1361,251 @@ app.get('/dashboard', async function(req, res) {
 
     // Actions
     html += '<div class="actions">';
-    html += '<a class="holo-btn green" href="/call?key=' + (process.env.CALL_SECRET || '') + '">Initiate Call</a>';
+    html += '<div class="holo-btn green" onclick="toggleVoiceChat()" id="voice-btn" style="cursor:pointer;">Talk to Jarvis</div>';
+    html += '<a class="holo-btn" href="/call?key=' + (process.env.CALL_SECRET || '') + '">Phone Call</a>';
     html += '<a class="holo-btn" href="/briefing" target="_blank">Full Briefing</a>';
     html += '<a class="holo-btn" href="/gmail/summary" target="_blank">Email Intel</a>';
     html += '<a class="holo-btn" href="/scan" target="_blank">System Scan</a>';
     html += '<a class="holo-btn" href="/gmail/auth" target="_blank">Link Account</a>';
     html += '</div>';
 
-    // All Systems
-    html += '<div class="systems">';
-    html += '<div class="systems-title">Active Subsystems (' + tabs.length + ')</div>';
-    html += '<div class="systems-grid">';
-    for (var t = 0; t < tabs.length; t++) {
-      html += '<div class="sys-chip">' + tabs[t].replace(/_/g, ' ') + '</div>';
-    }
+    // Voice chat panel
+    html += '<div id="voice-panel" style="display:none;max-width:800px;margin:0 auto 30px;padding:0 40px;">';
+    html += '<div style="background:rgba(10,20,35,0.9);border:1px solid #00ff6630;padding:30px;position:relative;overflow:hidden;">';
+    html += '<div style="position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#00ff66,transparent);animation:borderScan 3s linear infinite;"></div>';
+
+    // Status display
+    html += '<div style="text-align:center;margin-bottom:20px;">';
+    html += '<div id="voice-status" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#4a6a8a;">CLICK MIC TO SPEAK</div>';
+    html += '<div id="voice-waveform" style="height:40px;display:flex;align-items:center;justify-content:center;gap:3px;margin:15px 0;"></div>';
+    html += '</div>';
+
+    // Mic button
+    html += '<div style="text-align:center;margin-bottom:20px;">';
+    html += '<div id="mic-btn" onclick="toggleListening()" style="width:80px;height:80px;border-radius:50%;border:2px solid #00ff6640;background:rgba(0,255,102,0.05);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.3s;position:relative;">';
+    html += '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#00ff66" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+    html += '<div id="mic-pulse" style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:50%;border:2px solid #00ff66;opacity:0;"></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Conversation log
+    html += '<div id="voice-log" style="max-height:300px;overflow-y:auto;font-size:0.95em;"></div>';
+
     html += '</div></div>';
+
+    // Voice chat CSS additions
+    html += '<style>';
+    html += '#mic-btn:hover { background: rgba(0,255,102,0.15); border-color: #00ff66; box-shadow: 0 0 30px rgba(0,255,102,0.2); }';
+    html += '#mic-btn.listening { background: rgba(0,255,102,0.2); border-color: #00ff66; box-shadow: 0 0 40px rgba(0,255,102,0.3); }';
+    html += '#mic-btn.listening #mic-pulse { animation: micPulse 1.5s ease-out infinite; }';
+    html += '@keyframes micPulse { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(1.8); opacity: 0; } }';
+    html += '.voice-msg { padding: 12px 0; border-bottom: 1px solid #0a1520; }';
+    html += '.voice-msg .sender { font-family: Orbitron; font-size: 0.6em; letter-spacing: 3px; margin-bottom: 5px; }';
+    html += '.voice-msg .text { color: #7a9ab0; line-height: 1.6; }';
+    html += '.voice-msg.jarvis .sender { color: #00ff66; }';
+    html += '.voice-msg.jarvis .text { color: #a0c8e0; }';
+    html += '.voice-msg.user .sender { color: #00d4ff; }';
+    html += '#voice-panel.speaking #mic-btn { border-color: #00ff6680; }';
+    html += '.wave-bar { width: 3px; background: #00ff6640; border-radius: 2px; transition: height 0.1s; }';
+    html += '</style>';
+
+    // Categorize tabs
+    var categories = {
+      'Finance': [], 'Business': [], 'Health & Wellness': [], 'Productivity': [],
+      'Identity & Growth': [], 'Knowledge': [], 'Social & Relationships': [], 'System': []
+    };
+    var catKeywords = {
+      'Finance': ['debt','finance','bank','money','budget','income','expense','credit','bill','payment','invest'],
+      'Business': ['business','idea','ledger','revenue','client','thumbtack','invoice','startup','entrepreneur'],
+      'Health & Wellness': ['health','screen','gratitude','wellness','gym','exercise','sleep','mindset','mental','habit','journal','win'],
+      'Productivity': ['task','priority','focus','log','dashboard','schedule','calendar','time','goal','action','todo'],
+      'Identity & Growth': ['identity','profile','trace','values','vision','purpose','dating','confidence','style'],
+      'Knowledge': ['read','book','knowledge','learn','eval','retention','memory','note','research','chat','import'],
+      'Social & Relationships': ['contact','interaction','conversation','friend','network','social','relationship'],
+      'System': ['template','config','setting','data','archive','master','index','map']
+    };
+
+    for (var tc = 0; tc < tabs.length; tc++) {
+      var tabLower = tabs[tc].toLowerCase();
+      var placed = false;
+      var catNames = Object.keys(catKeywords);
+      for (var cn = 0; cn < catNames.length; cn++) {
+        var kws = catKeywords[catNames[cn]];
+        for (var kw = 0; kw < kws.length; kw++) {
+          if (tabLower.includes(kws[kw])) {
+            categories[catNames[cn]].push(tabs[tc]);
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+      }
+      if (!placed) categories['System'].push(tabs[tc]);
+    }
+
+    // Category colors
+    var catColors = {
+      'Finance': '#00ff66', 'Business': '#a855f7', 'Health & Wellness': '#ff6b9d',
+      'Productivity': '#ff9f43', 'Identity & Growth': '#00d4ff', 'Knowledge': '#f7d855',
+      'Social & Relationships': '#55f7d8', 'System': '#4a6a8a'
+    };
+
+    // All Systems by Category
+    html += '<div class="systems">';
+    html += '<div class="systems-title">Systems by Category</div>';
+
+    var catKeys = Object.keys(categories);
+    for (var ci = 0; ci < catKeys.length; ci++) {
+      if (categories[catKeys[ci]].length === 0) continue;
+      var catColor = catColors[catKeys[ci]] || '#4a6a8a';
+      html += '<div style="margin-bottom:25px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:3px;color:' + catColor + ';margin-bottom:10px;display:flex;align-items:center;gap:10px;">';
+      html += '<span style="display:inline-block;width:8px;height:8px;background:' + catColor + ';border-radius:50%;box-shadow:0 0 8px ' + catColor + ';"></span>';
+      html += catKeys[ci].toUpperCase() + ' <span style="color:#2a4a6a;">(' + categories[catKeys[ci]].length + ')</span></div>';
+      html += '<div class="systems-grid">';
+      for (var si = 0; si < categories[catKeys[ci]].length; si++) {
+        var tabName = categories[catKeys[ci]][si];
+        html += '<div class="sys-chip" onclick="loadTab(\'' + tabName.replace(/'/g, "\\'") + '\')" style="cursor:pointer;border-color:' + catColor + '20;">' + tabName.replace(/_/g, ' ') + '</div>';
+      }
+      html += '</div></div>';
+    }
+    html += '</div>';
+
+    // Modal for tab data
+    html += '<div id="tab-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(2,8,16,0.95);z-index:100;overflow-y:auto;">';
+    html += '<div style="max-width:1200px;margin:30px auto;padding:20px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">';
+    html += '<div id="modal-title" style="font-family:Orbitron;font-size:1.2em;letter-spacing:3px;color:#00d4ff;"></div>';
+    html += '<div onclick="closeModal()" style="font-family:Orbitron;font-size:0.8em;letter-spacing:2px;color:#ff4757;cursor:pointer;padding:10px 20px;border:1px solid #ff475730;transition:all 0.3s;" onmouseover="this.style.background=\'#ff475715\'" onmouseout="this.style.background=\'transparent\'">CLOSE</div>';
+    html += '</div>';
+    html += '<div id="modal-loading" style="text-align:center;padding:60px;font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#4a6a8a;animation:pulse 1.5s infinite;">LOADING DATA...</div>';
+    html += '<div id="modal-content" style="overflow-x:auto;"></div>';
+    html += '</div></div>';
+
+    // JavaScript for tab loading
+    html += '<script>';
+    html += 'function loadTab(name) {';
+    html += '  document.getElementById("tab-modal").style.display="block";';
+    html += '  document.getElementById("modal-title").textContent=name.replace(/_/g," ");';
+    html += '  document.getElementById("modal-loading").style.display="block";';
+    html += '  document.getElementById("modal-content").innerHTML="";';
+    html += '  fetch("/tab/"+encodeURIComponent(name))';
+    html += '    .then(function(r){return r.json()})';
+    html += '    .then(function(data){';
+    html += '      document.getElementById("modal-loading").style.display="none";';
+    html += '      if(data.error){document.getElementById("modal-content").innerHTML="<div style=\\"color:#ff4757;text-align:center;padding:40px;\\">ERROR: "+data.error+"</div>";return;}';
+    html += '      if(!data.headers||data.headers.length===0){document.getElementById("modal-content").innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding:40px;font-family:Orbitron;font-size:0.8em;\\">NO DATA</div>";return;}';
+    html += '      var headers=data.headers;var rows=(data.rows||[]).slice(0,50);';
+    html += '      var t="<div style=\\"font-family:Orbitron;font-size:0.65em;color:#4a6a8a;letter-spacing:2px;margin-bottom:10px;\\">"+(data.rowCount||0)+" ROWS // SHOWING FIRST 50</div>";';
+    html += '      t+="<table style=\\"width:100%;border-collapse:collapse;font-size:0.9em;\\">";';
+    html += '      t+="<thead><tr>";';
+    html += '      for(var h=0;h<headers.length;h++){t+="<th style=\\"padding:10px 12px;text-align:left;border-bottom:1px solid #0a2a4a;font-family:Orbitron;font-size:0.7em;letter-spacing:2px;color:#00d4ff;white-space:nowrap;\\">"+headers[h]+"</th>";}';
+    html += '      t+="</tr></thead><tbody>";';
+    html += '      for(var r=0;r<rows.length;r++){';
+    html += '        t+="<tr style=\\"border-bottom:1px solid #0a1520;\\">";';
+    html += '        for(var c=0;c<headers.length;c++){';
+    html += '          var val=rows[r][c]||"";';
+    html += '          t+="<td style=\\"padding:8px 12px;color:#7a9ab0;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;\\">"+val+"</td>";';
+    html += '        }';
+    html += '        t+="</tr>";';
+    html += '      }';
+    html += '      t+="</tbody></table>";';
+    html += '      document.getElementById("modal-content").innerHTML=t;';
+    html += '    })';
+    html += '    .catch(function(e){document.getElementById("modal-loading").style.display="none";document.getElementById("modal-content").innerHTML="<div style=\\"color:#ff4757;text-align:center;padding:40px;\\">ERROR: "+e.message+"</div>";});';
+    html += '}';
+    html += 'function closeModal(){document.getElementById("tab-modal").style.display="none";}';
+    html += 'document.addEventListener("keydown",function(e){if(e.key==="Escape")closeModal();});';
+    html += '<\/script>';
 
     // Live clock
     html += '<div class="clock" id="clock"></div>';
-    html += '<script>function updateClock(){var d=new Date();var h=String(d.getHours()).padStart(2,"0");var m=String(d.getMinutes()).padStart(2,"0");var s=String(d.getSeconds()).padStart(2,"0");document.getElementById("clock").textContent=h+":"+m+":"+s+" // "+d.toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"}).toUpperCase();}setInterval(updateClock,1000);updateClock();<\/script>';
+    html += '<script>function updateClock(){var d=new Date();var h=String(d.getHours()).padStart(2,"0");var m=String(d.getMinutes()).padStart(2,"0");var s=String(d.getSeconds()).padStart(2,"0");document.getElementById("clock").textContent=h+":"+m+":"+s+" // "+d.toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"}).toUpperCase();}setInterval(updateClock,1000);updateClock();';
+
+    // Voice chat JavaScript
+    html += 'var voiceOpen=false;var isListening=false;var isSpeaking=false;var recognition=null;var sessionId="s"+Date.now();';
+    html += 'var synth=window.speechSynthesis;';
+
+    // Create waveform bars
+    html += 'var wf=document.getElementById("voice-waveform");for(var wb=0;wb<30;wb++){var bar=document.createElement("div");bar.className="wave-bar";bar.style.height="4px";wf.appendChild(bar);}';
+    html += 'var waveBars=document.querySelectorAll(".wave-bar");';
+
+    // Toggle voice panel
+    html += 'function toggleVoiceChat(){voiceOpen=!voiceOpen;document.getElementById("voice-panel").style.display=voiceOpen?"block":"none";document.getElementById("voice-btn").textContent=voiceOpen?"Close Voice":"Talk to Jarvis";document.getElementById("voice-btn").style.borderColor=voiceOpen?"#ff4757":"#00ff66";document.getElementById("voice-btn").style.color=voiceOpen?"#ff4757":"#00ff66";if(!voiceOpen&&isListening)stopListening();}';
+
+    // Animate waveform
+    html += 'var waveInterval=null;';
+    html += 'function startWave(color){waveBars.forEach(function(b){b.style.background=color;});waveInterval=setInterval(function(){waveBars.forEach(function(b){b.style.height=Math.floor(Math.random()*30+4)+"px";});},100);}';
+    html += 'function stopWave(){if(waveInterval)clearInterval(waveInterval);waveBars.forEach(function(b){b.style.height="4px";b.style.background="#00ff6640";});}';
+
+    // Speech recognition
+    html += 'function toggleListening(){if(isSpeaking)return;if(isListening){stopListening();}else{startListening();}}';
+
+    html += 'function startListening(){';
+    html += '  if(!("webkitSpeechRecognition" in window)&&!("SpeechRecognition" in window)){alert("Speech recognition not supported. Use Chrome.");return;}';
+    html += '  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;';
+    html += '  recognition=new SR();recognition.continuous=false;recognition.interimResults=false;recognition.lang="en-US";';
+    html += '  recognition.onstart=function(){isListening=true;document.getElementById("mic-btn").classList.add("listening");document.getElementById("voice-status").textContent="LISTENING...";document.getElementById("voice-status").style.color="#00ff66";startWave("#00ff6680");};';
+    html += '  recognition.onresult=function(e){var text=e.results[0][0].transcript;stopListening();addMessage("user",text);sendToJarvis(text);};';
+    html += '  recognition.onerror=function(e){stopListening();document.getElementById("voice-status").textContent="ERROR: "+e.error;document.getElementById("voice-status").style.color="#ff4757";};';
+    html += '  recognition.onend=function(){if(isListening)stopListening();};';
+    html += '  recognition.start();';
+    html += '}';
+
+    html += 'function stopListening(){isListening=false;if(recognition)try{recognition.stop();}catch(e){}document.getElementById("mic-btn").classList.remove("listening");document.getElementById("voice-status").textContent="CLICK MIC TO SPEAK";document.getElementById("voice-status").style.color="#4a6a8a";stopWave();}';
+
+    // Send to server
+    html += 'function sendToJarvis(text){';
+    html += '  document.getElementById("voice-status").textContent="PROCESSING...";document.getElementById("voice-status").style.color="#00d4ff";startWave("#00d4ff80");';
+    html += '  fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:sessionId,message:text})})';
+    html += '    .then(function(r){return r.json()})';
+    html += '    .then(function(data){';
+    html += '      stopWave();';
+    html += '      if(data.error){addMessage("jarvis","Error: "+data.error);return;}';
+    html += '      addMessage("jarvis",data.response);';
+    html += '      speakResponse(data.response);';
+    html += '    })';
+    html += '    .catch(function(e){stopWave();addMessage("jarvis","Connection error.");});';
+    html += '}';
+
+    // Text to speech via ElevenLabs with browser fallback
+    html += 'var audioQueue=[];var currentAudio=null;';
+    html += 'function speakResponse(text){';
+    html += '  isSpeaking=true;document.getElementById("voice-status").textContent="JARVIS SPEAKING...";document.getElementById("voice-status").style.color="#00ff66";startWave("#00ff6680");';
+    html += '  fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text})})';
+    html += '    .then(function(r){if(!r.ok)throw new Error("TTS status "+r.status);return r.blob();})';
+    html += '    .then(function(blob){';
+    html += '      if(blob.size<1000)throw new Error("Audio too small");';
+    html += '      var url=URL.createObjectURL(blob);';
+    html += '      currentAudio=new Audio(url);';
+    html += '      currentAudio.onended=function(){isSpeaking=false;stopWave();document.getElementById("voice-status").textContent="CLICK MIC TO SPEAK";document.getElementById("voice-status").style.color="#4a6a8a";URL.revokeObjectURL(url);};';
+    html += '      currentAudio.onerror=function(){console.log("Audio play error, using browser voice");URL.revokeObjectURL(url);browserSpeak(text);};';
+    html += '      currentAudio.play().catch(function(){console.log("Play blocked, using browser voice");browserSpeak(text);});';
+    html += '    })';
+    html += '    .catch(function(e){';
+    html += '      console.log("ElevenLabs failed: "+e.message+", using browser voice");';
+    html += '      browserSpeak(text);';
+    html += '    });';
+    html += '}';
+    html += 'function browserSpeak(text){';
+    html += '  var utter=new SpeechSynthesisUtterance(text);utter.rate=1.05;utter.pitch=1.1;';
+    html += '  var voices=synth.getVoices();for(var v=0;v<voices.length;v++){if(voices[v].name.includes("Samantha")||voices[v].name.includes("Google UK English Female")||voices[v].name.includes("Female")){utter.voice=voices[v];break;}}';
+    html += '  utter.onend=function(){isSpeaking=false;stopWave();document.getElementById("voice-status").textContent="CLICK MIC TO SPEAK";document.getElementById("voice-status").style.color="#4a6a8a";};';
+    html += '  synth.speak(utter);';
+    html += '}';
+
+    // Add message to log
+    html += 'function addMessage(who,text){';
+    html += '  var log=document.getElementById("voice-log");';
+    html += '  var div=document.createElement("div");div.className="voice-msg "+who;';
+    html += '  div.innerHTML="<div class=\\"sender\\">"+(who==="user"?"TRACE":"JARVIS")+"</div><div class=\\"text\\">"+text+"</div>";';
+    html += '  log.appendChild(div);log.scrollTop=log.scrollHeight;';
+    html += '}';
+
+    // Load voices
+    html += 'if(synth.onvoiceschanged!==undefined)synth.onvoiceschanged=function(){synth.getVoices();};';
+
+    html += '<\/script>';
 
     // Footer
     html += '<div class="footer">J.A.R.V.I.S. v2.0 // Built by Trace // Claude AI + Google Sheets + Twilio + Gmail</div>';
@@ -1392,10 +1618,109 @@ app.get('/dashboard', async function(req, res) {
 });
 
 /* ===========================
+   POST /chat — Browser voice chat
+=========================== */
+
+var webChatHistory = {};
+var cachedLifeContext = null;
+var cacheTime = 0;
+
+async function getCachedContext() {
+  // Cache context for 5 minutes to speed up responses
+  if (cachedLifeContext && (Date.now() - cacheTime) < 300000) return cachedLifeContext;
+  var lifeContext = await buildLifeOSContext();
+  var emailContext = await buildEmailContext();
+  cachedLifeContext = lifeContext + emailContext;
+  cacheTime = Date.now();
+  return cachedLifeContext;
+}
+
+app.post('/chat', async function(req, res) {
+  var sessionId = req.body.sessionId || 'default';
+  var userMessage = req.body.message || '';
+
+  try {
+    var history = webChatHistory[sessionId];
+    if (!history) {
+      var context = await getCachedContext();
+      history = {
+        systemPrompt: "You are Jarvis, Trace's personal Life OS AI agent. You are speaking through a browser voice interface.\n\nRULES:\n- Keep responses to 1-3 sentences MAX. Be extremely concise.\n- Be direct, confident, and motivational.\n- Speak naturally like a real assistant.\n- Reference actual numbers and data.\n- Never use markdown, bullet points, or formatting.\n- Sound like a human assistant, not a robot.\n\nLIFE OS DATA:\n" + context,
+        messages: [],
+      };
+    }
+
+    history.messages.push({ role: 'user', content: userMessage });
+
+    var response = await askClaude(history.systemPrompt, history.messages);
+
+    history.messages.push({ role: 'assistant', content: response });
+    if (history.messages.length > 20) {
+      history.messages = history.messages.slice(-10);
+    }
+    webChatHistory[sessionId] = history;
+
+    res.json({ response: response });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
+   POST /tts — ElevenLabs Text to Speech
+=========================== */
+
+app.post('/tts', async function(req, res) {
+  var text = req.body.text || '';
+  var apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'No ElevenLabs API key' });
+
+  try {
+    // Selected voice from ElevenLabs library
+    var voiceId = 'PB6BdkFkZLbI39GHdnbQ';
+    var url = 'https://api.elevenlabs.io/v1/text-to-speech/' + voiceId;
+
+    var https = require('https');
+    var postData = JSON.stringify({
+      text: text,
+      model_id: 'eleven_turbo_v2',
+      voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.3 }
+    });
+
+    var options = {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+      },
+    };
+
+    var proxyReq = https.request(url, options, function(proxyRes) {
+      var chunks = [];
+      proxyRes.on('data', function(chunk) { chunks.push(chunk); });
+      proxyRes.on('end', function() {
+        var buffer = Buffer.concat(chunks);
+        if (proxyRes.statusCode === 200) {
+          res.set('Content-Type', 'audio/mpeg');
+          res.send(buffer);
+        } else {
+          res.status(500).json({ error: 'ElevenLabs error: ' + buffer.toString() });
+        }
+      });
+    });
+    proxyReq.on('error', function(e) { res.status(500).json({ error: e.message }); });
+    proxyReq.write(postData);
+    proxyReq.end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
    START SERVER
 =========================== */
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /chat");
 });
