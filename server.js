@@ -1568,11 +1568,11 @@ app.get('/dashboard', async function(req, res) {
     html += '    .catch(function(e){stopWave();addMessage("jarvis","Connection error.");});';
     html += '}';
 
-    // Text to speech via ElevenLabs with browser fallback
+    // Text to speech via ElevenLabs directly from browser
     html += 'var audioQueue=[];var currentAudio=null;';
     html += 'function speakResponse(text){';
     html += '  isSpeaking=true;document.getElementById("voice-status").textContent="JARVIS SPEAKING...";document.getElementById("voice-status").style.color="#00ff66";startWave("#00ff6680");';
-    html += '  fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text})})';
+    html += '  fetch("https://api.elevenlabs.io/v1/text-to-speech/1mrmwdWVC5cggRCdxBXt",{method:"POST",headers:{"xi-api-key":"sk_2106002b395df58e01d77515940ca9ca6baa0cb4d856dd1b","Content-Type":"application/json","Accept":"audio/mpeg"},body:JSON.stringify({text:text,model_id:"eleven_turbo_v2",voice_settings:{stability:0.5,similarity_boost:0.75,style:0.3}})})';
     html += '    .then(function(r){if(!r.ok)throw new Error("TTS status "+r.status);return r.blob();})';
     html += '    .then(function(blob){';
     html += '      if(blob.size<1000)throw new Error("Audio too small");';
