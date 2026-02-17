@@ -620,6 +620,94 @@ app.post('/whatsapp', async function(req, res) {
       return res.send(twiml.toString());
     }
 
+    // Smart AI inbox cleanup
+    if (lowerMsg === 'clean inbox' || lowerMsg === 'clean email' || lowerMsg === 'clean emails' || lowerMsg === 'filter inbox' || lowerMsg === 'filter emails') {
+      var accounts = Object.keys(gmailTokens);
+      if (accounts.length === 0) {
+        twiml.message("No Gmail accounts connected. Visit https://lifeos-jarvis.onrender.com/gmail/auth");
+        res.type('text/xml');
+        return res.send(twiml.toString());
+      }
+
+      twiml.message("Scanning and cleaning your inbox now. This may take a minute...");
+      res.type('text/xml');
+      res.send(twiml.toString());
+
+      // Process in background after responding
+      setTimeout(async function() {
+        try {
+          var totalDeleted = 0;
+          var totalArchived = 0;
+          var kept = [];
+
+          for (var ca = 0; ca < accounts.length; ca++) {
+            var emails = await getUnreadEmails(accounts[ca], 25);
+            if (emails.length === 0) continue;
+
+            // Build email list for Claude to categorize
+            var emailList = emails.map(function(e, idx) {
+              return (idx + 1) + '. From: ' + e.from + ' | Subject: ' + e.subject + ' | Preview: ' + e.snippet.substring(0, 80);
+            }).join('\n');
+
+            var categorization = await askClaude(
+              "You categorize emails. For each email, respond with ONLY the number and category. Categories: DELETE (junk, spam, newsletters, promotions, marketing), ARCHIVE (low priority, FYI only, no action needed), KEEP (important, needs response, money, business, personal). Format: 1:DELETE 2:KEEP 3:ARCHIVE etc. One per line. Nothing else.",
+              [{ role: 'user', content: 'Categorize these emails:\n' + emailList }]
+            );
+
+            // Parse Claude's response
+            var lines = categorization.split('\n');
+            for (var cl = 0; cl < lines.length; cl++) {
+              var match = lines[cl].match(/(\d+)\s*:\s*(DELETE|ARCHIVE|KEEP)/i);
+              if (match) {
+                var emailIdx = parseInt(match[1]) - 1;
+                var action = match[2].toUpperCase();
+                if (emailIdx >= 0 && emailIdx < emails.length) {
+                  if (action === 'DELETE') {
+                    await deleteEmail(accounts[ca], emails[emailIdx].id);
+                    totalDeleted++;
+                  } else if (action === 'ARCHIVE') {
+                    await archiveEmail(accounts[ca], emails[emailIdx].id);
+                    totalArchived++;
+                  } else {
+                    kept.push(emails[emailIdx].from.split('<')[0].trim() + ': ' + emails[emailIdx].subject);
+                  }
+                }
+              }
+            }
+          }
+
+          // Send results via WhatsApp
+          var resultMsg = "Inbox cleaned!\n\n";
+          resultMsg += "Deleted: " + totalDeleted + " junk emails\n";
+          resultMsg += "Archived: " + totalArchived + " low-priority emails\n";
+          resultMsg += "Kept: " + kept.length + " important emails\n";
+          if (kept.length > 0) {
+            resultMsg += "\nStill in your inbox:\n";
+            for (var k = 0; k < Math.min(kept.length, 10); k++) {
+              resultMsg += (k + 1) + ". " + kept[k] + "\n";
+            }
+          }
+
+          // Send via Twilio
+          await twilioClient.messages.create({
+            body: resultMsg,
+            from: 'whatsapp:+14155238886',
+            to: from,
+          });
+        } catch (cleanErr) {
+          console.error("Inbox clean error: " + cleanErr.message);
+          try {
+            await twilioClient.messages.create({
+              body: "Error cleaning inbox: " + cleanErr.message,
+              from: 'whatsapp:+14155238886',
+              to: from,
+            });
+          } catch (e) {}
+        }
+      }, 100);
+      return;
+    }
+
     // Regular conversation with Claude
     if (!history.systemPrompt) {
       var context2 = await buildLifeOSContext();
