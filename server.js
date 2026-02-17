@@ -75,6 +75,47 @@ if (!CLAUDE_API_KEY) {
 console.log("Claude API Ready");
 
 /* ===========================
+   GMAIL OAUTH2 SETUP
+=========================== */
+
+var GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID;
+var GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
+var GMAIL_REDIRECT_URI = process.env.GMAIL_REDIRECT_URI || 'https://lifeos-jarvis.onrender.com/gmail/callback';
+
+// Store tokens for multiple Gmail accounts { email: { access_token, refresh_token, expiry } }
+var gmailTokensFile = '/tmp/gmail-tokens.json';
+var gmailTokens = {};
+
+// Load saved tokens
+try {
+  if (process.env.GMAIL_TOKENS) {
+    gmailTokens = JSON.parse(process.env.GMAIL_TOKENS);
+    console.log("Gmail: Loaded " + Object.keys(gmailTokens).length + " account(s)");
+  } else if (fs.existsSync(gmailTokensFile)) {
+    gmailTokens = JSON.parse(fs.readFileSync(gmailTokensFile, 'utf8'));
+    console.log("Gmail: Loaded " + Object.keys(gmailTokens).length + " account(s) from file");
+  }
+} catch (e) {
+  console.log("Gmail: No saved tokens found");
+}
+
+function saveGmailTokens() {
+  try { fs.writeFileSync(gmailTokensFile, JSON.stringify(gmailTokens)); } catch (e) {}
+}
+
+function createGmailOAuth2Client(tokens) {
+  var oauth2 = new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REDIRECT_URI);
+  if (tokens) oauth2.setCredentials(tokens);
+  return oauth2;
+}
+
+if (GMAIL_CLIENT_ID) {
+  console.log("Gmail OAuth Ready");
+} else {
+  console.log("Gmail: No GMAIL_CLIENT_ID set — Gmail features disabled");
+}
+
+/* ===========================
    In-memory conversation history
 =========================== */
 
@@ -280,10 +321,12 @@ app.post('/voice', async function(req, res) {
   try {
     console.log("Call connected, building briefing...");
     var lifeContext = await buildLifeOSContext();
-    var systemPrompt = "You are Jarvis, Trace's personal Life OS AI agent. You are on a phone call with Trace.\n\nRULES:\n- Keep responses SHORT (3-5 sentences max). This is a phone call.\n- Be direct, confident, and motivational.\n- Speak naturally like a real assistant.\n- Reference actual numbers and data.\n- After briefing, ask what Trace wants to dig into.\n- Never use markdown, bullet points, or formatting.\n\nLIFE OS DATA:\n" + lifeContext;
+    var emailContext = await buildEmailContext();
+    var fullContext = lifeContext + emailContext;
+    var systemPrompt = "You are Jarvis, Trace's personal Life OS AI agent. You are on a phone call with Trace.\n\nRULES:\n- Keep responses SHORT (3-5 sentences max). This is a phone call.\n- Be direct, confident, and motivational.\n- Speak naturally like a real assistant.\n- Reference actual numbers and data.\n- If there are unread emails, mention the most urgent ones.\n- After briefing, ask what Trace wants to dig into.\n- Never use markdown, bullet points, or formatting.\n\nLIFE OS DATA:\n" + fullContext;
 
     var greeting = await askClaude(systemPrompt, [
-      { role: 'user', content: 'Give Trace a quick opening briefing: system overview, key financial numbers, screen time, and top priority. End by asking what he wants to know more about.' }
+      { role: 'user', content: 'Give Trace a quick opening briefing: system overview, key financial numbers, screen time, top priority, and any urgent emails. End by asking what he wants to know more about.' }
     ]);
 
     console.log("Jarvis: " + greeting);
@@ -507,6 +550,22 @@ app.post('/whatsapp', async function(req, res) {
       return res.send(twiml.toString());
     }
 
+    // Email commands
+    if (lowerMsg === 'email' || lowerMsg === 'emails' || lowerMsg === 'inbox' || lowerMsg === 'mail') {
+      var emailContext = await buildEmailContext();
+      if (!emailContext) {
+        twiml.message("No Gmail accounts connected. Visit https://lifeos-jarvis.onrender.com/gmail/auth to connect.");
+      } else {
+        var emailSummary = await askClaude(
+          "You are Jarvis on WhatsApp. Be very concise. No markdown. Number each email.",
+          [{ role: 'user', content: 'Prioritize these emails. Tell me which to respond to first:\n' + emailContext }]
+        );
+        twiml.message(emailSummary);
+      }
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
     // Regular conversation with Claude
     if (!history.systemPrompt) {
       var context2 = await buildLifeOSContext();
@@ -583,9 +642,11 @@ app.get('/briefing', async function(req, res) {
   try {
     console.log("Building briefing...");
     var context = await buildLifeOSContext();
+    var emailContext = await buildEmailContext();
+    var fullContext = context + emailContext;
     var response = await askClaude(
-      "You are Jarvis, Trace's Life OS agent. Be concise and direct. No markdown. Reference real data.\n\nLIFE OS DATA:\n" + context,
-      [{ role: 'user', content: 'Give me my full Life OS briefing.' }]
+      "You are Jarvis, Trace's Life OS agent. Be concise and direct. No markdown. Reference real data. If there are emails, prioritize them and tell Trace which to handle first.\n\nLIFE OS DATA:\n" + fullContext,
+      [{ role: 'user', content: 'Give me my full Life OS briefing including email priorities.' }]
     );
     res.json({ briefing: response });
   } catch (err) {
@@ -716,10 +777,279 @@ app.get('/priority', async function(req, res) {
 });
 
 /* ===========================
+   GMAIL — OAuth Sign-in Flow
+=========================== */
+
+// Step 1: Visit this to sign in a Gmail account
+app.get('/gmail/auth', function(req, res) {
+  if (!GMAIL_CLIENT_ID) return res.json({ error: "Gmail not configured" });
+  var oauth2 = createGmailOAuth2Client();
+  var url = oauth2.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/gmail.modify',
+      'https://mail.google.com/',
+    ],
+  });
+  res.redirect(url);
+});
+
+// Step 2: Google redirects here after sign-in
+app.get('/gmail/callback', async function(req, res) {
+  if (!req.query.code) return res.json({ error: "No code received" });
+  try {
+    var oauth2 = createGmailOAuth2Client();
+    var { tokens } = await oauth2.getToken(req.query.code);
+    oauth2.setCredentials(tokens);
+
+    // Get the email address
+    var gmail = google.gmail({ version: 'v1', auth: oauth2 });
+    var profile = await gmail.users.getProfile({ userId: 'me' });
+    var email = profile.data.emailAddress;
+
+    gmailTokens[email] = tokens;
+    saveGmailTokens();
+
+    console.log("Gmail: Connected " + email);
+    res.json({ success: true, email: email, message: "Gmail connected! You can close this tab." });
+  } catch (err) {
+    console.error("Gmail callback error: " + err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List connected accounts
+app.get('/gmail/accounts', function(req, res) {
+  res.json({ accounts: Object.keys(gmailTokens) });
+});
+
+/* ===========================
+   GMAIL — Helper Functions
+=========================== */
+
+async function getGmailClient(email) {
+  var tokens = gmailTokens[email];
+  if (!tokens) return null;
+  var oauth2 = createGmailOAuth2Client(tokens);
+
+  // Refresh if expired
+  if (tokens.expiry_date && tokens.expiry_date < Date.now()) {
+    try {
+      var { credentials } = await oauth2.refreshAccessToken();
+      gmailTokens[email] = credentials;
+      saveGmailTokens();
+      oauth2.setCredentials(credentials);
+    } catch (e) {
+      console.error("Gmail refresh failed for " + email + ": " + e.message);
+      return null;
+    }
+  }
+  return google.gmail({ version: 'v1', auth: oauth2 });
+}
+
+async function getUnreadEmails(email, maxResults) {
+  var gmail = await getGmailClient(email);
+  if (!gmail) return [];
+  try {
+    var list = await gmail.users.messages.list({
+      userId: 'me',
+      q: 'is:unread',
+      maxResults: maxResults || 15,
+    });
+    var messages = list.data.messages || [];
+    var emails = [];
+    for (var i = 0; i < messages.length; i++) {
+      var msg = await gmail.users.messages.get({
+        userId: 'me',
+        id: messages[i].id,
+        format: 'metadata',
+        metadataHeaders: ['From', 'Subject', 'Date'],
+      });
+      var headers = msg.data.payload.headers;
+      var fromHeader = headers.find(function(h) { return h.name === 'From'; });
+      var subjectHeader = headers.find(function(h) { return h.name === 'Subject'; });
+      var dateHeader = headers.find(function(h) { return h.name === 'Date'; });
+      emails.push({
+        id: messages[i].id,
+        from: fromHeader ? fromHeader.value : 'Unknown',
+        subject: subjectHeader ? subjectHeader.value : '(no subject)',
+        date: dateHeader ? dateHeader.value : '',
+        snippet: msg.data.snippet || '',
+      });
+    }
+    return emails;
+  } catch (err) {
+    console.error("Gmail read error for " + email + ": " + err.message);
+    return [];
+  }
+}
+
+async function getEmailBody(email, messageId) {
+  var gmail = await getGmailClient(email);
+  if (!gmail) return '';
+  try {
+    var msg = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
+    var parts = msg.data.payload.parts || [msg.data.payload];
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].mimeType === 'text/plain' && parts[i].body.data) {
+        return Buffer.from(parts[i].body.data, 'base64').toString('utf8');
+      }
+    }
+    if (msg.data.payload.body && msg.data.payload.body.data) {
+      return Buffer.from(msg.data.payload.body.data, 'base64').toString('utf8');
+    }
+    return msg.data.snippet || '';
+  } catch (err) {
+    return '';
+  }
+}
+
+async function sendReply(email, messageId, replyText) {
+  var gmail = await getGmailClient(email);
+  if (!gmail) return { error: 'Not connected' };
+  try {
+    var msg = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'metadata', metadataHeaders: ['From', 'Subject', 'Message-ID'] });
+    var headers = msg.data.payload.headers;
+    var toHeader = headers.find(function(h) { return h.name === 'From'; });
+    var subjectHeader = headers.find(function(h) { return h.name === 'Subject'; });
+    var msgIdHeader = headers.find(function(h) { return h.name === 'Message-ID'; });
+    var to = toHeader ? toHeader.value : '';
+    var subject = subjectHeader ? subjectHeader.value : '';
+    if (!subject.startsWith('Re:')) subject = 'Re: ' + subject;
+
+    var raw = [
+      'To: ' + to,
+      'Subject: ' + subject,
+      'In-Reply-To: ' + (msgIdHeader ? msgIdHeader.value : ''),
+      'References: ' + (msgIdHeader ? msgIdHeader.value : ''),
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      replyText,
+    ].join('\r\n');
+
+    var encoded = Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded, threadId: msg.data.threadId } });
+    return { success: true, to: to };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+async function deleteEmail(email, messageId) {
+  var gmail = await getGmailClient(email);
+  if (!gmail) return { error: 'Not connected' };
+  try {
+    await gmail.users.messages.trash({ userId: 'me', id: messageId });
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+async function archiveEmail(email, messageId) {
+  var gmail = await getGmailClient(email);
+  if (!gmail) return { error: 'Not connected' };
+  try {
+    await gmail.users.messages.modify({ userId: 'me', id: messageId, requestBody: { removeLabelIds: ['INBOX'] } });
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/* ===========================
+   GMAIL — Build Email Context for Briefings
+=========================== */
+
+async function buildEmailContext() {
+  var accounts = Object.keys(gmailTokens);
+  if (accounts.length === 0) return '';
+
+  var context = '\nEMAIL INBOX SUMMARY:\n';
+  var allEmails = [];
+
+  for (var a = 0; a < accounts.length; a++) {
+    var emails = await getUnreadEmails(accounts[a], 10);
+    if (emails.length > 0) {
+      context += '\n' + accounts[a] + ' (' + emails.length + ' unread):\n';
+      for (var e = 0; e < emails.length; e++) {
+        emails[e].account = accounts[a];
+        emails[e].index = allEmails.length + 1;
+        allEmails.push(emails[e]);
+        context += '  ' + allEmails.length + '. From: ' + emails[e].from + '\n     Subject: ' + emails[e].subject + '\n     Preview: ' + emails[e].snippet.substring(0, 100) + '\n';
+      }
+    } else {
+      context += '\n' + accounts[a] + ': inbox zero!\n';
+    }
+  }
+
+  return context;
+}
+
+/* ===========================
+   GMAIL — API Endpoints
+=========================== */
+
+// Get all unread emails across all accounts
+app.get('/gmail/unread', async function(req, res) {
+  var accounts = Object.keys(gmailTokens);
+  var allEmails = [];
+  for (var a = 0; a < accounts.length; a++) {
+    var emails = await getUnreadEmails(accounts[a], 15);
+    emails.forEach(function(e) { e.account = accounts[a]; });
+    allEmails = allEmails.concat(emails);
+  }
+  res.json({ totalUnread: allEmails.length, accounts: accounts.length, emails: allEmails });
+});
+
+// Get AI-prioritized inbox summary
+app.get('/gmail/summary', async function(req, res) {
+  try {
+    var emailContext = await buildEmailContext();
+    if (!emailContext) return res.json({ error: "No Gmail accounts connected. Visit /gmail/auth to connect." });
+
+    var summary = await askClaude(
+      "You are Jarvis, Trace's email assistant. Analyze the emails and prioritize them. Be direct and concise. No markdown.",
+      [{ role: 'user', content: 'Here are my unread emails. Rank them by urgency and tell me which to respond to first, which to archive, and which to delete:\n' + emailContext }]
+    );
+    res.json({ summary: summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Read full email body
+app.get('/gmail/read/:account/:id', async function(req, res) {
+  var body = await getEmailBody(req.params.account, req.params.id);
+  res.json({ body: body });
+});
+
+// Reply to an email
+app.post('/gmail/reply', async function(req, res) {
+  var result = await sendReply(req.body.account, req.body.id, req.body.message);
+  res.json(result);
+});
+
+// Delete an email
+app.post('/gmail/delete', async function(req, res) {
+  var result = await deleteEmail(req.body.account, req.body.id);
+  res.json(result);
+});
+
+// Archive an email
+app.post('/gmail/archive', async function(req, res) {
+  var result = await archiveEmail(req.body.account, req.body.id);
+  res.json(result);
+});
+
+/* ===========================
    START SERVER
 =========================== */
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary");
 });
