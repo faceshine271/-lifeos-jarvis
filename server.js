@@ -25,55 +25,28 @@ if (!SPREADSHEET_ID) {
   process.exit(1);
 }
 
-var auth;
+var keyfilePath = path.join(__dirname, 'google-credentials.json');
 
-// Method 1: Full JSON credentials (single env var)
-if (process.env.GOOGLE_CREDENTIALS) {
-  try {
-    console.log("Using GOOGLE_CREDENTIALS env var");
-    var creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-    auth = new google.auth.JWT(
-      creds.client_email,
-      null,
-      creds.private_key,
-      ['https://www.googleapis.com/auth/spreadsheets']
-    );
-  } catch (e) {
-    console.error("Failed to parse GOOGLE_CREDENTIALS: " + e.message);
-    console.log("Falling back to other auth methods...");
-  }
+// Method 1: Base64 encoded credentials (decode to temp file)
+if (process.env.GOOGLE_CREDENTIALS_BASE64) {
+  console.log("Using GOOGLE_CREDENTIALS_BASE64 env var");
+  var decoded = Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf8');
+  var tmpPath = '/tmp/google-credentials.json';
+  fs.writeFileSync(tmpPath, decoded);
+  keyfilePath = tmpPath;
 }
 
-// Method 2: Separate env vars (GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY)
-if (!auth && process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
-  console.log("Using GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY env vars");
-  var privateKey = process.env.GOOGLE_PRIVATE_KEY;
-  // Fix escaped newlines if needed
-  if (privateKey.indexOf('\\n') !== -1) {
-    privateKey = privateKey.replace(/\\n/g, '\n');
-  }
-  auth = new google.auth.JWT(
-    process.env.GOOGLE_CLIENT_EMAIL,
-    null,
-    privateKey,
-    ['https://www.googleapis.com/auth/spreadsheets']
-  );
+// Method 2: Local JSON keyfile
+if (!fs.existsSync(keyfilePath)) {
+  console.error("No Google credentials found! Set GOOGLE_CREDENTIALS_BASE64 env var or add google-credentials.json file.");
+  process.exit(1);
 }
 
-// Method 3: Local JSON keyfile
-if (!auth) {
-  var keyfilePath = path.join(__dirname, 'google-credentials.json');
-  if (fs.existsSync(keyfilePath)) {
-    console.log("Using google-credentials.json file");
-    auth = new google.auth.GoogleAuth({
-      keyFile: keyfilePath,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-  } else {
-    console.error("No Google credentials found! Set GOOGLE_CREDENTIALS or GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY env vars, or add google-credentials.json file.");
-    process.exit(1);
-  }
-}
+console.log("Using keyfile: " + keyfilePath);
+var auth = new google.auth.GoogleAuth({
+  keyFile: keyfilePath,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
 
 var sheets = google.sheets({ version: 'v4', auth: auth });
 console.log("Google Auth Ready");
