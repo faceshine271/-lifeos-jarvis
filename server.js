@@ -160,117 +160,169 @@ async function getTabRowCount(tabName) {
 }
 
 /* ===========================
-   Build Life OS context for Claude
+   Build Life OS context for Claude — PERSONAL FOCUS
+   Cached for 10 minutes to speed up responses
 =========================== */
 
+var contextCache = { data: null, time: 0 };
+
 async function buildLifeOSContext() {
-  var tabs = await getAllTabNames();
-  var context = "LIFE OS SYSTEM: " + tabs.length + " tabs\n";
-  context += "Tabs: " + tabs.join(', ') + "\n\n";
-
-  // Debt snapshot
-  try {
-    var res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "'Ultimate_Debt_Tracker_Advanced'!A1:N30",
-    });
-    var rows = res.data.values || [];
-    if (rows.length > 1) {
-      var headers = rows[0];
-      var nameCol = headers.indexOf('Account Name');
-      var balCol = headers.indexOf('Current_Balance');
-      var typeCol = headers.indexOf('Account Type');
-      var statusCol = headers.indexOf('Status');
-      var totalActive = 0;
-      var totalBalance = 0;
-      var debtLines = [];
-      rows.slice(1).forEach(function(r) {
-        var status = statusCol >= 0 ? (r[statusCol] || '') : 'active';
-        if (status.toLowerCase() === 'active') {
-          totalActive++;
-          var bal = parseFloat((r[balCol] || '0').replace(/[$,]/g, ''));
-          if (!isNaN(bal)) totalBalance += bal;
-          debtLines.push("  " + (r[nameCol] || '?') + " (" + (r[typeCol] || '?') + "): $" + (r[balCol] || '0'));
-        }
-      });
-      context += "FINANCES: " + totalActive + " active accounts, ~$" + Math.round(totalBalance).toLocaleString() + " total\n";
-      context += debtLines.slice(0, 10).join('\n') + '\n\n';
-    }
-  } catch (e) {}
-
-  // Screen time
-  try {
-    var res2 = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "'Dashboard'!A1:F20",
-    });
-    var rows2 = res2.data.values || [];
-    if (rows2.length > 1) {
-      context += "SCREEN TIME: " + (rows2[1][0] || '?') + " hours daily\n";
-      context += "Top app: " + (rows2[1][1] || '?') + "\n\n";
-    }
-  } catch (e) {}
-
-  // Gratitude
-  try {
-    var res3 = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "'Gratitude_Memory'!A1:B6",
-    });
-    var rows3 = res3.data.values || [];
-    if (rows3.length > 1) {
-      var gratCount = await getTabRowCount('Gratitude_Memory');
-      context += "GRATITUDE: " + gratCount + " total entries\n";
-      rows3.slice(1, 6).forEach(function(r) {
-        context += "  - " + (r[0] || '?') + " (" + (r[1] || '') + ")\n";
-      });
-      context += '\n';
-    }
-  } catch (e) {}
-
-  // Tasks
-  var taskTabs = ['Tasks', 'Daily_Log', 'Focus_Log', 'Jira_Log'];
-  for (var i = 0; i < taskTabs.length; i++) {
-    try {
-      var taskRes = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: "'" + taskTabs[i] + "'!A2:B5",
-      });
-      var taskRows = taskRes.data.values;
-      if (taskRows && taskRows.length > 0 && taskRows[0][0]) {
-        context += "TOP TASKS (from " + taskTabs[i] + "):\n";
-        taskRows.forEach(function(r) {
-          context += "  - " + r[0] + (r[1] ? ' (' + r[1] + ')' : '') + "\n";
-        });
-        context += '\n';
-        break;
-      }
-    } catch (e) {}
+  // Return cache if less than 10 minutes old
+  if (contextCache.data && (Date.now() - contextCache.time) < 600000) {
+    console.log("Context from cache: " + contextCache.data.length + " chars");
+    return contextCache.data;
   }
 
-  // Identity
-  try {
-    var res4 = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: "'Trace_Identity_Profile'!A1:A20",
-    });
-    var rows4 = res4.data.values || [];
-    if (rows4.length > 1) {
-      context += "IDENTITY PROFILE:\n";
-      rows4.slice(0, 15).forEach(function(r) {
-        context += "  " + (r[0] || '') + "\n";
-      });
-      context += '\n';
-    }
-  } catch (e) {}
+  var context = "";
 
-  // Business
-  try {
-    var bizCount = await getTabRowCount('Business_Idea_Ledger');
-    context += "BUSINESS: " + bizCount + " ideas tracked\n\n";
-  } catch (e) {}
+  // Fetch all personal data in parallel for speed
+  var results = await Promise.allSettled([
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Trace_Identity_Profile'!A1:A20" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Daily_Log'!A1:J20" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Wins'!A1:D20" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Gratitude_Memory'!A1:B10" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Dashboard'!A1:K25" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Chat_Pattern_Lifecycle'!A1:F30" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Chat_Insights_Dating'!A1:D7" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Daily_Questions'!A1:G20" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Dating_Log'!A1:H20" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Ultimate_Debt_Tracker_Advanced'!A1:E25" }),
+  ]);
+
+  // Identity Profile
+  if (results[0].status === 'fulfilled') {
+    var rows = results[0].value.data.values || [];
+    if (rows.length > 0) {
+      context += "WHO TRACE IS:\n";
+      rows.slice(0, 15).forEach(function(r) { if (r[0]) context += r[0] + "\n"; });
+      context += "\n";
+    }
+  }
+
+  // Daily Log — recent entries
+  if (results[1].status === 'fulfilled') {
+    var rows = results[1].value.data.values || [];
+    if (rows.length > 1) {
+      var headers = rows[0];
+      context += "RECENT DAILY LOGS:\n";
+      rows.slice(Math.max(1, rows.length - 5)).forEach(function(r) {
+        var parts = [];
+        for (var i = 0; i < headers.length; i++) {
+          if (r[i] && r[i] !== '0' && r[i] !== '') parts.push(headers[i] + ': ' + r[i]);
+        }
+        if (parts.length > 0) context += "  " + parts.join(', ') + "\n";
+      });
+      context += "\n";
+    }
+  }
+
+  // Recent Wins
+  if (results[2].status === 'fulfilled') {
+    var rows = results[2].value.data.values || [];
+    if (rows.length > 1) {
+      context += "RECENT WINS:\n";
+      rows.slice(Math.max(1, rows.length - 7)).forEach(function(r) {
+        if (r[1]) context += "  " + (r[0] || '') + ": " + r[1] + " (" + (r[2] || '') + ")\n";
+      });
+      context += "\n";
+    } else {
+      context += "WINS: No wins logged yet. This needs to change.\n\n";
+    }
+  }
+
+  // Recent Gratitude
+  if (results[3].status === 'fulfilled') {
+    var rows = results[3].value.data.values || [];
+    if (rows.length > 1) {
+      context += "RECENT GRATITUDE:\n";
+      rows.slice(1, 6).forEach(function(r) {
+        if (r[0]) context += "  " + r[0] + " (" + (r[1] || '') + ")\n";
+      });
+      context += "\n";
+    }
+  }
+
+  // Screen Time
+  if (results[4].status === 'fulfilled') {
+    var rows = results[4].value.data.values || [];
+    if (rows.length > 5) {
+      context += "SCREEN TIME:\n";
+      // Find the daily total
+      if (rows[1] && rows[1][0]) context += "  Daily average: " + rows[1][0] + " hours\n";
+      // Top apps
+      for (var a = 6; a < Math.min(rows.length, 16); a++) {
+        if (rows[a] && rows[a][0] && rows[a][4]) {
+          context += "  " + rows[a][0] + ": " + rows[a][4] + "h/day (" + (rows[a][5] || 'uncategorized') + ")\n";
+        }
+      }
+      context += "\n";
+    }
+  }
+
+  // Dating/Relationship Patterns
+  if (results[5].status === 'fulfilled') {
+    var rows = results[5].value.data.values || [];
+    if (rows.length > 1) {
+      context += "ACTIVE LIFE PATTERNS:\n";
+      rows.slice(1).forEach(function(r) {
+        if (r[0] && r[5] && r[5].toUpperCase() === 'ACTIVE') {
+          context += "  " + r[0] + " (" + (r[1] || 'General') + ") — ACTIVE\n";
+        }
+      });
+      context += "\n";
+    }
+  }
+
+  // Dating Insights
+  if (results[6].status === 'fulfilled') {
+    var rows = results[6].value.data.values || [];
+    if (rows.length > 1) {
+      context += "DATING PATTERNS:\n";
+      var latest = rows[rows.length - 1];
+      if (latest && latest[2]) context += "  Latest insight: " + latest[2].substring(0, 300) + "\n";
+      context += "\n";
+    }
+  }
+
+  // Recent Daily Questions answers
+  if (results[7].status === 'fulfilled') {
+    var rows = results[7].value.data.values || [];
+    if (rows.length > 1) {
+      context += "RECENT SELF-REFLECTION:\n";
+      rows.slice(Math.max(1, rows.length - 5)).forEach(function(r) {
+        if (r[2] && r[3]) context += "  Q: " + r[2].substring(0, 80) + " → A: " + r[3].substring(0, 100) + "\n";
+      });
+      context += "\n";
+    }
+  }
+
+  // Dating Log
+  if (results[8].status === 'fulfilled') {
+    var rows = results[8].value.data.values || [];
+    if (rows.length > 1) {
+      context += "RECENT DATING ACTIVITY:\n";
+      rows.slice(Math.max(1, rows.length - 3)).forEach(function(r) {
+        if (r[1]) context += "  " + (r[0] || '') + " — " + (r[1] || '') + " (" + (r[2] || '') + "): " + (r[3] || '') + "\n";
+      });
+      context += "\n";
+    }
+  }
+
+  // Debt summary (brief)
+  if (results[9].status === 'fulfilled') {
+    var rows = results[9].value.data.values || [];
+    if (rows.length > 1) {
+      var totalDebt = 0;
+      rows.slice(1).forEach(function(r) {
+        var bal = parseFloat((r[4] || r[3] || '0').toString().replace(/[$,]/g, ''));
+        if (!isNaN(bal)) totalDebt += bal;
+      });
+      context += "FINANCIAL SNAPSHOT: ~$" + Math.round(totalDebt).toLocaleString() + " total debt across " + (rows.length - 1) + " accounts\n\n";
+    }
+  }
 
   console.log("Context built: " + context.length + " chars");
+  contextCache = { data: context, time: Date.now() };
   return context;
 }
 
@@ -523,6 +575,157 @@ app.post('/whatsapp', async function(req, res) {
     var lowerMsg = userMessage.toLowerCase().trim();
 
     // Special commands
+
+    // ====== LOG A WIN ======
+    if (lowerMsg.startsWith('win:') || lowerMsg.startsWith('win ')) {
+      var winText = userMessage.substring(userMessage.indexOf(':') > -1 && userMessage.indexOf(':') < 5 ? userMessage.indexOf(':') + 1 : 4).trim();
+      twiml.message("Win logged. Keep stacking.");
+      res.type('text/xml');
+      res.send(twiml.toString());
+      setTimeout(async function() {
+        try {
+          var today = new Date().toISOString().split('T')[0];
+          var area = await askClaude(
+            "Categorize this win into exactly one of: Work, Health, Social, Financial, Personal Growth, Dating. Respond with ONLY the category name, nothing else.",
+            [{ role: 'user', content: winText }]
+          );
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'Wins'!A:D",
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[today, winText, area.trim(), 'Logged via Jarvis']] },
+          });
+        } catch (e) { console.log("Win log error: " + e.message); }
+      }, 100);
+      return;
+    }
+
+    // ====== DAILY CHECK-IN ======
+    var dailyCheckin = whatsappHistory[from] ? whatsappHistory[from].dailyCheckin : null;
+
+    if (lowerMsg === 'check in' || lowerMsg === 'checkin' || lowerMsg === 'check-in' || lowerMsg === 'log day') {
+      whatsappHistory[from] = whatsappHistory[from] || {};
+      whatsappHistory[from].dailyCheckin = {
+        step: 0,
+        data: { date: new Date().toISOString().split('T')[0] },
+        active: true,
+      };
+      twiml.message("Daily check-in. Quick answers.\n\nHow many hours did you sleep last night?");
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    if (dailyCheckin && dailyCheckin.active) {
+      var steps = [
+        { key: 'sleep', next: 'How many ounces of water today?' },
+        { key: 'water', next: 'Workout minutes today?' },
+        { key: 'workout', next: 'Reading minutes today?' },
+        { key: 'reading', next: 'Screen time hours today? (estimate)' },
+        { key: 'screenTime', next: 'Social time minutes today?' },
+        { key: 'social', next: 'Mood 1-10?' },
+        { key: 'mood', next: 'Focus 1-10?' },
+        { key: 'focus', next: 'Any notes on today? (or type "none")' },
+        { key: 'notes', next: null },
+      ];
+
+      var step = steps[dailyCheckin.step];
+      dailyCheckin.data[step.key] = userMessage;
+      dailyCheckin.step++;
+
+      if (dailyCheckin.step >= steps.length) {
+        dailyCheckin.active = false;
+        twiml.message("Day logged. Keep building.");
+        res.type('text/xml');
+        res.send(twiml.toString());
+
+        var d = dailyCheckin.data;
+        setTimeout(async function() {
+          try {
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Daily_Log'!A:J",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [[d.date, d.sleep, d.water, d.workout, d.reading, d.screenTime, d.social, d.mood, d.focus, d.notes === 'none' ? '' : d.notes]] },
+            });
+          } catch (e) { console.log("Daily log error: " + e.message); }
+        }, 100);
+      } else {
+        twiml.message(steps[dailyCheckin.step].next || 'Done.');
+      }
+
+      whatsappHistory[from].dailyCheckin = dailyCheckin;
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // ====== DATING LOG ======
+    var datingLog = whatsappHistory[from] ? whatsappHistory[from].datingLog : null;
+
+    if (lowerMsg === 'date log' || lowerMsg === 'dating' || lowerMsg === 'log date') {
+      whatsappHistory[from] = whatsappHistory[from] || {};
+      whatsappHistory[from].datingLog = {
+        step: 0,
+        data: { date: new Date().toISOString().split('T')[0] },
+        active: true,
+      };
+      twiml.message("Dating log. Be real.\n\nWho was it with? (first name or description)");
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    if (datingLog && datingLog.active) {
+      var dSteps = [
+        { key: 'who', next: 'What type? (first date, second date, talking stage, hookup, situationship check-in, other)' },
+        { key: 'type', next: 'How did you feel during it? Be honest.' },
+        { key: 'feeling', next: 'Did you notice any old patterns showing up? (validation seeking, fear of intimacy, comparing to ex, emotional detachment, or none)' },
+        { key: 'patterns', next: 'What went well?' },
+        { key: 'wellDone', next: 'What would you do differently?' },
+        { key: 'differently', next: null },
+      ];
+
+      var dStep = dSteps[datingLog.step];
+      datingLog.data[dStep.key] = userMessage;
+      datingLog.step++;
+
+      if (datingLog.step >= dSteps.length) {
+        datingLog.active = false;
+        twiml.message("Logged. I'll analyze this with your patterns.");
+        res.type('text/xml');
+        res.send(twiml.toString());
+
+        var dd = datingLog.data;
+        setTimeout(async function() {
+          try {
+            // AI analysis of the date
+            var analysis = await askClaude(
+              "You are Jarvis, Trace's dating counselor. He just logged a date. Based on his known patterns (seeking validation, fear of intimacy, comparing partners to ex, emotional detachment after breakups), give a 2-sentence honest assessment. Was this growth or repetition? No markdown.",
+              [{ role: 'user', content: 'Date with: ' + dd.who + '\nType: ' + dd.type + '\nFeeling: ' + dd.feeling + '\nPatterns noticed: ' + dd.patterns + '\nWent well: ' + dd.wellDone + '\nDo differently: ' + dd.differently }]
+            );
+
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Dating_Log'!A:H",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [[dd.date, dd.who, dd.type, dd.feeling, dd.patterns, dd.wellDone, dd.differently, analysis]] },
+            });
+
+            await twilioClient.messages.create({
+              body: "Dating insight: " + analysis,
+              from: 'whatsapp:+14155238886',
+              to: from,
+            });
+          } catch (e) { console.log("Dating log error: " + e.message); }
+        }, 100);
+        return;
+      } else {
+        twiml.message(dSteps[datingLog.step].next || 'Done.');
+      }
+
+      whatsappHistory[from].datingLog = datingLog;
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
     if (lowerMsg === 'briefing' || lowerMsg === 'brief' || lowerMsg === 'status') {
       var context = await buildLifeOSContext();
       var briefing = await askClaude(
@@ -1749,18 +1952,7 @@ app.get('/dashboard', async function(req, res) {
 =========================== */
 
 var webChatHistory = {};
-var cachedLifeContext = null;
-var cacheTime = 0;
-
-async function getCachedContext() {
-  // Cache context for 5 minutes to speed up responses
-  if (cachedLifeContext && (Date.now() - cacheTime) < 300000) return cachedLifeContext;
-  var lifeContext = await buildLifeOSContext();
-  var emailContext = await buildEmailContext();
-  cachedLifeContext = lifeContext + emailContext;
-  cacheTime = Date.now();
-  return cachedLifeContext;
-}
+var webChatHistory = {};
 
 app.post('/chat', async function(req, res) {
   var sessionId = req.body.sessionId || 'default';
@@ -1769,7 +1961,7 @@ app.post('/chat', async function(req, res) {
   try {
     var history = webChatHistory[sessionId];
     if (!history) {
-      var context = await getCachedContext();
+      var context = await buildLifeOSContext();
       history = {
         systemPrompt: "You are Jarvis, Trace's personal AI counselor and mentor. You are speaking through a browser voice interface.\n\nRULES:\n- Talk like a wise friend and life coach. Be real and direct.\n- NEVER mention tab names, sheet names, row counts, or entry counts.\n- NEVER recite statistics unless Trace specifically asks for numbers.\n- Use the data to UNDERSTAND his life, then give human advice.\n- Ask thoughtful questions. Push him to grow.\n- Keep responses to 1-3 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound like a real person, not a robot or a database.\n\nLIFE OS DATA (use to inform advice, don't recite):\n" + context,
         messages: [],
@@ -1884,10 +2076,39 @@ app.get('/daily-questions', async function(req, res) {
 });
 
 /* ===========================
+   GET /nightly-checkin — Auto trigger daily check-in via cron
+=========================== */
+
+app.get('/nightly-checkin', async function(req, res) {
+  var secret = process.env.CALL_SECRET;
+  if (secret && req.query.key !== secret) return res.status(403).json({ error: 'Unauthorized' });
+
+  try {
+    var from = 'whatsapp:+18167392734';
+    whatsappHistory[from] = whatsappHistory[from] || {};
+    whatsappHistory[from].dailyCheckin = {
+      step: 0,
+      data: { date: new Date().toISOString().split('T')[0] },
+      active: true,
+    };
+
+    await twilioClient.messages.create({
+      body: "End of day check-in. Quick answers, no overthinking.\n\nHow many hours did you sleep last night?",
+      from: 'whatsapp:+14155238886',
+      to: '+18167392734',
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
    START SERVER
 =========================== */
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /chat /daily-questions");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /chat /daily-questions /nightly-checkin");
 });
