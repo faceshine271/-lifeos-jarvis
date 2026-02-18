@@ -708,6 +708,95 @@ app.post('/whatsapp', async function(req, res) {
       return;
     }
 
+    // ====== DAILY 10 QUESTIONS SYSTEM ======
+    var dailyQ = whatsappHistory[from] ? whatsappHistory[from].dailyQuestions : null;
+
+    // Start daily questions
+    if (lowerMsg === 'questions' || lowerMsg === 'daily' || lowerMsg === '10' || lowerMsg === 'challenge me') {
+      var qContext = await buildLifeOSContext();
+      var questionsRaw = await askClaude(
+        "You generate 10 deep, personal challenge questions for Trace. These questions should challenge his beliefs, make him uncomfortable, and force growth.\n\nCover ALL these areas across the 10 questions: dating and relationships, money mindset, self-worth, business ambition, daily habits, health, purpose, fears, accountability, and personal identity.\n\nRULES:\n- Make each question personal based on his Life OS data\n- Questions should be uncomfortable but constructive\n- Never mention tab names, sheet names, or entry counts\n- Use what you know about his life to make questions HIT\n- Format: one question per line, numbered 1-10, nothing else\n- No fluff, no explanations, just the questions\n\nLIFE OS DATA:\n" + qContext,
+        [{ role: 'user', content: 'Generate 10 deep personal challenge questions for today.' }]
+      );
+
+      var questions = questionsRaw.split('\n').filter(function(q) { return q.trim().match(/^\d/); });
+      if (questions.length < 10) questions = questionsRaw.split('\n').filter(function(q) { return q.trim().length > 10; });
+
+      whatsappHistory[from] = whatsappHistory[from] || {};
+      whatsappHistory[from].dailyQuestions = {
+        questions: questions,
+        answers: [],
+        currentIndex: 0,
+        date: new Date().toISOString().split('T')[0],
+        active: true,
+      };
+
+      twiml.message("Let's go. 10 questions. Be honest with yourself.\n\n" + questions[0]);
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // If daily questions are active, capture answer and send next question
+    if (dailyQ && dailyQ.active && dailyQ.currentIndex < dailyQ.questions.length) {
+      // Log the answer
+      dailyQ.answers.push({
+        question: dailyQ.questions[dailyQ.currentIndex],
+        answer: userMessage,
+        time: new Date().toISOString(),
+      });
+      dailyQ.currentIndex++;
+
+      // Save to Google Sheet
+      try {
+        var row = [
+          dailyQ.date,
+          new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          dailyQ.answers[dailyQ.answers.length - 1].question.replace(/^\d+[\.\)]\s*/, ''),
+          userMessage,
+        ];
+
+        // On last question, generate analysis and add to same row
+        if (dailyQ.currentIndex >= dailyQ.questions.length) {
+          var answersText = dailyQ.answers.map(function(a, i) {
+            return (i + 1) + '. ' + a.question + '\nAnswer: ' + a.answer;
+          }).join('\n\n');
+
+          var analysisRaw = await askClaude(
+            "You are Jarvis, Trace's AI counselor. He just answered 10 deep personal questions. Respond with EXACTLY three sections separated by |||. Section 1: Mindset analysis — patterns in his thinking, where he's strong, where he's lying to himself (3-4 sentences). Section 2: 2-3 specific personal beliefs holding him back and why they're wrong (3-4 sentences). Section 3: 3 concrete actions he should take TODAY based on his answers (3 sentences). No markdown. No bullet points. Separate sections ONLY with |||",
+            [{ role: 'user', content: 'Here are my answers:\n\n' + answersText }]
+          );
+
+          var parts = analysisRaw.split('|||').map(function(p) { return p.trim(); });
+          row.push(parts[0] || '', parts[1] || '', parts[2] || '');
+          dailyQ.summary = (parts[0] || '') + '\n\n' + (parts[1] || '') + '\n\n' + (parts[2] || '');
+        }
+
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID,
+          range: "'Daily_Questions'!A:G",
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [row] },
+        });
+      } catch (logErr) {
+        console.log("Could not log question: " + logErr.message);
+      }
+
+      // Check if done
+      if (dailyQ.currentIndex >= dailyQ.questions.length) {
+        dailyQ.active = false;
+        twiml.message("That's all 10. Here's what I see:\n\n" + (dailyQ.summary || 'Analysis logged to your Life OS.'));
+      } else {
+        // Send next question
+        var qNum = dailyQ.currentIndex + 1;
+        var nextQ = dailyQ.questions[dailyQ.currentIndex];
+        twiml.message("Logged. Question " + qNum + " of 10:\n\n" + nextQ);
+      }
+
+      whatsappHistory[from].dailyQuestions = dailyQ;
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
     // Regular conversation with Claude
     if (!history.systemPrompt) {
       var context2 = await buildLifeOSContext();
@@ -1723,10 +1812,50 @@ app.post('/tts', async function(req, res) {
 });
 
 /* ===========================
+   GET /daily-questions — Auto trigger daily questions via cron
+=========================== */
+
+app.get('/daily-questions', async function(req, res) {
+  var secret = process.env.CALL_SECRET;
+  if (secret && req.query.key !== secret) return res.status(403).json({ error: 'Unauthorized' });
+
+  try {
+    var qContext = await buildLifeOSContext();
+    var questionsRaw = await askClaude(
+      "You generate 10 deep, personal challenge questions for Trace. These questions should challenge his beliefs, make him uncomfortable, and force growth.\n\nCover ALL these areas across the 10 questions: dating and relationships, money mindset, self-worth, business ambition, daily habits, health, purpose, fears, accountability, and personal identity.\n\nRULES:\n- Make each question personal based on his Life OS data\n- Questions should be uncomfortable but constructive\n- Never mention tab names, sheet names, or entry counts\n- Use what you know about his life to make questions HIT\n- Format: one question per line, numbered 1-10, nothing else\n- No fluff, no explanations, just the questions\n\nLIFE OS DATA:\n" + qContext,
+      [{ role: 'user', content: 'Generate 10 deep personal challenge questions for today.' }]
+    );
+
+    var questions = questionsRaw.split('\n').filter(function(q) { return q.trim().match(/^\d/); });
+    if (questions.length < 10) questions = questionsRaw.split('\n').filter(function(q) { return q.trim().length > 10; });
+
+    var from = 'whatsapp:+18167392734';
+    whatsappHistory[from] = whatsappHistory[from] || {};
+    whatsappHistory[from].dailyQuestions = {
+      questions: questions,
+      answers: [],
+      currentIndex: 0,
+      date: new Date().toISOString().split('T')[0],
+      active: true,
+    };
+
+    await twilioClient.messages.create({
+      body: "Good morning Trace. Time to check in with yourself. 10 questions about your life, your beliefs, and where you're headed. Answer honestly — I'll tell you which beliefs need fixing and what to do about it.\n\n" + questions[0],
+      from: 'whatsapp:+14155238886',
+      to: '+18167392734',
+    });
+
+    res.json({ success: true, questionsGenerated: questions.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
    START SERVER
 =========================== */
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /chat");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /chat /daily-questions");
 });
