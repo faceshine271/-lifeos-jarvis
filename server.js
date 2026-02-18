@@ -968,6 +968,12 @@ app.get('/gmail/accounts', function(req, res) {
   res.json({ accounts: Object.keys(gmailTokens) });
 });
 
+// Export tokens (for saving to env var)
+app.get('/gmail/tokens', function(req, res) {
+  if (req.query.key !== (process.env.CALL_SECRET || '')) return res.status(403).json({ error: 'Unauthorized' });
+  res.json({ tokens: JSON.stringify(gmailTokens), accounts: Object.keys(gmailTokens) });
+});
+
 /* ===========================
    GMAIL — Helper Functions
 =========================== */
