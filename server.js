@@ -2505,6 +2505,133 @@ app.get('/dashboard', async function(req, res) {
 
     html += '</style></head><body>';
 
+    // ====== BOOT SEQUENCE SPLASH ======
+    html += '<div id="boot-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#020810;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;">';
+    
+    // Hex grid background for boot
+    html += '<div style="position:absolute;top:0;left:0;width:100%;height:100%;background-image:linear-gradient(rgba(0,212,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.02) 1px,transparent 1px);background-size:40px 40px;"></div>';
+    
+    // Center ring animation
+    html += '<div id="boot-ring" style="width:120px;height:120px;border:2px solid #00d4ff20;border-radius:50%;position:relative;animation:bootRingSpin 2s linear infinite;opacity:0;">';
+    html += '<div style="position:absolute;top:-2px;left:50%;width:8px;height:8px;background:#00d4ff;border-radius:50;margin-left:-4px;box-shadow:0 0 20px #00d4ff;"></div>';
+    html += '</div>';
+    
+    // Boot text lines
+    html += '<div id="boot-text" style="margin-top:40px;font-family:Orbitron;font-size:0.65em;letter-spacing:4px;color:#00d4ff40;text-align:center;max-width:500px;line-height:2.2;">';
+    html += '<div class="boot-line" style="opacity:0;">INITIALIZING NEURAL CORE...</div>';
+    html += '<div class="boot-line" style="opacity:0;">LOADING IDENTITY PROFILE...</div>';
+    html += '<div class="boot-line" style="opacity:0;">SYNCING ' + emailAccounts.length + ' EMAIL ACCOUNTS...</div>';
+    html += '<div class="boot-line" style="opacity:0;">SCANNING ' + tabs.length + ' LIFE SYSTEMS...</div>';
+    html += '<div class="boot-line" style="opacity:0;">CALENDAR SYNC: ' + todayEvents.length + ' EVENTS LOADED</div>';
+    html += '<div class="boot-line" style="opacity:0;">ACTIVATING VOICE INTERFACE...</div>';
+    html += '<div class="boot-line" style="opacity:0;">HABIT MONITORING: ONLINE</div>';
+    html += '<div class="boot-line" style="opacity:0;color:#00ff66;">ALL SYSTEMS OPERATIONAL</div>';
+    html += '</div>';
+    
+    // JARVIS title reveal
+    html += '<div id="boot-title" style="position:absolute;opacity:0;font-family:Orbitron;font-size:4em;font-weight:900;letter-spacing:20px;color:#00d4ff;text-shadow:0 0 60px rgba(0,212,255,0.6),0 0 120px rgba(0,212,255,0.2);">J.A.R.V.I.S.</div>';
+    
+    // Welcome message
+    var hour = new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Chicago' });
+    var greeting = 'Good evening';
+    var hourNum = parseInt(hour);
+    if (hourNum >= 5 && hourNum < 12) greeting = 'Good morning';
+    else if (hourNum >= 12 && hourNum < 17) greeting = 'Good afternoon';
+    else if (hourNum >= 17 && hourNum < 21) greeting = 'Good evening';
+    else greeting = 'Good night';
+    
+    html += '<div id="boot-welcome" style="position:absolute;bottom:25%;opacity:0;font-family:Rajdhani;font-size:1.4em;letter-spacing:6px;color:#3a5a7a;">' + greeting.toUpperCase() + ', TRACE</div>';
+    
+    html += '</div>';
+
+    // Boot animation styles
+    html += '<style>';
+    html += '@keyframes bootRingSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+    html += '.boot-line { transition: opacity 0.3s, transform 0.3s; transform: translateY(5px); }';
+    html += '.boot-line.visible { opacity: 1 !important; color: #00d4ff; transform: translateY(0); }';
+    html += '.boot-line.done { color: #00ff66 !important; }';
+    html += '#boot-screen { transition: opacity 0.8s ease-out; }';
+    html += '</style>';
+
+    // Boot sequence script
+    html += '<script>';
+    html += '(function(){';
+    html += '  var ring=document.getElementById("boot-ring");';
+    html += '  var lines=document.querySelectorAll(".boot-line");';
+    html += '  var title=document.getElementById("boot-title");';
+    html += '  var welcome=document.getElementById("boot-welcome");';
+    html += '  var screen=document.getElementById("boot-screen");';
+    html += '  var content=document.querySelector(".content");';
+    html += '  if(content)content.style.opacity="0";';
+    
+    // Fade in ring
+    html += '  setTimeout(function(){ring.style.opacity="1";ring.style.transition="opacity 0.5s";},200);';
+    
+    // Type out boot lines one by one
+    html += '  var delay=600;';
+    html += '  for(var i=0;i<lines.length;i++){';
+    html += '    (function(idx){';
+    html += '      setTimeout(function(){';
+    html += '        lines[idx].classList.add("visible");';
+    html += '        if(idx>0)lines[idx-1].style.color="#4a6a8a";';
+    // Play a subtle beep
+    html += '        try{var ctx=new(window.AudioContext||window.webkitAudioContext)();var osc=ctx.createOscillator();var gain=ctx.createGain();osc.connect(gain);gain.connect(ctx.destination);osc.frequency.value=800+(idx*100);gain.gain.value=0.03;osc.start();osc.stop(ctx.currentTime+0.05);}catch(e){}';
+    html += '      },delay+idx*350);';
+    html += '    })(i);';
+    html += '  }';
+    
+    // After all lines, show title
+    html += '  var totalTime=delay+lines.length*350+400;';
+    html += '  setTimeout(function(){';
+    html += '    ring.style.opacity="0";';
+    html += '    document.getElementById("boot-text").style.opacity="0";document.getElementById("boot-text").style.transition="opacity 0.4s";';
+    html += '  },totalTime);';
+    
+    // Flash title
+    html += '  setTimeout(function(){';
+    html += '    title.style.opacity="1";title.style.transition="opacity 0.3s";';
+    html += '    welcome.style.opacity="1";welcome.style.transition="opacity 0.5s";';
+    // Screen flash
+    html += '    screen.style.background="radial-gradient(circle,#0a2040 0%,#020810 70%)";';
+    html += '  },totalTime+500);';
+    
+    // Fade out boot screen, reveal dashboard
+    html += '  setTimeout(function(){';
+    html += '    screen.style.opacity="0";';
+    html += '    if(content){content.style.transition="opacity 1s";content.style.opacity="1";}';
+    html += '    setTimeout(function(){screen.style.display="none";},800);';
+    
+    // Speak the greeting
+    html += '    var greetText="' + greeting + ', Trace. ';
+    if (todayEvents.length > 0) {
+      html += 'You have ' + todayEvents.length + ' event' + (todayEvents.length > 1 ? 's' : '') + ' today. ';
+    } else {
+      html += 'No events on your calendar today. ';
+    }
+    if (pendingReminders.length > 0) {
+      html += pendingReminders.length + ' reminder' + (pendingReminders.length > 1 ? 's' : '') + ' pending. ';
+    }
+    if (totalUnread > 10) {
+      html += totalUnread + ' unread emails. ';
+    }
+    html += 'All systems are online.";';
+    
+    // Try ElevenLabs first, fall back to browser speech
+    html += '    fetch("https://api.elevenlabs.io/v1/text-to-speech/jP5jSWhfXz3nfQENMtf4",{method:"POST",headers:{"xi-api-key":"sk_2106002b395df58e01d77515940ca9ca6baa0cb4d856dd1b","Content-Type":"application/json","Accept":"audio/mpeg"},body:JSON.stringify({text:greetText,model_id:"eleven_turbo_v2",voice_settings:{stability:0.5,similarity_boost:0.75,style:0.3}})})';
+    html += '    .then(function(r){if(!r.ok)throw new Error("ElevenLabs failed");return r.blob();})';
+    html += '    .then(function(b){var a=new Audio(URL.createObjectURL(b));a.play();})';
+    html += '    .catch(function(e){';
+    html += '      console.log("ElevenLabs unavailable, using browser voice");';
+    html += '      var synth2=window.speechSynthesis;var u=new SpeechSynthesisUtterance(greetText);u.rate=1.0;u.pitch=0.9;';
+    html += '      var voices=synth2.getVoices();for(var v=0;v<voices.length;v++){if(voices[v].name.includes("Samantha")||voices[v].name.includes("Google UK English Male")||voices[v].name.includes("Male")){u.voice=voices[v];break;}}';
+    html += '      synth2.speak(u);';
+    html += '    });';
+    
+    html += '  },totalTime+2000);';
+    
+    html += '})();';
+    html += '<\/script>';
+
     // Background effects
     html += '<div class="bg-grid"></div>';
     html += '<div class="scan-line"></div>';
@@ -2521,10 +2648,14 @@ app.get('/dashboard', async function(req, res) {
     html += '<div class="content">';
 
     // Header
+    var now = new Date();
+    var dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Chicago' });
+    var timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' });
     html += '<div class="header">';
-    html += '<div class="hex-container"><div class="hex-ring"><div class="hex-center">' + tabs.length + '</div></div></div>';
+    html += '<div class="hex-container"><div class="hex-ring"><div class="hex-center" style="font-size:0.35em;line-height:1.3;">' + timeStr + '</div></div></div>';
     html += '<div class="jarvis-title">J.A.R.V.I.S.</div>';
     html += '<div style="font-family:Rajdhani;font-size:1.1em;letter-spacing:8px;color:#3a5a7a;margin-top:5px;text-transform:uppercase;">LifeOS Command Center</div>';
+    html += '<div style="font-family:Rajdhani;font-size:0.95em;letter-spacing:4px;color:#00d4ff80;margin-top:3px;">' + dateStr + '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
     html += '<div class="status-item"><div class="status-dot blue"></div>AI ACTIVE</div>';
@@ -2700,6 +2831,70 @@ app.get('/dashboard', async function(req, res) {
         html += '</div>';
       }
       html += '</div>';
+    }
+
+    html += '</div></div>';
+
+    // Email Inbox Panel — collapsible
+    html += '<div class="systems" style="margin-top:10px;">';
+    html += '<div class="systems-title" style="color:#ff6348;cursor:pointer;" onclick="var el=document.getElementById(\'email-panel\');var arrow=document.getElementById(\'email-arrow\');if(el.style.display===\'none\'){el.style.display=\'block\';arrow.textContent=\'▼\';}else{el.style.display=\'none\';arrow.textContent=\'▶\';}">Inbox (' + totalUnread + ' unread) <span id="email-arrow" style="font-size:0.8em;">▶</span></div>';
+    html += '<div id="email-panel" style="display:none;">';
+
+    // Fetch actual email details
+    var emailDetails = [];
+    for (var eda = 0; eda < emailAccounts.length; eda++) {
+      try {
+        var gmailClient = await getGmailClient(emailAccounts[eda]);
+        if (!gmailClient) continue;
+        var listRes = await gmailClient.users.messages.list({ userId: 'me', q: 'is:unread', maxResults: 10 });
+        var msgs = listRes.data.messages || [];
+        for (var em = 0; em < Math.min(msgs.length, 10); em++) {
+          var msgData = await gmailClient.users.messages.get({ userId: 'me', id: msgs[em].id, format: 'metadata', metadataHeaders: ['From', 'Subject', 'Date'] });
+          var hdrs = msgData.data.payload.headers;
+          var fromH = hdrs.find(function(h) { return h.name === 'From'; });
+          var subjH = hdrs.find(function(h) { return h.name === 'Subject'; });
+          var dateH = hdrs.find(function(h) { return h.name === 'Date'; });
+          emailDetails.push({
+            id: msgs[em].id,
+            account: emailAccounts[eda],
+            from: fromH ? fromH.value.replace(/<.*>/, '').trim() : 'Unknown',
+            subject: subjH ? subjH.value : '(no subject)',
+            date: dateH ? dateH.value : '',
+            snippet: msgData.data.snippet || '',
+          });
+        }
+      } catch (e) { console.log("Email detail error: " + e.message); }
+    }
+
+    if (emailDetails.length > 0) {
+      for (var edi = 0; edi < emailDetails.length; edi++) {
+        var ed = emailDetails[edi];
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff634820;padding:15px;margin-bottom:8px;position:relative;" id="email-' + ed.id + '">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;">';
+        html += '<div style="flex:1;">';
+        html += '<div style="color:#ff6348;font-size:0.9em;font-weight:600;">' + ed.from.substring(0, 40) + '</div>';
+        html += '<div style="color:#c0d8f0;font-size:0.95em;margin:4px 0;">' + ed.subject.substring(0, 60) + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + ed.snippet.substring(0, 100) + '...</div>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:8px;margin-left:10px;flex-shrink:0;">';
+        // AI Reply button
+        html += '<div onclick="aiReply(\'' + ed.id + '\',\'' + ed.account.replace(/'/g, "\\'") + '\')" style="padding:6px 12px;border:1px solid #00ff6630;color:#00ff66;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;transition:all 0.3s;" onmouseover="this.style.background=\'#00ff6615\'" onmouseout="this.style.background=\'transparent\'">AI REPLY</div>';
+        // Delete button
+        html += '<div onclick="deleteEmail(\'' + ed.id + '\',\'' + ed.account.replace(/'/g, "\\'") + '\')" style="padding:6px 12px;border:1px solid #ff475730;color:#ff4757;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;transition:all 0.3s;" onmouseover="this.style.background=\'#ff475715\'" onmouseout="this.style.background=\'transparent\'">DELETE</div>';
+        // Archive button
+        html += '<div onclick="archiveEmail(\'' + ed.id + '\',\'' + ed.account.replace(/'/g, "\\'") + '\')" style="padding:6px 12px;border:1px solid #ff9f4330;color:#ff9f43;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;transition:all 0.3s;" onmouseover="this.style.background=\'#ff9f4315\'" onmouseout="this.style.background=\'transparent\'">ARCHIVE</div>';
+        html += '</div></div>';
+        // AI Reply area (hidden)
+        html += '<div id="reply-' + ed.id + '" style="display:none;margin-top:10px;border-top:1px solid #00ff6620;padding-top:10px;">';
+        html += '<div id="reply-text-' + ed.id + '" style="color:#c0d8f0;font-size:0.9em;padding:10px;background:rgba(0,255,102,0.03);border:1px solid #00ff6610;min-height:60px;">Generating reply...</div>';
+        html += '<div style="display:flex;gap:8px;margin-top:8px;">';
+        html += '<div onclick="sendReply(\'' + ed.id + '\',\'' + ed.account.replace(/'/g, "\\'") + '\')" style="padding:6px 16px;border:1px solid #00ff6630;color:#00ff66;font-family:Orbitron;font-size:0.6em;cursor:pointer;" id="send-btn-' + ed.id + '">SEND</div>';
+        html += '<div onclick="document.getElementById(\'reply-' + ed.id + '\').style.display=\'none\';" style="padding:6px 16px;border:1px solid #4a6a8a30;color:#4a6a8a;font-family:Orbitron;font-size:0.6em;cursor:pointer;">CANCEL</div>';
+        html += '</div></div>';
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="color:#4a6a8a;text-align:center;padding:20px;">Inbox clean.</div>';
     }
 
     html += '</div></div>';
@@ -2949,6 +3144,32 @@ app.get('/dashboard', async function(req, res) {
 
     // Load voices
     html += 'if(synth.onvoiceschanged!==undefined)synth.onvoiceschanged=function(){synth.getVoices();};';
+
+    // Email action functions
+    html += 'async function deleteEmail(id,account){';
+    html += '  if(!confirm("Delete this email?"))return;';
+    html += '  try{var r=await fetch("/email/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,account:account})});';
+    html += '  var d=await r.json();if(d.success){document.getElementById("email-"+id).style.display="none";}else{alert("Error: "+d.error);}}catch(e){alert("Failed: "+e.message);}';
+    html += '}';
+
+    html += 'async function archiveEmail(id,account){';
+    html += '  try{var r=await fetch("/email/archive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,account:account})});';
+    html += '  var d=await r.json();if(d.success){document.getElementById("email-"+id).style.display="none";}else{alert("Error: "+d.error);}}catch(e){alert("Failed: "+e.message);}';
+    html += '}';
+
+    html += 'async function aiReply(id,account){';
+    html += '  var replyDiv=document.getElementById("reply-"+id);replyDiv.style.display="block";';
+    html += '  var textDiv=document.getElementById("reply-text-"+id);textDiv.textContent="Generating reply...";';
+    html += '  try{var r=await fetch("/email/ai-reply",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,account:account})});';
+    html += '  var d=await r.json();textDiv.contentEditable="true";textDiv.textContent=d.reply;textDiv.style.cursor="text";}catch(e){textDiv.textContent="Error: "+e.message;}';
+    html += '}';
+
+    html += 'async function sendReply(id,account){';
+    html += '  var textDiv=document.getElementById("reply-text-"+id);var reply=textDiv.textContent;';
+    html += '  var btn=document.getElementById("send-btn-"+id);btn.textContent="SENDING...";';
+    html += '  try{var r=await fetch("/email/send-reply",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,account:account,reply:reply})});';
+    html += '  var d=await r.json();if(d.success){btn.textContent="SENT";btn.style.color="#00ff66";document.getElementById("reply-"+id).style.display="none";document.getElementById("email-"+id).style.borderColor="#00ff6630";}else{btn.textContent="ERROR";}}catch(e){btn.textContent="FAILED";}';
+    html += '}';
 
     html += '<\/script>';
 
@@ -3279,6 +3500,71 @@ app.get('/daily-questions', async function(req, res) {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+/* ===========================
+   POST /email/delete — Delete email from dashboard
+=========================== */
+app.post('/email/delete', async function(req, res) {
+  try {
+    var gmailClient = await getGmailClient(req.body.account);
+    if (!gmailClient) return res.status(400).json({ error: 'Not connected' });
+    await gmailClient.users.messages.trash({ userId: 'me', id: req.body.id });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   POST /email/archive — Archive email from dashboard
+=========================== */
+app.post('/email/archive', async function(req, res) {
+  try {
+    var gmailClient = await getGmailClient(req.body.account);
+    if (!gmailClient) return res.status(400).json({ error: 'Not connected' });
+    await gmailClient.users.messages.modify({ userId: 'me', id: req.body.id, requestBody: { removeLabelIds: ['INBOX'] } });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   POST /email/ai-reply — Generate AI reply
+=========================== */
+app.post('/email/ai-reply', async function(req, res) {
+  try {
+    var gmailClient = await getGmailClient(req.body.account);
+    if (!gmailClient) return res.status(400).json({ error: 'Not connected' });
+    var msgData = await gmailClient.users.messages.get({ userId: 'me', id: req.body.id, format: 'full' });
+    var body = '';
+    if (msgData.data.payload.body && msgData.data.payload.body.data) {
+      body = Buffer.from(msgData.data.payload.body.data, 'base64').toString();
+    } else if (msgData.data.payload.parts) {
+      for (var p = 0; p < msgData.data.payload.parts.length; p++) {
+        if (msgData.data.payload.parts[p].mimeType === 'text/plain' && msgData.data.payload.parts[p].body.data) {
+          body = Buffer.from(msgData.data.payload.parts[p].body.data, 'base64').toString();
+          break;
+        }
+      }
+    }
+    var headers = msgData.data.payload.headers;
+    var fromH = headers.find(function(h) { return h.name === 'From'; });
+    var subjH = headers.find(function(h) { return h.name === 'Subject'; });
+
+    var reply = await askClaude(
+      "You are Trace's AI assistant. Write a professional, friendly email reply. Keep it concise (2-4 sentences). No subject line, just the body. Sign off as Trace.",
+      [{ role: 'user', content: 'Reply to this email:\nFrom: ' + (fromH ? fromH.value : '') + '\nSubject: ' + (subjH ? subjH.value : '') + '\nBody: ' + body.substring(0, 1000) }]
+    );
+    res.json({ reply: reply });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   POST /email/send-reply — Send the AI-generated reply
+=========================== */
+app.post('/email/send-reply', async function(req, res) {
+  try {
+    var result = await replyToEmail(req.body.account, req.body.id, req.body.reply);
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 /* ===========================
