@@ -1827,8 +1827,6 @@ app.get('/gmail/auth', function(req, res) {
       'https://mail.google.com/',
       'https://www.googleapis.com/auth/calendar',
     ],
-      'https://mail.google.com/',
-    ],
   });
   res.redirect(url);
 });
