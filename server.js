@@ -322,6 +322,13 @@ async function buildLifeOSContext() {
   }
 
   console.log("Context built: " + context.length + " chars");
+  
+  // Add calendar (not cached as long since events change)
+  try {
+    var calContext = await buildCalendarContext(2);
+    context += calContext;
+  } catch (e) {}
+
   contextCache = { data: context, time: Date.now() };
   return context;
 }
@@ -576,6 +583,355 @@ app.post('/whatsapp', async function(req, res) {
 
     // Special commands
 
+    // ====== CALENDAR ======
+    if (lowerMsg === 'calendar' || lowerMsg === 'schedule' || lowerMsg === 'events' || lowerMsg === 'what do i have today' || lowerMsg === 'whats today' || lowerMsg === "what's today") {
+      twiml.message("Checking your calendar...");
+      res.type('text/xml');
+      res.send(twiml.toString());
+
+      setTimeout(async function() {
+        try {
+          var accounts = Object.keys(gmailTokens);
+          var allEvents = [];
+          for (var ca = 0; ca < accounts.length; ca++) {
+            var events = await getCalendarEvents(accounts[ca], 1);
+            allEvents = allEvents.concat(events);
+          }
+
+          var msg = '';
+          if (allEvents.length === 0) {
+            msg = "Nothing on your calendar today. Open day — use it wisely.";
+          } else {
+            msg = "Today's schedule:\n\n";
+            for (var ei = 0; ei < allEvents.length; ei++) {
+              msg += (ei + 1) + ". " + allEvents[ei].time + " — " + allEvents[ei].summary;
+              if (allEvents[ei].location) msg += " @ " + allEvents[ei].location;
+              msg += "\n";
+            }
+          }
+
+          await twilioClient.messages.create({
+            body: msg,
+            from: 'whatsapp:+14155238886',
+            to: from,
+          });
+        } catch (e) {
+          console.log("Calendar fetch error: " + e.message);
+          try {
+            await twilioClient.messages.create({
+              body: "Couldn't access calendar. You may need to reconnect: https://lifeos-jarvis.onrender.com/gmail/auth",
+              from: 'whatsapp:+14155238886',
+              to: from,
+            });
+          } catch (e2) {}
+        }
+      }, 100);
+      return;
+    }
+
+    if (lowerMsg === 'week' || lowerMsg === 'this week' || lowerMsg === 'weekly schedule') {
+      twiml.message("Pulling your week...");
+      res.type('text/xml');
+      res.send(twiml.toString());
+
+      setTimeout(async function() {
+        try {
+          var accounts = Object.keys(gmailTokens);
+          var allEvents = [];
+          for (var ca = 0; ca < accounts.length; ca++) {
+            var events = await getCalendarEvents(accounts[ca], 7);
+            allEvents = allEvents.concat(events);
+          }
+
+          var msg = '';
+          if (allEvents.length === 0) {
+            msg = "Nothing on your calendar this week.";
+          } else {
+            msg = "This week:\n\n";
+            for (var ei = 0; ei < allEvents.length; ei++) {
+              msg += (ei + 1) + ". " + allEvents[ei].date + " " + allEvents[ei].time + " — " + allEvents[ei].summary;
+              if (allEvents[ei].location) msg += " @ " + allEvents[ei].location;
+              msg += "\n";
+            }
+          }
+
+          await twilioClient.messages.create({
+            body: msg,
+            from: 'whatsapp:+14155238886',
+            to: from,
+          });
+        } catch (e) {
+          console.log("Calendar week error: " + e.message);
+        }
+      }, 100);
+      return;
+    }
+
+    // ====== CREATE CALENDAR EVENT ======
+    var eventBuilder = whatsappHistory[from] ? whatsappHistory[from].eventBuilder : null;
+
+    if (lowerMsg.startsWith('add event') || lowerMsg.startsWith('new event') || lowerMsg.startsWith('schedule:') || lowerMsg.startsWith('event:')) {
+      whatsappHistory[from] = whatsappHistory[from] || {};
+      whatsappHistory[from].eventBuilder = {
+        step: 0,
+        data: {},
+        active: true,
+      };
+      twiml.message("New event. What's it called?");
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    if (eventBuilder && eventBuilder.active) {
+      var eSteps = [
+        { key: 'name', next: 'What date? (like Feb 20 or tomorrow)' },
+        { key: 'date', next: 'What time? (like 2pm or 10:30am)' },
+        { key: 'time', next: 'How long? (like 1 hour, 30 min)' },
+        { key: 'duration', next: 'Location? (or type "none")' },
+        { key: 'location', next: null },
+      ];
+
+      var eStep = eSteps[eventBuilder.step];
+      eventBuilder.data[eStep.key] = userMessage;
+      eventBuilder.step++;
+
+      if (eventBuilder.step >= eSteps.length) {
+        eventBuilder.active = false;
+        twiml.message("Creating event...");
+        res.type('text/xml');
+        res.send(twiml.toString());
+
+        var ed = eventBuilder.data;
+        setTimeout(async function() {
+          try {
+            // Use Claude to parse the natural language date/time
+            var parsed = await askClaude(
+              "Parse this into a calendar event. Today is " + new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) + ". Timezone: America/Chicago (CST/CDT).\n\nRespond with ONLY a JSON object, no markdown, no backticks: {\"start\":\"ISO8601\",\"end\":\"ISO8601\"}\n\nEvent: " + ed.name + "\nDate: " + ed.date + "\nTime: " + ed.time + "\nDuration: " + ed.duration,
+              [{ role: 'user', content: 'Parse this event time.' }]
+            );
+
+            var times = JSON.parse(parsed.replace(/```json|```/g, '').trim());
+            var accounts = Object.keys(gmailTokens);
+            if (accounts.length === 0) {
+              await twilioClient.messages.create({
+                body: "No calendar connected. Visit https://lifeos-jarvis.onrender.com/gmail/auth",
+                from: 'whatsapp:+14155238886',
+                to: from,
+              });
+              return;
+            }
+
+            var loc = ed.location === 'none' ? '' : ed.location;
+            var result = await createCalendarEvent(accounts[0], ed.name, times.start, times.end, loc);
+
+            if (result.success) {
+              await twilioClient.messages.create({
+                body: "Event created: \"" + ed.name + "\"\n" + ed.date + " at " + ed.time + (loc ? " @ " + loc : "") + "\n\nI'll call you 10 minutes before.",
+                from: 'whatsapp:+14155238886',
+                to: from,
+              });
+            } else {
+              await twilioClient.messages.create({
+                body: "Couldn't create event: " + result.error,
+                from: 'whatsapp:+14155238886',
+                to: from,
+              });
+            }
+          } catch (e) {
+            console.log("Event creation error: " + e.message);
+            try {
+              await twilioClient.messages.create({
+                body: "Error creating event: " + e.message,
+                from: 'whatsapp:+14155238886',
+                to: from,
+              });
+            } catch (e2) {}
+          }
+        }, 100);
+        return;
+      } else {
+        twiml.message(eSteps[eventBuilder.step].next);
+      }
+
+      whatsappHistory[from].eventBuilder = eventBuilder;
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // ====== REMINDERS SYSTEM ======
+    var activeReminders = global.activeReminders || {};
+    global.activeReminders = activeReminders;
+
+    if (lowerMsg.startsWith('remind:') || lowerMsg.startsWith('remind ') || lowerMsg.startsWith('todo:') || lowerMsg.startsWith('todo ') || lowerMsg.startsWith('i need to ') || lowerMsg.startsWith('i gotta ') || lowerMsg.startsWith('need to ') || lowerMsg.startsWith('buy ') || lowerMsg.startsWith('get ')) {
+      var reminderText = userMessage;
+      // Clean prefix
+      if (lowerMsg.startsWith('remind:') || lowerMsg.startsWith('todo:')) {
+        reminderText = userMessage.substring(userMessage.indexOf(':') + 1).trim();
+      } else if (lowerMsg.startsWith('remind ') || lowerMsg.startsWith('todo ')) {
+        reminderText = userMessage.substring(userMessage.indexOf(' ') + 1).trim();
+      }
+
+      var reminderId = 'r' + Date.now();
+      var sleepStart = 23; // 11 PM
+      var sleepEnd = 7; // 7 AM
+      var nudgeCount = 0;
+
+      activeReminders[reminderId] = {
+        text: reminderText,
+        created: Date.now(),
+        done: false,
+        nudges: 0,
+      };
+
+      twiml.message("Got it. I'll remind you about: \"" + reminderText + "\"\n\nFirst nudge in 5 hours. If it's not done in 10, I'm calling you.\n\nText \"done: " + reminderText.substring(0, 20) + "\" when it's handled.");
+      res.type('text/xml');
+      res.send(twiml.toString());
+
+      // Log to sheet
+      setTimeout(async function() {
+        try {
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'Reminders'!A:F",
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[
+              new Date().toISOString().split('T')[0],
+              new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              reminderText,
+              'PENDING',
+              '',
+              '',
+            ]] },
+          });
+        } catch (e) { console.log("Reminder log error: " + e.message); }
+      }, 100);
+
+      // 5-hour nudge
+      var fiveHours = 5 * 60 * 60 * 1000;
+      var tenHours = 10 * 60 * 60 * 1000;
+
+      setTimeout(async function() {
+        if (activeReminders[reminderId] && !activeReminders[reminderId].done) {
+          var hour = new Date().getHours();
+          if (hour >= sleepEnd && hour < sleepStart) {
+            activeReminders[reminderId].nudges++;
+            try {
+              await twilioClient.messages.create({
+                body: "Reminder: \"" + reminderText + "\" — You said you'd handle this. Have you? Text \"done: " + reminderText.substring(0, 20) + "\" when it's done.",
+                from: 'whatsapp:+14155238886',
+                to: from,
+              });
+            } catch (e) { console.log("Reminder nudge error: " + e.message); }
+          }
+        }
+      }, fiveHours);
+
+      // 10-hour escalation — PHONE CALL
+      setTimeout(async function() {
+        if (activeReminders[reminderId] && !activeReminders[reminderId].done) {
+          var hour = new Date().getHours();
+          if (hour >= sleepEnd && hour < sleepStart) {
+            try {
+              // Text warning first
+              await twilioClient.messages.create({
+                body: "Last warning. \"" + reminderText + "\" is still not done. I'm calling you in 60 seconds.",
+                from: 'whatsapp:+14155238886',
+                to: from,
+              });
+
+              // Call after 60 seconds
+              setTimeout(async function() {
+                if (activeReminders[reminderId] && !activeReminders[reminderId].done) {
+                  try {
+                    var baseUrl = process.env.BASE_URL || 'https://lifeos-jarvis.onrender.com';
+                    // Create a custom voice reminder endpoint
+                    await twilioClient.calls.create({
+                      to: MY_NUMBER,
+                      from: TWILIO_NUMBER,
+                      twiml: '<Response><Say voice="Polly.Matthew">Trace. You told me to remind you about: ' + reminderText.replace(/[<>&"']/g, '') + '. It has been 10 hours and you still haven\'t done it. No more excuses. Handle it now.</Say></Response>',
+                    });
+                  } catch (callErr) { console.log("Reminder call error: " + callErr.message); }
+                }
+              }, 60000);
+            } catch (e) { console.log("Reminder escalation error: " + e.message); }
+          }
+        }
+      }, tenHours);
+
+      return;
+    }
+
+    // ====== MARK REMINDER DONE ======
+    if (lowerMsg.startsWith('done:') || lowerMsg.startsWith('done ') || lowerMsg.startsWith('finished:') || lowerMsg.startsWith('finished ')) {
+      var doneText = userMessage.substring(userMessage.indexOf(':') > -1 && userMessage.indexOf(':') < 9 ? userMessage.indexOf(':') + 1 : userMessage.indexOf(' ') + 1).trim().toLowerCase();
+      var cleared = 0;
+      var reminderKeys = Object.keys(activeReminders);
+      for (var rk = 0; rk < reminderKeys.length; rk++) {
+        if (!activeReminders[reminderKeys[rk]].done && activeReminders[reminderKeys[rk]].text.toLowerCase().includes(doneText)) {
+          activeReminders[reminderKeys[rk]].done = true;
+          cleared++;
+        }
+      }
+      if (cleared > 0) {
+        twiml.message("Cleared. " + cleared + " reminder(s) marked done. That's execution.");
+        // Log as a win and update reminder status
+        setTimeout(async function() {
+          try {
+            var today = new Date().toISOString().split('T')[0];
+            var now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Wins'!A:D",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [[today, 'Completed reminder: ' + doneText, 'Personal Growth', 'Auto-logged from reminder']] },
+            });
+            // Find and update the reminder row
+            var reminderRows = await sheets.spreadsheets.values.get({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Reminders'!A:F",
+            });
+            var rRows = reminderRows.data.values || [];
+            for (var ri = rRows.length - 1; ri >= 1; ri--) {
+              if (rRows[ri][2] && rRows[ri][2].toLowerCase().includes(doneText) && rRows[ri][3] === 'PENDING') {
+                var hoursToComplete = Math.round((Date.now() - new Date(rRows[ri][0] + ' ' + rRows[ri][1]).getTime()) / 3600000);
+                await sheets.spreadsheets.values.update({
+                  spreadsheetId: SPREADSHEET_ID,
+                  range: "'Reminders'!D" + (ri + 1) + ":F" + (ri + 1),
+                  valueInputOption: 'USER_ENTERED',
+                  requestBody: { values: [['DONE', now, hoursToComplete > 0 ? hoursToComplete : 0]] },
+                });
+                break;
+              }
+            }
+          } catch (e) { console.log("Reminder complete error: " + e.message); }
+        }, 100);
+      } else {
+        twiml.message("No active reminders matching that. Text \"reminders\" to see what's pending.");
+      }
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // ====== LIST ACTIVE REMINDERS ======
+    if (lowerMsg === 'reminders' || lowerMsg === 'reminder' || lowerMsg === 'what do i need to do') {
+      var reminderKeys2 = Object.keys(activeReminders);
+      var pending = [];
+      for (var rk2 = 0; rk2 < reminderKeys2.length; rk2++) {
+        if (!activeReminders[reminderKeys2[rk2]].done) {
+          var r = activeReminders[reminderKeys2[rk2]];
+          var hoursAgo = Math.round((Date.now() - r.created) / 3600000);
+          pending.push((pending.length + 1) + ". " + r.text + " (" + hoursAgo + "h ago)");
+        }
+      }
+      if (pending.length > 0) {
+        twiml.message("Pending reminders:\n\n" + pending.join("\n") + "\n\nText \"done: [task]\" to clear.");
+      } else {
+        twiml.message("No pending reminders. You're clear.");
+      }
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
     // ====== LOG A WIN ======
     if (lowerMsg.startsWith('win:') || lowerMsg.startsWith('win ')) {
       var winText = userMessage.substring(userMessage.indexOf(':') > -1 && userMessage.indexOf(':') < 5 ? userMessage.indexOf(':') + 1 : 4).trim();
@@ -596,6 +952,217 @@ app.post('/whatsapp', async function(req, res) {
             requestBody: { values: [[today, winText, area.trim(), 'Logged via Jarvis']] },
           });
         } catch (e) { console.log("Win log error: " + e.message); }
+      }, 100);
+      return;
+    }
+
+    // ====== GYM LOG ======
+    if (lowerMsg === 'gym' || lowerMsg === 'gym log' || lowerMsg === 'worked out' || lowerMsg === 'hit the gym' || lowerMsg.startsWith('gym:')) {
+      // Quick log: "gym: chest and triceps" or start guided flow
+      var quickGym = '';
+      if (lowerMsg.includes(':')) {
+        quickGym = userMessage.substring(userMessage.indexOf(':') + 1).trim();
+      }
+
+      if (quickGym) {
+        twiml.message("Gym logged. Discipline is everything.");
+        res.type('text/xml');
+        res.send(twiml.toString());
+        setTimeout(async function() {
+          try {
+            var today = new Date().toISOString().split('T')[0];
+            var day = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Gym_Log'!A:E",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [[today, day, quickGym, '', 'Logged via Jarvis']] },
+            });
+            // Also log as a win
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Wins'!A:D",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [[today, 'Hit the gym: ' + quickGym, 'Health', 'Auto-logged from gym']] },
+            });
+          } catch (e) { console.log("Gym log error: " + e.message); }
+        }, 100);
+        return;
+      }
+
+      // Guided flow
+      whatsappHistory[from] = whatsappHistory[from] || {};
+      whatsappHistory[from].gymLog = {
+        step: 0,
+        data: { date: new Date().toISOString().split('T')[0] },
+        active: true,
+      };
+      twiml.message("Gym check-in. What did you train? (chest, back, legs, shoulders, arms, full body, cardio)");
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    var gymLog = whatsappHistory[from] ? whatsappHistory[from].gymLog : null;
+    if (gymLog && gymLog.active) {
+      var gSteps = [
+        { key: 'muscles', next: 'How long was the session? (minutes)' },
+        { key: 'duration', next: 'How was the energy? (1-10)' },
+        { key: 'energy', next: null },
+      ];
+
+      var gStep = gSteps[gymLog.step];
+      gymLog.data[gStep.key] = userMessage;
+      gymLog.step++;
+
+      if (gymLog.step >= gSteps.length) {
+        gymLog.active = false;
+        twiml.message("Logged. The gym never lies. Keep showing up.");
+        res.type('text/xml');
+        res.send(twiml.toString());
+
+        var gd = gymLog.data;
+        setTimeout(async function() {
+          try {
+            var day = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Gym_Log'!A:E",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [[gd.date, day, gd.muscles, gd.duration + ' min', 'Energy: ' + gd.energy + '/10']] },
+            });
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Wins'!A:D",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [[gd.date, 'Gym: ' + gd.muscles + ' (' + gd.duration + ' min)', 'Health', 'Auto-logged from gym']] },
+            });
+          } catch (e) { console.log("Gym log error: " + e.message); }
+        }, 100);
+        return;
+      } else {
+        twiml.message(gSteps[gymLog.step].next);
+      }
+
+      whatsappHistory[from].gymLog = gymLog;
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // ====== WATER LOG ======
+    if (lowerMsg.startsWith('water:') || lowerMsg.startsWith('water ') || lowerMsg.startsWith('drank ')) {
+      var waterAmt = userMessage.replace(/^(water[:\s]*|drank\s*)/i, '').trim();
+      twiml.message("Logged " + waterAmt + " water. Stay hydrated.");
+      res.type('text/xml');
+      res.send(twiml.toString());
+      setTimeout(async function() {
+        try {
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'Health_Log'!A:E",
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[new Date().toISOString().split('T')[0], new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }), 'Water', waterAmt, '']] },
+          });
+        } catch (e) { console.log("Water log error: " + e.message); }
+      }, 100);
+      return;
+    }
+
+    // ====== HABIT / ADDICTION TRACKING ======
+    if (lowerMsg === 'log' || lowerMsg === 'track' || lowerMsg === 'habit' || lowerMsg === 'habits') {
+      whatsappHistory[from] = whatsappHistory[from] || {};
+      whatsappHistory[from].habitLog = {
+        step: 0,
+        data: { date: new Date().toISOString().split('T')[0] },
+        active: true,
+      };
+      twiml.message("Habit check-in. Be honest — this is between you and the data.\n\nAlcohol today? (none, 1-2 drinks, 3-5, 6+)");
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    var habitLog = whatsappHistory[from] ? whatsappHistory[from].habitLog : null;
+    if (habitLog && habitLog.active) {
+      var hSteps = [
+        { key: 'alcohol', next: 'Nicotine today? (none, 1-3, 4-10, 10+)' },
+        { key: 'nicotine', next: 'PMO today? (clean, relapsed)' },
+        { key: 'pmo', next: 'Any urges you fought off today? (yes/no)' },
+        { key: 'urges', next: 'Water intake today? (oz or glasses)' },
+        { key: 'water', next: null },
+      ];
+
+      var hStep = hSteps[habitLog.step];
+      habitLog.data[hStep.key] = userMessage;
+      habitLog.step++;
+
+      if (habitLog.step >= hSteps.length) {
+        habitLog.active = false;
+        var hd = habitLog.data;
+        var isClean = (hd.alcohol.toLowerCase().includes('none') && hd.nicotine.toLowerCase().includes('none') && hd.pmo.toLowerCase().includes('clean'));
+        twiml.message(isClean ? "Clean day. That's strength. Keep building that streak." : "Logged. Awareness is step one. Tomorrow is another chance to be better.");
+        res.type('text/xml');
+        res.send(twiml.toString());
+
+        setTimeout(async function() {
+          try {
+            await sheets.spreadsheets.values.append({
+              spreadsheetId: SPREADSHEET_ID,
+              range: "'Health_Log'!A:E",
+              valueInputOption: 'USER_ENTERED',
+              requestBody: { values: [
+                [hd.date, '', 'Alcohol', hd.alcohol, ''],
+                [hd.date, '', 'Nicotine', hd.nicotine, ''],
+                [hd.date, '', 'PMO', hd.pmo, ''],
+                [hd.date, '', 'Urges Fought', hd.urges, ''],
+                [hd.date, '', 'Water', hd.water, ''],
+              ] },
+            });
+          } catch (e) { console.log("Habit log error: " + e.message); }
+        }, 100);
+        return;
+      } else {
+        twiml.message(hSteps[habitLog.step].next);
+      }
+
+      whatsappHistory[from].habitLog = habitLog;
+      res.type('text/xml');
+      return res.send(twiml.toString());
+    }
+
+    // Quick habit shortcuts
+    if (lowerMsg === 'relapsed' || lowerMsg === 'relapse') {
+      twiml.message("Logged. No shame — awareness matters. What triggered it?");
+      res.type('text/xml');
+      res.send(twiml.toString());
+      setTimeout(async function() {
+        try {
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'Health_Log'!A:E",
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[new Date().toISOString().split('T')[0], new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }), 'PMO', 'Relapsed', '']] },
+          });
+        } catch (e) {}
+      }, 100);
+      return;
+    }
+
+    if (lowerMsg === 'clean' || lowerMsg === 'clean day') {
+      twiml.message("Clean day logged. That's discipline. Keep going.");
+      res.type('text/xml');
+      res.send(twiml.toString());
+      setTimeout(async function() {
+        try {
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'Health_Log'!A:E",
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [
+              [new Date().toISOString().split('T')[0], new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }), 'PMO', 'Clean', ''],
+              [new Date().toISOString().split('T')[0], '', 'Nicotine', 'None', ''],
+              [new Date().toISOString().split('T')[0], '', 'Alcohol', 'None', ''],
+            ] },
+          });
+        } catch (e) {}
       }, 100);
       return;
     }
@@ -1258,6 +1825,9 @@ app.get('/gmail/auth', function(req, res) {
       'https://www.googleapis.com/auth/gmail.send',
       'https://www.googleapis.com/auth/gmail.modify',
       'https://mail.google.com/',
+      'https://www.googleapis.com/auth/calendar',
+    ],
+      'https://mail.google.com/',
     ],
   });
   res.redirect(url);
@@ -1433,6 +2003,204 @@ async function archiveEmail(email, messageId) {
 }
 
 /* ===========================
+   GOOGLE CALENDAR — Helper Functions
+=========================== */
+
+async function getCalendarEvents(email, daysAhead) {
+  var tokens = gmailTokens[email];
+  if (!tokens) return [];
+  var oauth2 = createGmailOAuth2Client(tokens);
+
+  if (tokens.expiry_date && tokens.expiry_date < Date.now()) {
+    try {
+      var { credentials } = await oauth2.refreshAccessToken();
+      gmailTokens[email] = credentials;
+      saveGmailTokens();
+      oauth2.setCredentials(credentials);
+    } catch (e) { return []; }
+  }
+
+  try {
+    var calendar = google.calendar({ version: 'v3', auth: oauth2 });
+    var now = new Date();
+    var future = new Date();
+    future.setDate(future.getDate() + (daysAhead || 1));
+
+    var res = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: now.toISOString(),
+      timeMax: future.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 15,
+    });
+
+    var events = res.data.items || [];
+    return events.map(function(e) {
+      var start = e.start.dateTime || e.start.date;
+      var startDate = new Date(start);
+      var timeStr = e.start.dateTime
+        ? startDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        : 'All day';
+      var dayStr = startDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      return {
+        summary: e.summary || '(no title)',
+        time: timeStr,
+        date: dayStr,
+        location: e.location || '',
+        description: (e.description || '').substring(0, 100),
+      };
+    });
+  } catch (err) {
+    console.log("Calendar error for " + email + ": " + err.message);
+    return [];
+  }
+}
+
+async function buildCalendarContext(daysAhead) {
+  var accounts = Object.keys(gmailTokens);
+  if (accounts.length === 0) return '';
+
+  var context = '\nUPCOMING CALENDAR:\n';
+  var hasEvents = false;
+
+  for (var a = 0; a < accounts.length; a++) {
+    var events = await getCalendarEvents(accounts[a], daysAhead || 1);
+    if (events.length > 0) {
+      hasEvents = true;
+      for (var e = 0; e < events.length; e++) {
+        context += '  ' + events[e].date + ' ' + events[e].time + ' — ' + events[e].summary;
+        if (events[e].location) context += ' @ ' + events[e].location;
+        context += '\n';
+      }
+    }
+  }
+
+  if (!hasEvents) context += '  No upcoming events\n';
+  return context + '\n';
+}
+
+async function createCalendarEvent(email, summary, startTime, endTime, location) {
+  var tokens = gmailTokens[email];
+  if (!tokens) return { error: 'Not connected' };
+  var oauth2 = createGmailOAuth2Client(tokens);
+
+  if (tokens.expiry_date && tokens.expiry_date < Date.now()) {
+    try {
+      var { credentials } = await oauth2.refreshAccessToken();
+      gmailTokens[email] = credentials;
+      saveGmailTokens();
+      oauth2.setCredentials(credentials);
+    } catch (e) { return { error: 'Auth refresh failed' }; }
+  }
+
+  try {
+    var calendar = google.calendar({ version: 'v3', auth: oauth2 });
+    var event = {
+      summary: summary,
+      start: { dateTime: startTime, timeZone: 'America/Chicago' },
+      end: { dateTime: endTime, timeZone: 'America/Chicago' },
+    };
+    if (location) event.location = location;
+
+    var result = await calendar.events.insert({
+      calendarId: 'primary',
+      requestBody: event,
+    });
+    return { success: true, id: result.data.id, link: result.data.htmlLink };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/* ===========================
+   CALENDAR — 10 min before call system
+=========================== */
+
+var calendarCheckInterval = null;
+var notifiedEvents = {};
+
+function startCalendarWatcher() {
+  // Check every 2 minutes for upcoming events
+  calendarCheckInterval = setInterval(async function() {
+    try {
+      var accounts = Object.keys(gmailTokens);
+      for (var a = 0; a < accounts.length; a++) {
+        var events = await getCalendarEvents(accounts[a], 1);
+        for (var e = 0; e < events.length; e++) {
+          var ev = events[e];
+          // Parse the event time
+          var tokens2 = gmailTokens[accounts[a]];
+          if (!tokens2) continue;
+          var oauth2 = createGmailOAuth2Client(tokens2);
+          var calendar = google.calendar({ version: 'v3', auth: oauth2 });
+
+          // Get raw event data for exact time
+          var now = new Date();
+          var future = new Date();
+          future.setDate(future.getDate() + 1);
+          var rawEvents = await calendar.events.list({
+            calendarId: 'primary',
+            timeMin: now.toISOString(),
+            timeMax: future.toISOString(),
+            singleEvents: true,
+            orderBy: 'startTime',
+            maxResults: 10,
+          });
+
+          var items = rawEvents.data.items || [];
+          for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            if (!item.start.dateTime) continue; // skip all-day events
+            var eventStart = new Date(item.start.dateTime);
+            var minutesTillEvent = (eventStart.getTime() - now.getTime()) / 60000;
+            var eventKey = item.id + '_' + eventStart.toISOString();
+
+            // 10 minutes before — call
+            if (minutesTillEvent > 8 && minutesTillEvent <= 12 && !notifiedEvents[eventKey]) {
+              notifiedEvents[eventKey] = true;
+              console.log("Calendar alert: " + item.summary + " in " + Math.round(minutesTillEvent) + " min");
+
+              var eventName = (item.summary || 'an event').replace(/[<>&"']/g, '');
+              var eventLoc = item.location ? ' at ' + item.location.replace(/[<>&"']/g, '') : '';
+
+              // Text first
+              try {
+                await twilioClient.messages.create({
+                  body: "Heads up — \"" + item.summary + "\" starts in 10 minutes" + (item.location ? " at " + item.location : "") + ".",
+                  from: 'whatsapp:+14155238886',
+                  to: '+18167392734',
+                });
+              } catch (e) {}
+
+              // Then call
+              try {
+                await twilioClient.calls.create({
+                  to: MY_NUMBER,
+                  from: TWILIO_NUMBER,
+                  twiml: '<Response><Say voice="Polly.Matthew">Trace. You have ' + eventName + eventLoc + ' starting in 10 minutes. Get ready.</Say></Response>',
+                });
+              } catch (e) { console.log("Calendar call error: " + e.message); }
+            }
+          }
+          break; // only check first account for calendar
+        }
+      }
+    } catch (err) {
+      console.log("Calendar watcher error: " + err.message);
+    }
+  }, 120000); // every 2 minutes
+}
+
+// Clean up old notified events every hour
+setInterval(function() {
+  var keys = Object.keys(notifiedEvents);
+  if (keys.length > 100) {
+    notifiedEvents = {};
+  }
+}, 3600000);
+
+/* ===========================
    GMAIL — Build Email Context for Briefings
 =========================== */
 
@@ -1528,15 +2296,11 @@ app.get('/dashboard', async function(req, res) {
     var context = await buildLifeOSContext();
 
     // Parse numbers from context
-    var screenTimeMatch = context.match(/Screen time[:\s]*([\d.]+)/i);
-    var gratitudeMatch = context.match(/([\d,]+)\s*gratitude/i);
-    var businessMatch = context.match(/([\d,]+)\s*business idea/i);
-    var debtMatch = context.match(/\$([.\d]+)\s*total balance/i);
+    var screenTimeMatch = context.match(/Daily average[:\s]*([\d.]+)/i);
+    var debtMatch = context.match(/\~?\$([,\d]+)\s*total debt/i);
 
     var screenTime = screenTimeMatch ? screenTimeMatch[1] : '?';
-    var gratitudeCount = gratitudeMatch ? gratitudeMatch[1] : '?';
-    var businessCount = businessMatch ? businessMatch[1] : '?';
-    var debtAmount = debtMatch ? debtMatch[1] : '0';
+    var debtAmount = debtMatch ? debtMatch[1].replace(/,/g, '') : '0';
 
     // Get email count
     var emailAccounts = Object.keys(gmailTokens);
@@ -1545,6 +2309,106 @@ app.get('/dashboard', async function(req, res) {
       var emails = await getUnreadEmails(emailAccounts[ea], 50);
       totalUnread += emails.length;
     }
+
+    // Get today's calendar events
+    var todayEvents = [];
+    for (var ca = 0; ca < emailAccounts.length; ca++) {
+      var events = await getCalendarEvents(emailAccounts[ca], 1);
+      todayEvents = todayEvents.concat(events);
+    }
+
+    // Get recent wins
+    var recentWins = [];
+    try {
+      var winsRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Wins'!A:D" });
+      var winsRows = winsRes.data.values || [];
+      recentWins = winsRows.slice(Math.max(1, winsRows.length - 5));
+    } catch (e) {}
+
+    // Get pending reminders
+    var pendingReminders = [];
+    global.activeReminders = global.activeReminders || {};
+    var rKeys = Object.keys(global.activeReminders);
+    for (var rk = 0; rk < rKeys.length; rk++) {
+      if (!global.activeReminders[rKeys[rk]].done) {
+        pendingReminders.push(global.activeReminders[rKeys[rk]]);
+      }
+    }
+
+    // Get recent daily questions
+    var recentQuestions = [];
+    try {
+      var qRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Daily_Questions'!A:G" });
+      var qRows = qRes.data.values || [];
+      recentQuestions = qRows.slice(Math.max(1, qRows.length - 3));
+    } catch (e) {}
+
+    // Get recent daily log
+    var recentLog = null;
+    try {
+      var logRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Daily_Log'!A:J" });
+      var logRows = logRes.data.values || [];
+      if (logRows.length > 1) recentLog = { headers: logRows[0], data: logRows[logRows.length - 1] };
+    } catch (e) {}
+
+    // Get dating log count
+    var datingCount = 0;
+    try {
+      var dRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Dating_Log'!A:A" });
+      datingCount = Math.max(0, ((dRes.data.values || []).length) - 1);
+    } catch (e) {}
+
+    // Get gym log data
+    var gymVisits = 0;
+    var gymThisWeek = 0;
+    var recentGym = [];
+    try {
+      var gymRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Gym_Log'!A:E" });
+      var gymRows = gymRes.data.values || [];
+      gymVisits = Math.max(0, gymRows.length - 1);
+      recentGym = gymRows.slice(Math.max(1, gymRows.length - 5));
+      var now = new Date();
+      var weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      for (var gi = 1; gi < gymRows.length; gi++) {
+        if (gymRows[gi][0]) {
+          var gymDate = new Date(gymRows[gi][0]);
+          if (gymDate >= weekStart) gymThisWeek++;
+        }
+      }
+    } catch (e) {}
+
+    // Get health/habit data
+    var healthData = { water: [], alcohol: [], nicotine: [], pmo: [], streaks: { pmo: 0, nicotine: 0, alcohol: 0 } };
+    try {
+      var healthRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Health_Log'!A:E" });
+      var healthRows = healthRes.data.values || [];
+      var lastRelapse = { pmo: null, nicotine: null, alcohol: null };
+      for (var hi = healthRows.length - 1; hi >= 1; hi--) {
+        var hRow = healthRows[hi];
+        if (!hRow[2]) continue;
+        var hType = hRow[2].toLowerCase();
+        if (hType === 'water') healthData.water.push({ date: hRow[0], amount: hRow[3] });
+        if (hType === 'alcohol') {
+          healthData.alcohol.push({ date: hRow[0], amount: hRow[3] });
+          if (!lastRelapse.alcohol && hRow[3] && !hRow[3].toLowerCase().includes('none')) lastRelapse.alcohol = new Date(hRow[0]);
+        }
+        if (hType === 'nicotine') {
+          healthData.nicotine.push({ date: hRow[0], amount: hRow[3] });
+          if (!lastRelapse.nicotine && hRow[3] && !hRow[3].toLowerCase().includes('none')) lastRelapse.nicotine = new Date(hRow[0]);
+        }
+        if (hType === 'pmo') {
+          healthData.pmo.push({ date: hRow[0], status: hRow[3] });
+          if (!lastRelapse.pmo && hRow[3] && hRow[3].toLowerCase().includes('relapse')) lastRelapse.pmo = new Date(hRow[0]);
+        }
+      }
+      // Calculate streaks
+      var today = new Date();
+      if (lastRelapse.pmo) healthData.streaks.pmo = Math.floor((today - lastRelapse.pmo) / 86400000);
+      if (lastRelapse.nicotine) healthData.streaks.nicotine = Math.floor((today - lastRelapse.nicotine) / 86400000);
+      if (lastRelapse.alcohol) healthData.streaks.alcohol = Math.floor((today - lastRelapse.alcohol) / 86400000);
+    } catch (e) {}
 
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>J.A.R.V.I.S. — LifeOS Command Center</title>';
@@ -1667,7 +2531,9 @@ app.get('/dashboard', async function(req, res) {
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
     html += '<div class="status-item"><div class="status-dot blue"></div>AI ACTIVE</div>';
     html += '<div class="status-item"><div class="status-dot green"></div>' + emailAccounts.length + ' EMAIL LINKED</div>';
-    html += '<div class="status-item"><div class="status-dot blue"></div>VOICE READY</div>';
+    html += '<div class="status-item"><div class="status-dot blue"></div>' + todayEvents.length + ' EVENTS TODAY</div>';
+    html += '<div class="status-item"><div class="status-dot ' + (pendingReminders.length > 0 ? 'green' : 'blue') + '"></div>' + pendingReminders.length + ' REMINDERS</div>';
+    html += '<div class="status-item"><div class="status-dot green"></div>VOICE READY</div>';
     html += '</div>';
     html += '</div>';
 
@@ -1675,27 +2541,178 @@ app.get('/dashboard', async function(req, res) {
     html += '<div class="grid">';
 
     var screenPct = Math.min(100, Math.round((parseFloat(screenTime) / 24) * 100));
-    html += '<div class="card"><div class="label">Active Systems</div><div class="value">' + tabs.length + '</div><div class="sub">Tracking all life domains</div><div class="bar"><div class="bar-fill" style="width:100%"></div></div></div>';
-
     html += '<div class="card"><div class="label">Screen Time</div><div class="value">' + screenTime + 'h</div><div class="sub">' + (parseFloat(screenTime) > 10 ? 'WARNING — Exceeds optimal threshold' : 'Within optimal range') + '</div><div class="bar"><div class="bar-fill" style="width:' + screenPct + '%"></div></div></div>';
-
-    html += '<div class="card"><div class="label">Gratitude Index</div><div class="value">' + gratitudeCount + '</div><div class="sub">Lifetime entries — exceptional consistency</div><div class="bar"><div class="bar-fill" style="width:95%"></div></div></div>';
-
-    html += '<div class="card"><div class="label">Business Intel</div><div class="value">' + businessCount + '</div><div class="sub">Ideas tracked and evaluated</div><div class="bar"><div class="bar-fill" style="width:76%"></div></div></div>';
-
-    html += '<div class="card"><div class="label">Financial Status</div><div class="value">$' + debtAmount + '</div><div class="sub">Total debt — ' + (parseFloat(debtAmount) === 0 ? 'CLEAR' : 'Active balance') + '</div><div class="bar"><div class="bar-fill" style="width:' + (parseFloat(debtAmount) === 0 ? 100 : 30) + '%"></div></div></div>';
 
     html += '<div class="card"><div class="label">Inbox Status</div><div class="value">' + totalUnread + '</div><div class="sub">Unread across ' + emailAccounts.length + ' account(s)</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, totalUnread * 3) + '%"></div></div></div>';
 
+    html += '<div class="card"><div class="label">Today\'s Events</div><div class="value">' + todayEvents.length + '</div><div class="sub">' + (todayEvents.length > 0 ? 'Next: ' + todayEvents[0].time + ' — ' + todayEvents[0].summary : 'No events today') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, todayEvents.length * 20) + '%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Pending Reminders</div><div class="value">' + pendingReminders.length + '</div><div class="sub">' + (pendingReminders.length > 0 ? pendingReminders[0].text : 'All clear') + '</div><div class="bar"><div class="bar-fill" style="width:' + (pendingReminders.length === 0 ? 100 : Math.min(100, pendingReminders.length * 25)) + '%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Recent Wins</div><div class="value">' + recentWins.length + '</div><div class="sub">' + (recentWins.length > 0 ? recentWins[recentWins.length - 1][1] || 'Keep stacking' : 'No wins logged — text "win:" to start') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, recentWins.length * 20) + '%"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Financial Status</div><div class="value">$' + parseInt(debtAmount).toLocaleString() + '</div><div class="sub">' + (parseFloat(debtAmount) === 0 ? 'DEBT FREE' : 'Total debt — grinding it down') + '</div><div class="bar"><div class="bar-fill" style="width:' + (parseFloat(debtAmount) === 0 ? 100 : 30) + '%"></div></div></div>';
+
+    html += '<div class="card" style="--accent:#ff6b9d;"><div class="label">Gym This Week</div><div class="value">' + gymThisWeek + '</div><div class="sub">' + gymVisits + ' total visits' + (gymThisWeek >= 5 ? ' — BEAST MODE' : gymThisWeek >= 3 ? ' — Solid consistency' : ' — Get in there') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, gymThisWeek * 15) + '%;background:#ff6b9d;"></div></div></div>';
+
+    html += '<div class="card" style="--accent:#55f7d8;"><div class="label">Dating Log</div><div class="value">' + datingCount + '</div><div class="sub">' + (datingCount > 0 ? 'Interactions logged' : 'Text "date log" to start tracking') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, datingCount * 10) + '%;background:#55f7d8;"></div></div></div>';
+
     html += '</div>';
 
-    // Actions
+    // Today's Schedule Section
+    if (todayEvents.length > 0) {
+      html += '<div class="systems" style="margin-top:10px;">';
+      html += '<div class="systems-title" style="color:#a855f7;">Today\'s Schedule</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      for (var ei = 0; ei < todayEvents.length; ei++) {
+        html += '<div class="sys-chip" style="border-color:#a855f720;display:flex;justify-content:space-between;padding:12px 16px;">';
+        html += '<span style="color:#a855f7;">' + todayEvents[ei].time + '</span>';
+        html += '<span style="color:#c0d8f0;margin-left:15px;">' + todayEvents[ei].summary + '</span>';
+        if (todayEvents[ei].location) html += '<span style="color:#4a6a8a;margin-left:10px;">@ ' + todayEvents[ei].location + '</span>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Pending Reminders Section
+    if (pendingReminders.length > 0) {
+      html += '<div class="systems" style="margin-top:10px;">';
+      html += '<div class="systems-title" style="color:#ff9f43;">Pending Reminders</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      for (var ri = 0; ri < pendingReminders.length; ri++) {
+        var hoursAgo = Math.round((Date.now() - pendingReminders[ri].created) / 3600000);
+        html += '<div class="sys-chip" style="border-color:#ff9f4320;display:flex;justify-content:space-between;padding:12px 16px;">';
+        html += '<span style="color:#ff9f43;">' + hoursAgo + 'h ago</span>';
+        html += '<span style="color:#c0d8f0;margin-left:15px;">' + pendingReminders[ri].text + '</span>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Gym History Section
+    if (recentGym.length > 0) {
+      html += '<div class="systems" style="margin-top:10px;">';
+      html += '<div class="systems-title" style="color:#ff6b9d;">Gym History</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      for (var ghi = 0; ghi < recentGym.length; ghi++) {
+        html += '<div class="sys-chip" style="border-color:#ff6b9d20;display:flex;justify-content:space-between;padding:12px 16px;">';
+        html += '<span style="color:#ff6b9d;">' + (recentGym[ghi][0] || '') + ' (' + (recentGym[ghi][1] || '') + ')</span>';
+        html += '<span style="color:#c0d8f0;margin-left:15px;">' + (recentGym[ghi][2] || '') + '</span>';
+        html += '<span style="color:#4a6a8a;margin-left:10px;">' + (recentGym[ghi][3] || '') + ' ' + (recentGym[ghi][4] || '') + '</span>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Recent Wins Section
+    if (recentWins.length > 0) {
+      html += '<div class="systems" style="margin-top:10px;">';
+      html += '<div class="systems-title" style="color:#00ff66;">Recent Wins</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      for (var wi = 0; wi < recentWins.length; wi++) {
+        html += '<div class="sys-chip" style="border-color:#00ff6620;display:flex;justify-content:space-between;padding:12px 16px;">';
+        html += '<span style="color:#00ff66;">' + (recentWins[wi][0] || '') + '</span>';
+        html += '<span style="color:#c0d8f0;margin-left:15px;">' + (recentWins[wi][1] || '') + '</span>';
+        html += '<span style="color:#4a6a8a;margin-left:10px;">' + (recentWins[wi][2] || '') + '</span>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Latest Daily Log
+    if (recentLog && recentLog.data) {
+      html += '<div class="systems" style="margin-top:10px;">';
+      html += '<div class="systems-title" style="color:#00d4ff;">Latest Daily Check-in</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      for (var li = 0; li < recentLog.headers.length; li++) {
+        if (recentLog.data[li] && recentLog.data[li] !== '' && recentLog.data[li] !== '0') {
+          html += '<div class="sys-chip" style="border-color:#00d4ff20;padding:10px 16px;">';
+          html += '<span style="color:#4a6a8a;font-size:0.8em;">' + recentLog.headers[li] + '</span><br>';
+          html += '<span style="color:#00d4ff;font-size:1.1em;">' + recentLog.data[li] + '</span>';
+          html += '</div>';
+        }
+      }
+      html += '</div></div>';
+    }
+
+    // Recent Daily Questions
+    if (recentQuestions.length > 0) {
+      html += '<div class="systems" style="margin-top:10px;">';
+      html += '<div class="systems-title" style="color:#ff6b9d;">Recent Self-Reflection</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      for (var qi = 0; qi < recentQuestions.length; qi++) {
+        if (recentQuestions[qi][2] && recentQuestions[qi][3]) {
+          html += '<div class="sys-chip" style="border-color:#ff6b9d20;padding:12px 16px;display:block;">';
+          html += '<div style="color:#ff6b9d;font-size:0.85em;margin-bottom:5px;">Q: ' + (recentQuestions[qi][2] || '').substring(0, 80) + '</div>';
+          html += '<div style="color:#c0d8f0;">A: ' + (recentQuestions[qi][3] || '').substring(0, 100) + '</div>';
+          html += '</div>';
+        }
+      }
+      html += '</div></div>';
+    }
+
+    // Private Health Section — collapsible, hidden by default
+    html += '<div class="systems" style="margin-top:10px;">';
+    html += '<div class="systems-title" style="color:#8b5cf6;cursor:pointer;" onclick="var el=document.getElementById(\'private-health\');var arrow=document.getElementById(\'health-arrow\');if(el.style.display===\'none\'){el.style.display=\'block\';arrow.textContent=\'▼\';}else{el.style.display=\'none\';arrow.textContent=\'▶\';}">Private Health &amp; Habits <span id="health-arrow" style="font-size:0.8em;">▶</span></div>';
+    html += '<div id="private-health" style="display:none;">';
+
+    // Streak cards
+    html += '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:15px;">';
+
+    html += '<div style="flex:1;min-width:120px;background:rgba(10,20,35,0.8);border:1px solid #8b5cf620;padding:15px;text-align:center;">';
+    html += '<div style="font-size:0.75em;color:#4a6a8a;letter-spacing:2px;font-family:Orbitron;">PMO STREAK</div>';
+    html += '<div style="font-size:2em;color:' + (healthData.streaks.pmo >= 7 ? '#00ff66' : healthData.streaks.pmo >= 3 ? '#ff9f43' : '#ff4757') + ';font-family:Orbitron;margin:5px 0;">' + healthData.streaks.pmo + '</div>';
+    html += '<div style="font-size:0.8em;color:#4a6a8a;">days clean</div></div>';
+
+    html += '<div style="flex:1;min-width:120px;background:rgba(10,20,35,0.8);border:1px solid #8b5cf620;padding:15px;text-align:center;">';
+    html += '<div style="font-size:0.75em;color:#4a6a8a;letter-spacing:2px;font-family:Orbitron;">NICOTINE</div>';
+    html += '<div style="font-size:2em;color:' + (healthData.streaks.nicotine >= 7 ? '#00ff66' : healthData.streaks.nicotine >= 3 ? '#ff9f43' : '#ff4757') + ';font-family:Orbitron;margin:5px 0;">' + healthData.streaks.nicotine + '</div>';
+    html += '<div style="font-size:0.8em;color:#4a6a8a;">days clean</div></div>';
+
+    html += '<div style="flex:1;min-width:120px;background:rgba(10,20,35,0.8);border:1px solid #8b5cf620;padding:15px;text-align:center;">';
+    html += '<div style="font-size:0.75em;color:#4a6a8a;letter-spacing:2px;font-family:Orbitron;">ALCOHOL</div>';
+    html += '<div style="font-size:2em;color:' + (healthData.streaks.alcohol >= 7 ? '#00ff66' : healthData.streaks.alcohol >= 3 ? '#ff9f43' : '#ff4757') + ';font-family:Orbitron;margin:5px 0;">' + healthData.streaks.alcohol + '</div>';
+    html += '<div style="font-size:0.8em;color:#4a6a8a;">days clean</div></div>';
+
+    var todayWater = healthData.water.filter(function(w) { return w.date === new Date().toISOString().split('T')[0]; });
+    html += '<div style="flex:1;min-width:120px;background:rgba(10,20,35,0.8);border:1px solid #00d4ff20;padding:15px;text-align:center;">';
+    html += '<div style="font-size:0.75em;color:#4a6a8a;letter-spacing:2px;font-family:Orbitron;">WATER TODAY</div>';
+    html += '<div style="font-size:2em;color:#00d4ff;font-family:Orbitron;margin:5px 0;">' + (todayWater.length > 0 ? todayWater[todayWater.length - 1].amount : '0') + '</div>';
+    html += '<div style="font-size:0.8em;color:#4a6a8a;">logged</div></div>';
+
+    html += '</div>';
+
+    // Recent habit entries
+    var recentHealth = [];
+    var allHealthEntries = healthData.pmo.map(function(p) { return { date: p.date, type: 'PMO', val: p.status }; })
+      .concat(healthData.nicotine.map(function(n) { return { date: n.date, type: 'Nicotine', val: n.amount }; }))
+      .concat(healthData.alcohol.map(function(a) { return { date: a.date, type: 'Alcohol', val: a.amount }; }));
+    allHealthEntries.sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+    recentHealth = allHealthEntries.slice(0, 10);
+
+    if (recentHealth.length > 0) {
+      html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px;">';
+      for (var rhi = 0; rhi < recentHealth.length; rhi++) {
+        var rh = recentHealth[rhi];
+        var rhClean = rh.val && (rh.val.toLowerCase().includes('none') || rh.val.toLowerCase().includes('clean'));
+        html += '<div style="display:flex;justify-content:space-between;padding:8px 12px;background:rgba(10,20,35,0.5);border-left:3px solid ' + (rhClean ? '#00ff66' : '#ff4757') + ';">';
+        html += '<span style="color:#4a6a8a;">' + (rh.date || '') + '</span>';
+        html += '<span style="color:#8b5cf6;">' + (rh.type || '') + '</span>';
+        html += '<span style="color:' + (rhClean ? '#00ff66' : '#ff4757') + ';">' + (rh.val || '') + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div></div>';
+
+    // Actions — buttons
     html += '<div class="actions">';
     html += '<div class="holo-btn green" onclick="toggleVoiceChat()" id="voice-btn" style="cursor:pointer;">Talk to Jarvis</div>';
     html += '<a class="holo-btn" href="/call?key=' + (process.env.CALL_SECRET || '') + '">Phone Call</a>';
     html += '<a class="holo-btn" href="/briefing" target="_blank">Full Briefing</a>';
     html += '<a class="holo-btn" href="/gmail/summary" target="_blank">Email Intel</a>';
-    html += '<a class="holo-btn" href="/scan" target="_blank">System Scan</a>';
+    html += '<a class="holo-btn" href="/daily-questions?key=' + (process.env.CALL_SECRET || '') + '">Start 10 Questions</a>';
     html += '<a class="holo-btn" href="/gmail/auth" target="_blank">Link Account</a>';
     html += '</div>';
 
@@ -1902,7 +2919,7 @@ app.get('/dashboard', async function(req, res) {
     html += 'var audioQueue=[];var currentAudio=null;';
     html += 'function speakResponse(text){';
     html += '  isSpeaking=true;document.getElementById("voice-status").textContent="JARVIS SPEAKING...";document.getElementById("voice-status").style.color="#00ff66";startWave("#00ff6680");';
-    html += '  fetch("https://api.elevenlabs.io/v1/text-to-speech/1mrmwdWVC5cggRCdxBXt",{method:"POST",headers:{"xi-api-key":"sk_2106002b395df58e01d77515940ca9ca6baa0cb4d856dd1b","Content-Type":"application/json","Accept":"audio/mpeg"},body:JSON.stringify({text:text,model_id:"eleven_turbo_v2",voice_settings:{stability:0.5,similarity_boost:0.75,style:0.3}})})';
+    html += '  fetch("https://api.elevenlabs.io/v1/text-to-speech/jP5jSWhfXz3nfQENMtf4",{method:"POST",headers:{"xi-api-key":"sk_2106002b395df58e01d77515940ca9ca6baa0cb4d856dd1b","Content-Type":"application/json","Accept":"audio/mpeg"},body:JSON.stringify({text:text,model_id:"eleven_turbo_v2",voice_settings:{stability:0.5,similarity_boost:0.75,style:0.3}})})';
     html += '    .then(function(r){if(!r.ok)throw new Error("TTS status "+r.status);return r.blob();})';
     html += '    .then(function(blob){';
     html += '      if(blob.size<1000)throw new Error("Audio too small");';
@@ -1938,7 +2955,7 @@ app.get('/dashboard', async function(req, res) {
     html += '<\/script>';
 
     // Footer
-    html += '<div class="footer">J.A.R.V.I.S. v2.0 // Built by Trace // Claude AI + Google Sheets + Twilio + Gmail</div>';
+    html += '<div class="footer">J.A.R.V.I.S. v3.0 // Built by Trace // Claude AI + Google Sheets + Gmail + Calendar + Twilio + ElevenLabs</div>';
 
     html += '</div></body></html>';
     res.send(html);
@@ -1957,8 +2974,203 @@ var webChatHistory = {};
 app.post('/chat', async function(req, res) {
   var sessionId = req.body.sessionId || 'default';
   var userMessage = req.body.message || '';
+  var lowerMsg = userMessage.toLowerCase().trim();
+  var from = 'whatsapp:+18167392734'; // for reminders/events that need the number
 
   try {
+    // ====== VOICE COMMANDS ======
+
+    // Win logging
+    if (lowerMsg.startsWith('win') && (lowerMsg.includes(':') || lowerMsg.length > 5)) {
+      var winText = userMessage.replace(/^win[:\s]*/i, '').trim();
+      try {
+        var today = new Date().toISOString().split('T')[0];
+        var area = await askClaude(
+          "Categorize this win into exactly one of: Work, Health, Social, Financial, Personal Growth, Dating. Respond with ONLY the category name.",
+          [{ role: 'user', content: winText }]
+        );
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID,
+          range: "'Wins'!A:D",
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[today, winText, area.trim(), 'Logged via voice']] },
+        });
+      } catch (e) {}
+      return res.json({ response: "Win logged. Keep stacking, Trace." });
+    }
+
+    // Gym logging
+    if (lowerMsg.startsWith('gym') && (lowerMsg.includes(':') || lowerMsg.length > 5)) {
+      var gymText = userMessage.replace(/^gym[:\s]*/i, '').trim();
+      try {
+        var today = new Date().toISOString().split('T')[0];
+        var day = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID,
+          range: "'Gym_Log'!A:E",
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[today, day, gymText, '', 'Via voice']] },
+        });
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID,
+          range: "'Wins'!A:D",
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[today, 'Gym: ' + gymText, 'Health', 'Via voice']] },
+        });
+      } catch (e) {}
+      return res.json({ response: "Gym logged. " + gymText + ". The discipline is building, Trace." });
+    }
+
+    // Calendar
+    if (lowerMsg === 'calendar' || lowerMsg === 'schedule' || lowerMsg === 'events' || lowerMsg.includes('what do i have') || lowerMsg.includes("what's today") || lowerMsg.includes('whats today') || lowerMsg.includes('my schedule')) {
+      try {
+        var accounts = Object.keys(gmailTokens);
+        var allEvents = [];
+        for (var ca = 0; ca < accounts.length; ca++) {
+          var events = await getCalendarEvents(accounts[ca], 1);
+          allEvents = allEvents.concat(events);
+        }
+        if (allEvents.length === 0) {
+          return res.json({ response: "Nothing on your calendar today. It's an open day. Use it wisely." });
+        }
+        var eventList = allEvents.map(function(e, i) { return e.time + ", " + e.summary + (e.location ? " at " + e.location : ""); }).join(". ");
+        return res.json({ response: "Today you have: " + eventList });
+      } catch (e) {
+        return res.json({ response: "Couldn't access your calendar. You may need to reconnect." });
+      }
+    }
+
+    // This week
+    if (lowerMsg === 'week' || lowerMsg === 'this week' || lowerMsg.includes('weekly schedule')) {
+      try {
+        var accounts = Object.keys(gmailTokens);
+        var allEvents = [];
+        for (var ca = 0; ca < accounts.length; ca++) {
+          var events = await getCalendarEvents(accounts[ca], 7);
+          allEvents = allEvents.concat(events);
+        }
+        if (allEvents.length === 0) {
+          return res.json({ response: "Nothing on your calendar this week." });
+        }
+        var eventList = allEvents.map(function(e) { return e.date + " " + e.time + ", " + e.summary; }).join(". ");
+        return res.json({ response: "This week: " + eventList });
+      } catch (e) {
+        return res.json({ response: "Couldn't access your calendar." });
+      }
+    }
+
+    // Reminders
+    if (lowerMsg.startsWith('remind') || lowerMsg.startsWith('todo') || lowerMsg.startsWith('i need to') || lowerMsg.startsWith('i gotta') || lowerMsg.startsWith('need to')) {
+      var reminderText = userMessage.replace(/^(remind[:\s]*|todo[:\s]*|i need to\s*|i gotta\s*|need to\s*)/i, '').trim();
+      var reminderId = 'r' + Date.now();
+      global.activeReminders = global.activeReminders || {};
+      global.activeReminders[reminderId] = { text: reminderText, created: Date.now(), done: false, nudges: 0 };
+
+      // Log to sheet
+      try {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: SPREADSHEET_ID,
+          range: "'Reminders'!A:F",
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[new Date().toISOString().split('T')[0], new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }), reminderText, 'PENDING', '', '']] },
+        });
+      } catch (e) {}
+
+      // Set up nudges
+      var fiveHours = 5 * 60 * 60 * 1000;
+      var tenHours = 10 * 60 * 60 * 1000;
+      setTimeout(async function() {
+        if (global.activeReminders[reminderId] && !global.activeReminders[reminderId].done) {
+          var hour = new Date().getHours();
+          if (hour >= 7 && hour < 23) {
+            try { await twilioClient.messages.create({ body: "Reminder: \"" + reminderText + "\" — still pending.", from: 'whatsapp:+14155238886', to: '+18167392734' }); } catch (e) {}
+          }
+        }
+      }, fiveHours);
+      setTimeout(async function() {
+        if (global.activeReminders[reminderId] && !global.activeReminders[reminderId].done) {
+          var hour = new Date().getHours();
+          if (hour >= 7 && hour < 23) {
+            try {
+              await twilioClient.messages.create({ body: "\"" + reminderText + "\" still not done. Calling you.", from: 'whatsapp:+14155238886', to: '+18167392734' });
+              setTimeout(async function() {
+                if (global.activeReminders[reminderId] && !global.activeReminders[reminderId].done) {
+                  try { await twilioClient.calls.create({ to: MY_NUMBER, from: TWILIO_NUMBER, twiml: '<Response><Say voice="Polly.Matthew">Trace. You told me to remind you about: ' + reminderText.replace(/[<>&"']/g, '') + '. Handle it now.</Say></Response>' }); } catch (e) {}
+                }
+              }, 60000);
+            } catch (e) {}
+          }
+        }
+      }, tenHours);
+
+      return res.json({ response: "Got it. I'll remind you about " + reminderText + ". First nudge in 5 hours. If it's not done in 10, I'm calling you." });
+    }
+
+    // Mark done
+    if (lowerMsg.startsWith('done') || lowerMsg.startsWith('finished')) {
+      var doneText = userMessage.replace(/^(done[:\s]*|finished[:\s]*)/i, '').trim().toLowerCase();
+      global.activeReminders = global.activeReminders || {};
+      var cleared = 0;
+      var rKeys = Object.keys(global.activeReminders);
+      for (var rk = 0; rk < rKeys.length; rk++) {
+        if (!global.activeReminders[rKeys[rk]].done && global.activeReminders[rKeys[rk]].text.toLowerCase().includes(doneText)) {
+          global.activeReminders[rKeys[rk]].done = true;
+          cleared++;
+        }
+      }
+      if (cleared > 0) {
+        try {
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: SPREADSHEET_ID,
+            range: "'Wins'!A:D",
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [[new Date().toISOString().split('T')[0], 'Completed: ' + doneText, 'Personal Growth', 'Via voice']] },
+          });
+        } catch (e) {}
+        return res.json({ response: "Cleared. That's execution. Logged as a win too." });
+      }
+      return res.json({ response: "No active reminders matching that." });
+    }
+
+    // Reminders list
+    if (lowerMsg === 'reminders' || lowerMsg === 'what do i need to do') {
+      global.activeReminders = global.activeReminders || {};
+      var pending = [];
+      var rKeys2 = Object.keys(global.activeReminders);
+      for (var rk2 = 0; rk2 < rKeys2.length; rk2++) {
+        if (!global.activeReminders[rKeys2[rk2]].done) {
+          pending.push(global.activeReminders[rKeys2[rk2]].text);
+        }
+      }
+      if (pending.length > 0) {
+        return res.json({ response: "You have " + pending.length + " pending: " + pending.join(", ") });
+      }
+      return res.json({ response: "No pending reminders. You're clear." });
+    }
+
+    // Briefing
+    if (lowerMsg === 'briefing' || lowerMsg === 'brief' || lowerMsg === 'status') {
+      var context = await buildLifeOSContext();
+      var emailContext = await buildEmailContext();
+      var briefing = await askClaude(
+        "You are Jarvis, Trace's personal AI counselor. Give a spoken briefing. Be concise, 3-5 sentences. No markdown. Talk like a mentor.\n\nLIFE OS DATA:\n" + context + emailContext,
+        [{ role: 'user', content: 'Give me my briefing.' }]
+      );
+      return res.json({ response: briefing });
+    }
+
+    // Emails
+    if (lowerMsg === 'email' || lowerMsg === 'emails' || lowerMsg === 'inbox') {
+      var emailContext = await buildEmailContext();
+      if (!emailContext) return res.json({ response: "No email accounts connected." });
+      var summary = await askClaude(
+        "You are Jarvis. Summarize these emails in 2-3 spoken sentences. What's urgent, what can wait. No markdown.\n\n" + emailContext,
+        [{ role: 'user', content: 'Summarize my inbox.' }]
+      );
+      return res.json({ response: summary });
+    }
+
+    // ====== DEFAULT: Regular conversation ======
     var history = webChatHistory[sessionId];
     if (!history) {
       var context = await buildLifeOSContext();
@@ -1969,13 +3181,9 @@ app.post('/chat', async function(req, res) {
     }
 
     history.messages.push({ role: 'user', content: userMessage });
-
     var response = await askClaude(history.systemPrompt, history.messages);
-
     history.messages.push({ role: 'assistant', content: response });
-    if (history.messages.length > 20) {
-      history.messages = history.messages.slice(-10);
-    }
+    if (history.messages.length > 20) history.messages = history.messages.slice(-10);
     webChatHistory[sessionId] = history;
 
     res.json({ response: response });
@@ -1995,7 +3203,7 @@ app.post('/tts', async function(req, res) {
 
   try {
     // Selected voice from ElevenLabs library
-    var voiceId = '1mrmwdWVC5cggRCdxBXt';
+    var voiceId = 'jP5jSWhfXz3nfQENMtf4';
     var url = 'https://api.elevenlabs.io/v1/text-to-speech/' + voiceId;
 
     var https = require('https');
@@ -2111,4 +3319,7 @@ app.get('/nightly-checkin', async function(req, res) {
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
   console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /chat /daily-questions /nightly-checkin");
+  // Start calendar watcher for 10-min-before calls
+  startCalendarWatcher();
+  console.log("Calendar watcher started — checking every 2 minutes");
 });
