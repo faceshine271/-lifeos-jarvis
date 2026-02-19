@@ -334,6 +334,206 @@ async function buildLifeOSContext() {
 }
 
 /* ===========================
+   Build Business CRM Context for Claude
+   Cached for 5 minutes
+=========================== */
+
+var businessCache = { data: null, time: 0 };
+
+async function buildBusinessContext() {
+  if (businessCache.data && (Date.now() - businessCache.time) < 300000) {
+    return businessCache.data;
+  }
+
+  var context = "WILDWOOD SMALL ENGINE REPAIR — CRM DATA:\n\n";
+
+  try {
+    var allTabs = await getAllTabNames();
+
+    // Location tabs are the ones with city/state patterns or tech names
+    var skipTabs = ['Tech Numbers', 'Mapping', 'Dropdown', 'Mail List', 'SAMPLE', 'TEST',
+      'Unorganized customers', 'Location Sheets', 'Return Customers', 'Manual Entry Record',
+      'Diagnostic SMS Reply', 'Promotion Customers Reply', 'Combined', 'Unassigned customer',
+      'Location Unavailable', 'Trace_Identity_Profile', 'Daily_Log', 'Wins', 'Gratitude_Memory',
+      'Dashboard', 'Chat_Pattern_Lifecycle', 'Chat_Insights_Dating', 'Daily_Questions',
+      'Dating_Log', 'Ultimate_Debt_Tracker_Advanced', 'Gym_Log', 'Health_Log', 'Reminders'];
+
+    var locationTabs = allTabs.filter(function(t) { return skipTabs.indexOf(t) === -1; });
+
+    var totalBooked = 0;
+    var totalCancelled = 0;
+    var totalCompleted = 0;
+    var totalReturn = 0;
+    var todayBookings = [];
+    var recentBookings = [];
+    var needsReschedule = [];
+    var locationStats = {};
+    var today = new Date().toISOString().split('T')[0];
+
+    for (var i = 0; i < locationTabs.length; i++) {
+      var tabName = locationTabs[i];
+      try {
+        var res = await sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: "'" + tabName + "'!A1:AZ",
+        });
+        var rows = res.data.values || [];
+        if (rows.length <= 1) continue;
+
+        var headers = rows[0];
+        var statusCol = -1, dateCol = -1, firstNameCol = -1, lastNameCol = -1;
+        var phoneCol = -1, cityCol = -1, equipCol = -1, issueCol = -1, availCol = -1;
+
+        for (var h = 0; h < headers.length; h++) {
+          var hLower = (headers[h] || '').toString().toLowerCase().trim();
+          if (hLower === 'status') statusCol = h;
+          if (hLower.includes('date called') || hLower === 'date and time') dateCol = h;
+          if (hLower.includes('first name')) firstNameCol = h;
+          if (hLower.includes('last name')) lastNameCol = h;
+          if (hLower.includes('phone')) phoneCol = h;
+          if (hLower === 'city') cityCol = h;
+          if (hLower.includes('type equip') || hLower.includes('type of equip')) equipCol = h;
+          if (hLower.includes('issue')) issueCol = h;
+          if (hLower.includes('date customer')) availCol = h;
+        }
+
+        var locBooked = 0, locCancelled = 0, locCompleted = 0;
+
+        for (var r = 1; r < rows.length; r++) {
+          var row = rows[r];
+          var status = (row[statusCol] || '').toString().toLowerCase().trim();
+          var firstName = (row[firstNameCol] || '').toString().trim();
+          var lastName = (row[lastNameCol] || '').toString().trim();
+
+          if (!firstName && !lastName) continue;
+
+          if (status.includes('booked')) { totalBooked++; locBooked++; }
+          if (status.includes('cancel')) { totalCancelled++; locCancelled++; }
+          if (status.includes('completed') || status.includes('done')) { totalCompleted++; locCompleted++; }
+          if (status.includes('return')) totalReturn++;
+          if (status.includes('reschedul')) {
+            needsReschedule.push({
+              name: firstName + ' ' + lastName,
+              location: tabName,
+              phone: (row[phoneCol] || '').toString(),
+            });
+          }
+
+          // Check for today's bookings
+          var availDate = (row[availCol] || '').toString();
+          if (availDate && availDate.includes(today)) {
+            todayBookings.push({
+              name: firstName + ' ' + lastName,
+              location: tabName,
+              equip: (row[equipCol] || '').toString(),
+              issue: (row[issueCol] || '').toString().substring(0, 80),
+            });
+          }
+
+          // Recent bookings (last 5 rows with data per tab)
+          if (r >= rows.length - 3 && firstName) {
+            recentBookings.push({
+              name: firstName + ' ' + lastName,
+              location: tabName,
+              status: status,
+              equip: (row[equipCol] || '').toString(),
+            });
+          }
+        }
+
+        locationStats[tabName] = { booked: locBooked, cancelled: locCancelled, completed: locCompleted };
+      } catch (e) {
+        // Skip tabs that error
+      }
+    }
+
+    // Tech Numbers
+    try {
+      var techRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: "'Tech Numbers'!A1:D40",
+      });
+      var techRows = techRes.data.values || [];
+      if (techRows.length > 1) {
+        context += "TECHNICIANS:\n";
+        for (var t = 1; t < techRows.length; t++) {
+          if (techRows[t][0]) context += "  " + techRows[t][0] + " — " + (techRows[t][2] || 'No location') + "\n";
+        }
+        context += "\n";
+      }
+    } catch (e) {}
+
+    // Return Customers count
+    try {
+      var retRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: "'Return Customers'!A:A",
+      });
+      totalReturn = Math.max(0, ((retRes.data.values || []).length) - 1);
+    } catch (e) {}
+
+    // Promotion replies
+    var promoReplies = 0;
+    try {
+      var promoRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: "'Promotion Customers Reply'!A:A",
+      });
+      promoReplies = Math.max(0, ((promoRes.data.values || []).length) - 1);
+    } catch (e) {}
+
+    context += "OVERVIEW:\n";
+    context += "  Active Bookings: " + totalBooked + "\n";
+    context += "  Completed Jobs: " + totalCompleted + "\n";
+    context += "  Cancelled: " + totalCancelled + "\n";
+    context += "  Return Customers: " + totalReturn + "\n";
+    context += "  Promo Replies: " + promoReplies + "\n";
+    context += "  Locations Active: " + locationTabs.length + "\n\n";
+
+    if (todayBookings.length > 0) {
+      context += "TODAY'S BOOKINGS:\n";
+      todayBookings.forEach(function(b) {
+        context += "  " + b.name + " (" + b.location + ") — " + b.equip + ": " + b.issue + "\n";
+      });
+      context += "\n";
+    }
+
+    if (needsReschedule.length > 0) {
+      context += "NEEDS RESCHEDULING (" + needsReschedule.length + "):\n";
+      needsReschedule.slice(0, 10).forEach(function(n) {
+        context += "  " + n.name + " (" + n.location + ") — " + n.phone + "\n";
+      });
+      context += "\n";
+    }
+
+    context += "LOCATION BREAKDOWN:\n";
+    var locKeys = Object.keys(locationStats);
+    for (var lk = 0; lk < locKeys.length; lk++) {
+      var ls = locationStats[locKeys[lk]];
+      if (ls.booked + ls.completed + ls.cancelled > 0) {
+        context += "  " + locKeys[lk] + ": " + ls.booked + " booked, " + ls.completed + " completed, " + ls.cancelled + " cancelled\n";
+      }
+    }
+    context += "\n";
+
+    if (recentBookings.length > 0) {
+      context += "RECENT ACTIVITY:\n";
+      recentBookings.slice(-10).forEach(function(b) {
+        context += "  " + b.name + " — " + b.location + " — " + b.status + " (" + b.equip + ")\n";
+      });
+      context += "\n";
+    }
+
+  } catch (e) {
+    context += "Error loading CRM data: " + e.message + "\n";
+  }
+
+  console.log("Business context built: " + context.length + " chars");
+  businessCache = { data: context, time: Date.now() };
+  return context;
+}
+
+/* ===========================
    Call Claude API
 =========================== */
 
@@ -2289,16 +2489,63 @@ app.post('/gmail/archive', async function(req, res) {
 
 app.get('/dashboard', async function(req, res) {
   try {
-    // Fetch key data
+    // Fetch key data — PERSONAL + BUSINESS in parallel
     var tabs = await getAllTabNames();
-    var context = await buildLifeOSContext();
+    var contextPromise = buildLifeOSContext();
+    var bizPromise = buildBusinessContext();
 
-    // Parse numbers from context
+    var context = await contextPromise;
+    var bizContext = await bizPromise;
+
+    // Parse personal numbers from context
     var screenTimeMatch = context.match(/Daily average[:\s]*([\d.]+)/i);
     var debtMatch = context.match(/\~?\$([,\d]+)\s*total debt/i);
 
     var screenTime = screenTimeMatch ? screenTimeMatch[1] : '?';
     var debtAmount = debtMatch ? debtMatch[1].replace(/,/g, '') : '0';
+
+    // Parse business numbers
+    var bookedMatch = bizContext.match(/Active Bookings:\s*(\d+)/);
+    var completedMatch = bizContext.match(/Completed Jobs:\s*(\d+)/);
+    var cancelledMatch = bizContext.match(/Cancelled:\s*(\d+)/);
+    var returnMatch = bizContext.match(/Return Customers:\s*(\d+)/);
+    var promoMatch = bizContext.match(/Promo Replies:\s*(\d+)/);
+    var locationsMatch = bizContext.match(/Locations Active:\s*(\d+)/);
+
+    var totalBooked = bookedMatch ? bookedMatch[1] : '0';
+    var totalCompleted = completedMatch ? completedMatch[1] : '0';
+    var totalCancelled = cancelledMatch ? cancelledMatch[1] : '0';
+    var totalReturn = returnMatch ? returnMatch[1] : '0';
+    var promoReplies = promoMatch ? promoMatch[1] : '0';
+    var totalLocations = locationsMatch ? locationsMatch[1] : '0';
+
+    // Parse today's bookings
+    var bizTodayBookings = [];
+    var todayBizMatch = bizContext.match(/TODAY'S BOOKINGS:\n([\s\S]*?)(\n\n|NEEDS|LOCATION)/);
+    if (todayBizMatch) {
+      todayBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizTodayBookings.push(l.trim()); });
+    }
+
+    // Parse needs rescheduling
+    var bizReschedule = [];
+    var reschedBizMatch = bizContext.match(/NEEDS RESCHEDULING.*?:\n([\s\S]*?)(\n\n|LOCATION)/);
+    if (reschedBizMatch) {
+      reschedBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizReschedule.push(l.trim()); });
+    }
+
+    // Parse location breakdown
+    var bizLocations = [];
+    var locBizMatch = bizContext.match(/LOCATION BREAKDOWN:\n([\s\S]*?)(\n\n|RECENT)/);
+    if (locBizMatch) {
+      locBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizLocations.push(l.trim()); });
+    }
+
+    // Parse technicians
+    var bizTechs = [];
+    var techBizMatch = bizContext.match(/TECHNICIANS:\n([\s\S]*?)\n\n/);
+    if (techBizMatch) {
+      techBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizTechs.push(l.trim()); });
+    }
 
     // Get email count
     var emailAccounts = Object.keys(gmailTokens);
@@ -2409,8 +2656,33 @@ app.get('/dashboard', async function(req, res) {
     } catch (e) {}
 
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
-    html += '<title>J.A.R.V.I.S. — LifeOS Command Center</title>';
+    html += '<title>J.A.R.V.I.S. // A.T.H.E.N.A. — Command Center</title>';
     html += '<style>';
+
+    // Base
+    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
+    html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+    html += 'body { background: #020810; color: #c0d8f0; font-family: "Rajdhani", sans-serif; min-height: 100vh; overflow-x: hidden; }';
+
+    // ===== SWIPE CONTAINER =====
+    html += '.swipe-wrapper { display: flex; width: 200vw; transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1); }';
+    html += '.panel { width: 100vw; min-height: 100vh; overflow-y: auto; overflow-x: hidden; }';
+
+    // Tab switcher
+    html += '.tab-switcher { position: fixed; top: 15px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; gap: 0; font-family: "Orbitron"; font-size: 0.6em; letter-spacing: 3px; }';
+    html += '.tab-btn { padding: 10px 25px; cursor: pointer; transition: all 0.3s; border: 1px solid transparent; text-transform: uppercase; }';
+    html += '.tab-btn.jarvis { color: #00d4ff40; border-color: #00d4ff20; }';
+    html += '.tab-btn.jarvis.active { color: #00d4ff; border-color: #00d4ff; background: rgba(0,212,255,0.1); box-shadow: 0 0 20px rgba(0,212,255,0.15); }';
+    html += '.tab-btn.athena { color: #a855f740; border-color: #a855f720; }';
+    html += '.tab-btn.athena.active { color: #a855f7; border-color: #a855f7; background: rgba(168,85,247,0.1); box-shadow: 0 0 20px rgba(168,85,247,0.15); }';
+
+    // Swipe indicator dots
+    html += '.swipe-dots { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; gap: 8px; }';
+    html += '.swipe-dot { width: 8px; height: 8px; border-radius: 50%; transition: all 0.3s; cursor: pointer; }';
+    html += '.swipe-dot.jarvis-dot { background: #00d4ff30; }';
+    html += '.swipe-dot.jarvis-dot.active { background: #00d4ff; box-shadow: 0 0 10px #00d4ff; }';
+    html += '.swipe-dot.athena-dot { background: #a855f730; }';
+    html += '.swipe-dot.athena-dot.active { background: #a855f7; box-shadow: 0 0 10px #a855f7; }';
 
     // Base
     html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
@@ -2505,7 +2777,23 @@ app.get('/dashboard', async function(req, res) {
 
     html += '</style></head><body>';
 
-    // ====== BOOT SEQUENCE SPLASH ======
+    // ====== TAB SWITCHER ======
+    html += '<div class="tab-switcher">';
+    html += '<div class="tab-btn jarvis active" onclick="switchPanel(0)">J.A.R.V.I.S.</div>';
+    html += '<div class="tab-btn athena" onclick="switchPanel(1)">A.T.H.E.N.A.</div>';
+    html += '</div>';
+
+    // Swipe dots
+    html += '<div class="swipe-dots">';
+    html += '<div class="swipe-dot jarvis-dot active" onclick="switchPanel(0)"></div>';
+    html += '<div class="swipe-dot athena-dot" onclick="switchPanel(1)"></div>';
+    html += '</div>';
+
+    // ====== SWIPE WRAPPER ======
+    html += '<div class="swipe-wrapper" id="swipe-wrapper">';
+
+    // ====== PANEL 1: JARVIS (Personal) ======
+    html += '<div class="panel" id="jarvis-panel">';
     html += '<div id="boot-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;background:#020810;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;">';
     
     // Hex grid background for boot
@@ -2525,11 +2813,13 @@ app.get('/dashboard', async function(req, res) {
     html += '<div class="boot-line" style="opacity:0;">CALENDAR SYNC: ' + todayEvents.length + ' EVENTS LOADED</div>';
     html += '<div class="boot-line" style="opacity:0;">ACTIVATING VOICE INTERFACE...</div>';
     html += '<div class="boot-line" style="opacity:0;">HABIT MONITORING: ONLINE</div>';
+    html += '<div class="boot-line" style="opacity:0;">ACTIVATING A.T.H.E.N.A. BUSINESS ENGINE...</div>';
+    html += '<div class="boot-line" style="opacity:0;">CRM DATA: ' + totalLocations + ' LOCATIONS // ' + totalBooked + ' ACTIVE BOOKINGS</div>';
     html += '<div class="boot-line" style="opacity:0;color:#00ff66;">ALL SYSTEMS OPERATIONAL</div>';
     html += '</div>';
     
     // JARVIS title reveal
-    html += '<div id="boot-title" style="position:absolute;opacity:0;font-family:Orbitron;font-size:4em;font-weight:900;letter-spacing:20px;color:#00d4ff;text-shadow:0 0 60px rgba(0,212,255,0.6),0 0 120px rgba(0,212,255,0.2);">J.A.R.V.I.S.</div>';
+    html += '<div id="boot-title" style="position:absolute;opacity:0;font-family:Orbitron;font-size:3em;font-weight:900;letter-spacing:15px;color:#00d4ff;text-shadow:0 0 60px rgba(0,212,255,0.6),0 0 120px rgba(0,212,255,0.2);text-align:center;line-height:1.6;">J.A.R.V.I.S.<br><span style="font-size:0.6em;letter-spacing:12px;background:linear-gradient(135deg,#a855f7,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 20px rgba(168,85,247,0.4));">A.T.H.E.N.A.</span></div>';
     
     // Welcome message
     var hour = new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Chicago' });
@@ -3176,7 +3466,150 @@ app.get('/dashboard', async function(req, res) {
     // Footer
     html += '<div class="footer">J.A.R.V.I.S. v3.0 // Built by Trace // Claude AI + Google Sheets + Gmail + Calendar + Twilio + ElevenLabs</div>';
 
-    html += '</div></body></html>';
+    html += '</div>'; // close .content
+    html += '</div>'; // close #jarvis-panel
+
+    // ====== PANEL 2: ATHENA (Business) ======
+    html += '<div class="panel" id="athena-panel" style="background:#020810;">';
+
+    // Athena background (purple grid)
+    html += '<div style="position:fixed;top:0;left:100vw;width:100vw;height:100%;pointer-events:none;z-index:0;">';
+    html += '<div style="position:absolute;top:0;left:0;width:100%;height:100%;background-image:linear-gradient(rgba(168,85,247,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(168,85,247,0.03) 1px,transparent 1px);background-size:60px 60px;"></div>';
+    html += '</div>';
+
+    html += '<div style="position:relative;z-index:4;">';
+
+    // Athena Header
+    html += '<div style="text-align:center;padding:60px 20px 20px;">';
+    html += '<div style="font-family:Orbitron;font-size:3em;font-weight:900;letter-spacing:15px;background:linear-gradient(135deg,#a855f7,#7c3aed,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 30px rgba(168,85,247,0.4));">A.T.H.E.N.A.</div>';
+    html += '<div style="font-family:Rajdhani;font-size:1.1em;letter-spacing:8px;color:#3a5a7a;margin-top:5px;text-transform:uppercase;">Autonomous Technician & Handling Engine for Network Administration</div>';
+    html += '<div style="font-family:Rajdhani;font-size:0.95em;letter-spacing:4px;color:#a855f780;margin-top:3px;">' + dateStr + ' // ' + timeStr + '</div>';
+
+    // Status bar
+    html += '<div style="display:flex;justify-content:center;gap:20px;margin-top:15px;flex-wrap:wrap;">';
+    html += '<div class="status-item"><div class="status-dot" style="background:#a855f7;box-shadow:0 0 10px #a855f7;"></div>CRM ONLINE</div>';
+    html += '<div class="status-item"><div class="status-dot" style="background:#a855f7;box-shadow:0 0 10px #a855f7;"></div>' + totalLocations + ' LOCATIONS</div>';
+    html += '<div class="status-item"><div class="status-dot" style="background:#00ff66;box-shadow:0 0 10px #00ff66;"></div>' + bizTechs.length + ' TECHNICIANS</div>';
+    html += '<div class="status-item"><div class="status-dot" style="background:' + (bizTodayBookings.length > 0 ? '#ff9f43' : '#00ff66') + ';box-shadow:0 0 10px ' + (bizTodayBookings.length > 0 ? '#ff9f43' : '#00ff66') + '"></div>' + bizTodayBookings.length + ' TODAY</div>';
+    html += '<div class="status-item"><div class="status-dot" style="background:' + (bizReschedule.length > 0 ? '#ff9f43' : '#00ff66') + ';box-shadow:0 0 10px ' + (bizReschedule.length > 0 ? '#ff9f43' : '#00ff66') + '"></div>' + bizReschedule.length + ' RESCHEDULE</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Athena Stats Grid
+    html += '<div class="grid">';
+
+    html += '<div class="card" style="--accent:#a855f7;border-color:#a855f715;"><div class="label">Active Bookings</div><div class="value">' + totalBooked + '</div><div class="sub">Across all locations</div><div class="bar"><div class="bar-fill" style="width:70%;background:#a855f7;"></div></div></div>';
+
+    html += '<div class="card" style="--accent:#00ff66;border-color:#00ff6615;"><div class="label">Completed Jobs</div><div class="value">' + totalCompleted + '</div><div class="sub">Revenue generated</div><div class="bar"><div class="bar-fill" style="width:85%;background:#00ff66;"></div></div></div>';
+
+    html += '<div class="card" style="--accent:#ff4757;border-color:#ff475715;"><div class="label">Cancelled</div><div class="value">' + totalCancelled + '</div><div class="sub">' + (parseInt(totalCancelled) > parseInt(totalCompleted) / 5 ? 'HIGH — needs attention' : 'Within normal range') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, parseInt(totalCancelled) * 2) + '%;background:#ff4757;"></div></div></div>';
+
+    html += '<div class="card" style="--accent:#00d4ff;border-color:#00d4ff15;"><div class="label">Today\'s Jobs</div><div class="value">' + bizTodayBookings.length + '</div><div class="sub">' + (bizTodayBookings.length > 0 ? 'Jobs scheduled today' : 'No jobs today') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, bizTodayBookings.length * 15) + '%;background:#00d4ff;"></div></div></div>';
+
+    html += '<div class="card" style="--accent:#ff9f43;border-color:#ff9f4315;"><div class="label">Return Customers</div><div class="value">' + totalReturn + '</div><div class="sub">Repeat business</div><div class="bar"><div class="bar-fill" style="width:60%;background:#ff9f43;"></div></div></div>';
+
+    html += '<div class="card" style="--accent:#55f7d8;border-color:#55f7d815;"><div class="label">Promo Replies</div><div class="value">' + promoReplies + '</div><div class="sub">Campaign responses</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, parseInt(promoReplies) / 5) + '%;background:#55f7d8;"></div></div></div>';
+
+    html += '</div>';
+
+    // Today's Bookings Section
+    if (bizTodayBookings.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Today\'s Bookings</div>';
+      bizTodayBookings.forEach(function(b) {
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #a855f710;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
+        html += '<div style="color:#c0d8f0;">' + b + '</div>';
+        html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #00ff6640;color:#00ff66;">TODAY</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Needs Rescheduling Section
+    if (bizReschedule.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff9f43;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff9f43;border-radius:50%;box-shadow:0 0 8px #ff9f43;display:inline-block;"></span>Needs Rescheduling (' + bizReschedule.length + ')</div>';
+      bizReschedule.forEach(function(r) {
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff9f4315;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
+        html += '<div style="color:#c0d8f0;">' + r + '</div>';
+        html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #ff9f4340;color:#ff9f43;">RESCHED</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Technicians Section
+    if (bizTechs.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00ff66;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00ff66;border-radius:50%;box-shadow:0 0 8px #00ff66;display:inline-block;"></span>Technicians</div>';
+      bizTechs.forEach(function(t) {
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:12px 16px;margin-bottom:6px;color:#c0d8f0;">' + t + '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Location Performance
+    if (bizLocations.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Location Performance</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      bizLocations.forEach(function(l) {
+        var locName = l.split(':')[0].trim();
+        html += '<div onclick="loadTab(\'' + locName.replace(/'/g, "\\'") + '\')" style="background:rgba(168,85,247,0.03);border:1px solid #a855f720;padding:10px 16px;font-size:0.85em;color:#7a9ab0;cursor:pointer;transition:all 0.3s;" onmouseover="this.style.borderColor=\'#a855f7\';this.style.color=\'#a855f7\'" onmouseout="this.style.borderColor=\'#a855f720\';this.style.color=\'#7a9ab0\'">' + l + '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // Athena Footer
+    html += '<div style="text-align:center;padding:40px 20px;font-family:Orbitron;font-size:0.6em;letter-spacing:4px;color:#1a2a3a;border-top:1px solid #0a1520;">A.T.H.E.N.A. v1.0 // Wildwood Small Engine Repair CRM // Powered by Claude AI</div>';
+
+    html += '</div>'; // close z-index wrapper
+    html += '</div>'; // close #athena-panel
+    html += '</div>'; // close .swipe-wrapper
+
+    // ====== SWIPE / TAB SWITCH JAVASCRIPT ======
+    html += '<script>';
+    html += 'var currentPanel = 0;';
+    html += 'var wrapper = document.getElementById("swipe-wrapper");';
+
+    // Switch function
+    html += 'function switchPanel(idx) {';
+    html += '  currentPanel = idx;';
+    html += '  wrapper.style.transform = "translateX(-" + (idx * 100) + "vw)";';
+    // Update tab buttons
+    html += '  var tabs = document.querySelectorAll(".tab-btn");';
+    html += '  tabs.forEach(function(t){ t.classList.remove("active"); });';
+    html += '  tabs[idx].classList.add("active");';
+    // Update dots
+    html += '  var dots = document.querySelectorAll(".swipe-dot");';
+    html += '  dots.forEach(function(d){ d.classList.remove("active"); });';
+    html += '  dots[idx].classList.add("active");';
+    // Change body accent color
+    html += '  document.body.style.transition = "background 0.5s";';
+    html += '}';
+
+    // Touch swipe support
+    html += 'var touchStartX = 0;';
+    html += 'var touchEndX = 0;';
+    html += 'document.addEventListener("touchstart", function(e) { touchStartX = e.changedTouches[0].screenX; }, false);';
+    html += 'document.addEventListener("touchend", function(e) {';
+    html += '  touchEndX = e.changedTouches[0].screenX;';
+    html += '  var diff = touchStartX - touchEndX;';
+    html += '  if (Math.abs(diff) > 60) {'; // minimum swipe distance
+    html += '    if (diff > 0 && currentPanel < 1) switchPanel(currentPanel + 1);'; // swipe left
+    html += '    if (diff < 0 && currentPanel > 0) switchPanel(currentPanel - 1);'; // swipe right
+    html += '  }';
+    html += '}, false);';
+
+    // Keyboard arrow support
+    html += 'document.addEventListener("keydown", function(e) {';
+    html += '  if (e.key === "ArrowRight" && currentPanel < 1) switchPanel(1);';
+    html += '  if (e.key === "ArrowLeft" && currentPanel > 0) switchPanel(0);';
+    html += '});';
+
+    html += '<\/script>';
+
+    html += '</body></html>';
     res.send(html);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3188,7 +3621,321 @@ app.get('/dashboard', async function(req, res) {
 =========================== */
 
 var webChatHistory = {};
-var webChatHistory = {};
+
+/* ===========================
+   GET /business — CRM Business Dashboard
+=========================== */
+
+app.get('/business', async function(req, res) {
+  try {
+    var bizContext = await buildBusinessContext();
+    var tabs = await getAllTabNames();
+
+    // Parse stats from context
+    var bookedMatch = bizContext.match(/Active Bookings:\s*(\d+)/);
+    var completedMatch = bizContext.match(/Completed Jobs:\s*(\d+)/);
+    var cancelledMatch = bizContext.match(/Cancelled:\s*(\d+)/);
+    var returnMatch = bizContext.match(/Return Customers:\s*(\d+)/);
+    var promoMatch = bizContext.match(/Promo Replies:\s*(\d+)/);
+    var locationsMatch = bizContext.match(/Locations Active:\s*(\d+)/);
+
+    var totalBooked = bookedMatch ? bookedMatch[1] : '0';
+    var totalCompleted = completedMatch ? completedMatch[1] : '0';
+    var totalCancelled = cancelledMatch ? cancelledMatch[1] : '0';
+    var totalReturn = returnMatch ? returnMatch[1] : '0';
+    var promoReplies = promoMatch ? promoMatch[1] : '0';
+    var totalLocations = locationsMatch ? locationsMatch[1] : '0';
+
+    // Parse today's bookings
+    var todayBookings = [];
+    var todayMatch = bizContext.match(/TODAY'S BOOKINGS:\n([\s\S]*?)(\n\n|NEEDS|LOCATION)/);
+    if (todayMatch) {
+      var lines = todayMatch[1].trim().split('\n');
+      lines.forEach(function(l) { if (l.trim()) todayBookings.push(l.trim()); });
+    }
+
+    // Parse needs rescheduling
+    var reschedule = [];
+    var reschedMatch = bizContext.match(/NEEDS RESCHEDULING.*?:\n([\s\S]*?)(\n\n|LOCATION)/);
+    if (reschedMatch) {
+      var lines = reschedMatch[1].trim().split('\n');
+      lines.forEach(function(l) { if (l.trim()) reschedule.push(l.trim()); });
+    }
+
+    // Parse location breakdown
+    var locationBreakdown = [];
+    var locMatch = bizContext.match(/LOCATION BREAKDOWN:\n([\s\S]*?)(\n\n|RECENT)/);
+    if (locMatch) {
+      var lines = locMatch[1].trim().split('\n');
+      lines.forEach(function(l) { if (l.trim()) locationBreakdown.push(l.trim()); });
+    }
+
+    // Parse technicians
+    var techs = [];
+    var techMatch = bizContext.match(/TECHNICIANS:\n([\s\S]*?)\n\n/);
+    if (techMatch) {
+      var lines = techMatch[1].trim().split('\n');
+      lines.forEach(function(l) { if (l.trim()) techs.push(l.trim()); });
+    }
+
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>J.A.R.V.I.S. — Business Command Center</title>';
+    html += '<style>';
+
+    // Base
+    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
+    html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+    html += 'body { background: #020810; color: #c0d8f0; font-family: "Rajdhani", sans-serif; min-height: 100vh; overflow-x: hidden; }';
+
+    // Animated background
+    html += '.bg-grid { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }';
+    html += '.bg-grid::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: linear-gradient(rgba(168,85,247,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(168,85,247,0.03) 1px, transparent 1px); background-size: 60px 60px; animation: gridMove 20s linear infinite; }';
+    html += '@keyframes gridMove { 0% { background-position: 0 0; } 100% { background-position: 60px 60px; } }';
+
+    // Scan line
+    html += '.scan-line { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, #a855f7, transparent); z-index: 2; animation: scanDown 8s linear infinite; pointer-events: none; }';
+    html += '@keyframes scanDown { 0% { top: -2px; } 100% { top: 100%; } }';
+
+    // Corner decorations
+    html += '.corner { position: fixed; width: 30px; height: 30px; z-index: 3; pointer-events: none; }';
+    html += '.corner-tl { top: 10px; left: 10px; border-top: 2px solid #a855f730; border-left: 2px solid #a855f730; }';
+    html += '.corner-tr { top: 10px; right: 10px; border-top: 2px solid #a855f730; border-right: 2px solid #a855f730; }';
+    html += '.corner-bl { bottom: 10px; left: 10px; border-bottom: 2px solid #a855f730; border-left: 2px solid #a855f730; }';
+    html += '.corner-br { bottom: 10px; right: 10px; border-bottom: 2px solid #a855f730; border-right: 2px solid #a855f730; }';
+
+    // Content
+    html += '.content { position: relative; z-index: 4; }';
+
+    // Header
+    html += '.header { text-align: center; padding: 40px 20px 20px; }';
+    html += '.jarvis-title { font-family: "Orbitron"; font-size: 3em; font-weight: 900; letter-spacing: 15px; background: linear-gradient(135deg, #a855f7, #7c3aed, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: none; filter: drop-shadow(0 0 30px rgba(168,85,247,0.4)); }';
+
+    // Status bar
+    html += '.status-bar { display: flex; justify-content: center; gap: 20px; margin-top: 15px; flex-wrap: wrap; }';
+    html += '.status-item { display: flex; align-items: center; gap: 6px; font-family: "Orbitron"; font-size: 0.6em; letter-spacing: 2px; color: #4a6a8a; }';
+    html += '.status-dot { width: 6px; height: 6px; border-radius: 50%; animation: pulse 2s infinite; }';
+    html += '.status-dot.green { background: #00ff66; box-shadow: 0 0 10px #00ff66; }';
+    html += '.status-dot.purple { background: #a855f7; box-shadow: 0 0 10px #a855f7; }';
+    html += '.status-dot.orange { background: #ff9f43; box-shadow: 0 0 10px #ff9f43; }';
+    html += '@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }';
+
+    // Stats Grid
+    html += '.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; padding: 30px 40px; max-width: 1400px; margin: 0 auto; }';
+    html += '.card { background: rgba(10,20,35,0.8); border: 1px solid #a855f715; padding: 25px; position: relative; overflow: hidden; --accent: #a855f7; animation: cardIn 0.6s ease-out both; }';
+    html += '.card::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0.6; }';
+    html += '@keyframes cardIn { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }';
+    html += '.card:nth-child(1) { --accent: #a855f7; }';
+    html += '.card:nth-child(2) { --accent: #00ff66; animation-delay: 0.1s; }';
+    html += '.card:nth-child(3) { --accent: #ff4757; animation-delay: 0.2s; }';
+    html += '.card:nth-child(4) { --accent: #00d4ff; animation-delay: 0.3s; }';
+    html += '.card:nth-child(5) { --accent: #ff9f43; animation-delay: 0.4s; }';
+    html += '.card:nth-child(6) { --accent: #55f7d8; animation-delay: 0.5s; }';
+    html += '.card .label { font-family: "Orbitron"; font-size: 0.65em; letter-spacing: 3px; color: #4a6a8a; text-transform: uppercase; }';
+    html += '.card .value { font-family: "Orbitron"; font-size: 3em; font-weight: 700; margin: 15px 0 8px; color: var(--accent); text-shadow: 0 0 30px color-mix(in srgb, var(--accent) 30%, transparent); }';
+    html += '.card .sub { font-size: 0.95em; color: #3a5a7a; letter-spacing: 1px; }';
+    html += '.card .bar { height: 3px; background: #0a1520; margin-top: 15px; border-radius: 2px; overflow: hidden; }';
+    html += '.card .bar-fill { height: 100%; border-radius: 2px; animation: barGrow 2s ease-out both; }';
+    html += '@keyframes barGrow { 0% { width: 0; } }';
+
+    // Section styling
+    html += '.section { max-width: 1400px; margin: 0 auto; padding: 0 40px 30px; }';
+    html += '.section-title { font-family: "Orbitron"; font-size: 0.8em; letter-spacing: 5px; color: #a855f7; text-transform: uppercase; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }';
+    html += '.section-title::before { content: ""; width: 8px; height: 8px; background: #a855f7; border-radius: 50%; box-shadow: 0 0 8px #a855f7; }';
+
+    // List items
+    html += '.list-item { background: rgba(10,20,35,0.6); border: 1px solid #a855f710; padding: 12px 16px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; transition: all 0.3s; }';
+    html += '.list-item:hover { border-color: #a855f740; background: rgba(168,85,247,0.05); }';
+    html += '.list-item .name { color: #c0d8f0; font-weight: 500; }';
+    html += '.list-item .detail { color: #4a6a8a; font-size: 0.9em; }';
+    html += '.list-item .status-badge { font-family: "Orbitron"; font-size: 0.6em; letter-spacing: 2px; padding: 4px 10px; border: 1px solid; }';
+    html += '.badge-booked { color: #00ff66; border-color: #00ff6640; }';
+    html += '.badge-cancel { color: #ff4757; border-color: #ff475740; }';
+    html += '.badge-resched { color: #ff9f43; border-color: #ff9f4340; }';
+
+    // Actions
+    html += '.actions { display: flex; justify-content: center; gap: 15px; padding: 20px 40px; flex-wrap: wrap; }';
+    html += '.holo-btn { font-family: "Orbitron"; font-size: 0.75em; letter-spacing: 3px; padding: 14px 30px; background: transparent; border: 1px solid #a855f730; color: #a855f7; text-decoration: none; text-transform: uppercase; position: relative; overflow: hidden; transition: all 0.3s; cursor: pointer; }';
+    html += '.holo-btn:hover { background: #a855f715; border-color: #a855f7; box-shadow: 0 0 30px #a855f720, inset 0 0 30px #a855f710; }';
+    html += '.holo-btn.green { border-color: #00ff6630; color: #00ff66; }';
+    html += '.holo-btn.green:hover { background: #00ff6615; border-color: #00ff66; }';
+
+    // Location chips
+    html += '.loc-grid { display: flex; flex-wrap: wrap; gap: 8px; }';
+    html += '.loc-chip { background: rgba(168,85,247,0.03); border: 1px solid #a855f720; padding: 10px 16px; font-size: 0.85em; color: #7a9ab0; cursor: pointer; transition: all 0.3s; position: relative; }';
+    html += '.loc-chip:hover { border-color: #a855f7; color: #a855f7; background: rgba(168,85,247,0.08); }';
+    html += '.loc-chip .count { font-family: "Orbitron"; font-size: 0.7em; color: #a855f7; margin-left: 6px; }';
+
+    // Clock
+    html += '.clock { font-family: "Orbitron"; font-size: 0.7em; letter-spacing: 5px; color: #2a4a6a; text-align: center; padding: 30px; }';
+
+    // Footer
+    html += '.footer { text-align: center; padding: 20px; font-family: "Orbitron"; font-size: 0.6em; letter-spacing: 4px; color: #1a2a3a; border-top: 1px solid #0a1520; }';
+
+    // Particles
+    html += '.particle { position: fixed; width: 2px; height: 2px; background: #a855f7; border-radius: 50%; pointer-events: none; z-index: 1; opacity: 0; animation: particleFloat 8s linear infinite; }';
+    html += '@keyframes particleFloat { 0% { opacity: 0; transform: translateY(100vh); } 10% { opacity: 0.6; } 90% { opacity: 0.6; } 100% { opacity: 0; transform: translateY(-20vh); } }';
+
+    // Modal
+    html += '#tab-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(2,8,16,0.95); z-index:100; overflow-y:auto; }';
+
+    html += '</style></head><body>';
+
+    // Background effects
+    html += '<div class="bg-grid"></div>';
+    html += '<div class="scan-line"></div>';
+    html += '<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>';
+
+    // Particles (purple)
+    for (var p = 0; p < 15; p++) {
+      var left = Math.floor(Math.random() * 100);
+      var delay = (Math.random() * 8).toFixed(1);
+      html += '<div class="particle" style="left:' + left + '%;animation-delay:' + delay + 's;"></div>';
+    }
+
+    html += '<div class="content">';
+
+    // Header
+    var now = new Date();
+    var dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Chicago' });
+    var timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' });
+
+    html += '<div class="header">';
+    html += '<div class="jarvis-title">WILDWOOD CRM</div>';
+    html += '<div style="font-family:Rajdhani;font-size:1.1em;letter-spacing:8px;color:#3a5a7a;margin-top:5px;text-transform:uppercase;">Business Command Center</div>';
+    html += '<div style="font-family:Rajdhani;font-size:0.95em;letter-spacing:4px;color:#a855f780;margin-top:3px;">' + dateStr + ' // ' + timeStr + '</div>';
+    html += '<div class="status-bar">';
+    html += '<div class="status-item"><div class="status-dot green"></div>CRM ONLINE</div>';
+    html += '<div class="status-item"><div class="status-dot purple"></div>' + totalLocations + ' LOCATIONS</div>';
+    html += '<div class="status-item"><div class="status-dot purple"></div>' + techs.length + ' TECHNICIANS</div>';
+    html += '<div class="status-item"><div class="status-dot ' + (todayBookings.length > 0 ? 'orange' : 'green') + '"></div>' + todayBookings.length + ' TODAY</div>';
+    html += '<div class="status-item"><div class="status-dot ' + (reschedule.length > 0 ? 'orange' : 'green') + '"></div>' + reschedule.length + ' RESCHEDULE</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Stats Grid
+    html += '<div class="grid">';
+
+    html += '<div class="card"><div class="label">Active Bookings</div><div class="value">' + totalBooked + '</div><div class="sub">Across all locations</div><div class="bar"><div class="bar-fill" style="width:70%;background:#a855f7;"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Completed Jobs</div><div class="value">' + totalCompleted + '</div><div class="sub">Revenue generated</div><div class="bar"><div class="bar-fill" style="width:85%;background:#00ff66;"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Cancelled</div><div class="value">' + totalCancelled + '</div><div class="sub">' + (parseInt(totalCancelled) > parseInt(totalCompleted) / 5 ? 'HIGH — needs attention' : 'Within normal range') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, parseInt(totalCancelled) * 2) + '%;background:#ff4757;"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Today\'s Jobs</div><div class="value">' + todayBookings.length + '</div><div class="sub">' + (todayBookings.length > 0 ? 'Jobs scheduled today' : 'No jobs today') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, todayBookings.length * 15) + '%;background:#00d4ff;"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Return Customers</div><div class="value">' + totalReturn + '</div><div class="sub">Repeat business</div><div class="bar"><div class="bar-fill" style="width:60%;background:#ff9f43;"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Promo Replies</div><div class="value">' + promoReplies + '</div><div class="sub">Campaign responses</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, parseInt(promoReplies) / 5) + '%;background:#55f7d8;"></div></div></div>';
+
+    html += '</div>';
+
+    // Today's Bookings
+    if (todayBookings.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-title">Today\'s Bookings</div>';
+      todayBookings.forEach(function(b) {
+        html += '<div class="list-item"><div class="name">' + b + '</div><div class="status-badge badge-booked">TODAY</div></div>';
+      });
+      html += '</div>';
+    }
+
+    // Needs Rescheduling
+    if (reschedule.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-title" style="color:#ff9f43;">Needs Rescheduling (' + reschedule.length + ')</div>';
+      reschedule.forEach(function(r) {
+        html += '<div class="list-item" style="border-color:#ff9f4315;"><div class="name">' + r + '</div><div class="status-badge badge-resched">RESCHED</div></div>';
+      });
+      html += '</div>';
+    }
+
+    // Technicians
+    if (techs.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-title" style="color:#00ff66;">Technicians</div>';
+      techs.forEach(function(t) {
+        html += '<div class="list-item" style="border-color:#00ff6610;"><div class="name">' + t + '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    // Location Breakdown
+    if (locationBreakdown.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-title">Location Performance</div>';
+      html += '<div class="loc-grid">';
+      locationBreakdown.forEach(function(l) {
+        html += '<div class="loc-chip" onclick="loadTab(\'' + l.split(':')[0].trim().replace(/'/g, "\\'") + '\')">' + l + '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // Actions
+    html += '<div class="actions">';
+    html += '<a class="holo-btn" href="/dashboard">Personal Dashboard</a>';
+    html += '<a class="holo-btn green" href="/tabs" target="_blank">All Tabs</a>';
+    html += '<a class="holo-btn" href="/search?q=booked" target="_blank">Search Bookings</a>';
+    html += '<a class="holo-btn" href="/briefing" target="_blank">AI Briefing</a>';
+    html += '</div>';
+
+    // Tab Modal (reuse from main dashboard)
+    html += '<div id="tab-modal">';
+    html += '<div style="max-width:1200px;margin:30px auto;padding:20px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">';
+    html += '<div id="modal-title" style="font-family:Orbitron;font-size:1.2em;letter-spacing:3px;color:#a855f7;"></div>';
+    html += '<div onclick="closeModal()" style="font-family:Orbitron;font-size:0.8em;letter-spacing:2px;color:#ff4757;cursor:pointer;padding:10px 20px;border:1px solid #ff475730;">CLOSE</div>';
+    html += '</div>';
+    html += '<div id="modal-loading" style="text-align:center;padding:60px;font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#4a6a8a;">LOADING...</div>';
+    html += '<div id="modal-content" style="overflow-x:auto;"></div>';
+    html += '</div></div>';
+
+    // JavaScript
+    html += '<script>';
+    html += 'function loadTab(name){';
+    html += '  document.getElementById("tab-modal").style.display="block";';
+    html += '  document.getElementById("modal-title").textContent=name;';
+    html += '  document.getElementById("modal-loading").style.display="block";';
+    html += '  document.getElementById("modal-content").innerHTML="";';
+    html += '  fetch("/tab/"+encodeURIComponent(name))';
+    html += '    .then(function(r){return r.json()})';
+    html += '    .then(function(data){';
+    html += '      document.getElementById("modal-loading").style.display="none";';
+    html += '      if(!data.headers||data.headers.length===0){document.getElementById("modal-content").innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding:40px;\\">NO DATA</div>";return;}';
+    html += '      var headers=data.headers;var rows=(data.rows||[]).slice(0,50);';
+    html += '      var t="<div style=\\"font-family:Orbitron;font-size:0.65em;color:#4a6a8a;letter-spacing:2px;margin-bottom:10px;\\">"+(data.rowCount||0)+" ROWS</div>";';
+    html += '      t+="<table style=\\"width:100%;border-collapse:collapse;font-size:0.85em;\\">";';
+    html += '      t+="<thead><tr>";';
+    html += '      for(var h=0;h<headers.length;h++){t+="<th style=\\"padding:8px 10px;text-align:left;border-bottom:1px solid #a855f720;font-family:Orbitron;font-size:0.65em;letter-spacing:2px;color:#a855f7;white-space:nowrap;\\">"+headers[h]+"</th>";}';
+    html += '      t+="</tr></thead><tbody>";';
+    html += '      for(var r=0;r<rows.length;r++){';
+    html += '        t+="<tr style=\\"border-bottom:1px solid #0a1520;\\">";';
+    html += '        for(var c=0;c<headers.length;c++){var val=rows[r][c]||"";t+="<td style=\\"padding:6px 10px;color:#7a9ab0;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;\\">"+val+"</td>";}';
+    html += '        t+="</tr>";';
+    html += '      }';
+    html += '      t+="</tbody></table>";';
+    html += '      document.getElementById("modal-content").innerHTML=t;';
+    html += '    }).catch(function(e){document.getElementById("modal-content").innerHTML="ERROR: "+e.message;});';
+    html += '}';
+    html += 'function closeModal(){document.getElementById("tab-modal").style.display="none";}';
+    html += 'document.addEventListener("keydown",function(e){if(e.key==="Escape")closeModal();});';
+
+    // Live clock
+    html += 'function updateClock(){var d=new Date();var h=String(d.getHours()).padStart(2,"0");var m=String(d.getMinutes()).padStart(2,"0");var s=String(d.getSeconds()).padStart(2,"0");document.getElementById("clock").textContent=h+":"+m+":"+s;}setInterval(updateClock,1000);updateClock();';
+    html += '<\/script>';
+
+    // Clock
+    html += '<div class="clock" id="clock"></div>';
+
+    // Footer
+    html += '<div class="footer">WILDWOOD CRM v1.0 // J.A.R.V.I.S. Business Intelligence // Powered by Claude AI</div>';
+
+    html += '</div></body></html>';
+    res.send(html);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 app.post('/chat', async function(req, res) {
   var sessionId = req.body.sessionId || 'default';
@@ -3378,6 +4125,16 @@ app.post('/chat', async function(req, res) {
       return res.json({ response: briefing });
     }
 
+    // Business briefing
+    if (lowerMsg === 'business' || lowerMsg === 'crm' || lowerMsg === 'customers' || lowerMsg === 'bookings' || lowerMsg.includes('how many bookings') || lowerMsg.includes('how many customers') || lowerMsg.includes('business update') || lowerMsg.includes('crm update')) {
+      var bizContext = await buildBusinessContext();
+      var bizBriefing = await askClaude(
+        "You are Jarvis, Trace's business AI assistant for Wildwood Small Engine Repair. Give a spoken business update. Be concise, 3-5 sentences. No markdown. Mention key numbers: bookings, cancellations, anything that needs attention like rescheduling. Talk like a sharp operations manager.\n\nCRM DATA:\n" + bizContext,
+        [{ role: 'user', content: 'Give me my business update.' }]
+      );
+      return res.json({ response: bizBriefing });
+    }
+
     // Emails
     if (lowerMsg === 'email' || lowerMsg === 'emails' || lowerMsg === 'inbox') {
       var emailContext = await buildEmailContext();
@@ -3393,8 +4150,10 @@ app.post('/chat', async function(req, res) {
     var history = webChatHistory[sessionId];
     if (!history) {
       var context = await buildLifeOSContext();
+      var bizContext = '';
+      try { bizContext = await buildBusinessContext(); } catch (e) {}
       history = {
-        systemPrompt: "You are Jarvis, Trace's personal AI counselor and mentor. You are speaking through a browser voice interface.\n\nRULES:\n- Talk like a wise friend and life coach. Be real and direct.\n- NEVER mention tab names, sheet names, row counts, or entry counts.\n- NEVER recite statistics unless Trace specifically asks for numbers.\n- Use the data to UNDERSTAND his life, then give human advice.\n- Ask thoughtful questions. Push him to grow.\n- Keep responses to 1-3 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound like a real person, not a robot or a database.\n\nLIFE OS DATA (use to inform advice, don't recite):\n" + context,
+        systemPrompt: "You are Jarvis, Trace's personal AI counselor, mentor, and business operations assistant. You are speaking through a browser voice interface.\n\nRULES:\n- Talk like a wise friend, life coach, and sharp business partner.\n- NEVER mention tab names, sheet names, row counts, or entry counts.\n- NEVER recite statistics unless Trace specifically asks for numbers.\n- Use the data to UNDERSTAND his life and business, then give human advice.\n- If he asks about business/customers/bookings, use the CRM data.\n- If he asks personal questions, use the Life OS data.\n- Ask thoughtful questions. Push him to grow.\n- Keep responses to 1-3 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound like a real person, not a robot or a database.\n\nLIFE OS DATA (personal):\n" + context + "\n\nBUSINESS CRM DATA (Wildwood Small Engine Repair):\n" + bizContext,
         messages: [],
       };
     }
@@ -3602,7 +4361,7 @@ app.get('/nightly-checkin', async function(req, res) {
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /chat /daily-questions /nightly-checkin");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /chat /daily-questions /nightly-checkin");
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
