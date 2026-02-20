@@ -348,181 +348,369 @@ async function buildBusinessContext() {
   var context = "WILDWOOD SMALL ENGINE REPAIR — CRM DATA:\n\n";
 
   try {
-    var allTabs = await getAllTabNames();
+    // Read Combined sheet — ALL data in one call
+    var combinedRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "'Combined'!A1:AE",
+    });
+    var allRows = combinedRes.data.values || [];
+    if (allRows.length <= 1) {
+      businessCache = { data: context + "No CRM data found.\n", time: Date.now() };
+      return businessCache.data;
+    }
 
-    // Location tabs are the ones with city/state patterns or tech names
-    var skipTabs = ['Tech Numbers', 'Mapping', 'Dropdown', 'Mail List', 'SAMPLE', 'TEST',
-      'Unorganized customers', 'Location Sheets', 'Return Customers', 'Manual Entry Record',
-      'Diagnostic SMS Reply', 'Promotion Customers Reply', 'Combined', 'Unassigned customer',
-      'Location Unavailable', 'Trace_Identity_Profile', 'Daily_Log', 'Wins', 'Gratitude_Memory',
-      'Dashboard', 'Chat_Pattern_Lifecycle', 'Chat_Insights_Dating', 'Daily_Questions',
-      'Dating_Log', 'Ultimate_Debt_Tracker_Advanced', 'Gym_Log', 'Health_Log', 'Reminders'];
+    // Metrics accumulators
+    var totalBooked = 0, totalCancelled = 0, totalCompleted = 0, totalReturn = 0;
+    var todayBookings = [], recentBookings = [], needsReschedule = [];
+    var locationStats = {}, techStats = {}, equipStats = {}, brandStats = {};
+    var monthlyBookings = {}, weeklyBookings = 0;
+    var bookingToServiceDays = [];
+    var seasonalData = {}; // month -> { snow: 0, mower: 0, generator: 0, other: 0 }
+    var locationCoords = {}; // city,state -> { lat, lng, count }
+    var today = new Date();
+    var todayStr = today.toISOString().split('T')[0];
+    var thisMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+    var lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    var lastMonthStr = lastMonth.getFullYear() + '-' + String(lastMonth.getMonth() + 1).padStart(2, '0');
+    var weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay()); weekStart.setHours(0,0,0,0);
+    var newLocationsThisMonth = {};
+    var totalLeads = 0;
 
-    var locationTabs = allTabs.filter(function(t) { return skipTabs.indexOf(t) === -1; });
+    for (var r = 1; r < allRows.length; r++) {
+      var row = allRows[r];
+      if (!row[1] && !row[2]) continue; // skip empty rows
 
-    var totalBooked = 0;
-    var totalCancelled = 0;
-    var totalCompleted = 0;
-    var totalReturn = 0;
-    var todayBookings = [];
-    var recentBookings = [];
-    var needsReschedule = [];
-    var locationStats = {};
-    var today = new Date().toISOString().split('T')[0];
+      var firstName = (row[1] || '').toString().trim();
+      var lastName = (row[2] || '').toString().trim();
+      if (!firstName && !lastName) continue;
 
-    for (var i = 0; i < locationTabs.length; i++) {
-      var tabName = locationTabs[i];
-      try {
-        var res = await sheets.spreadsheets.values.get({
-          spreadsheetId: SPREADSHEET_ID,
-          range: "'" + tabName + "'!A1:AZ",
-        });
-        var rows = res.data.values || [];
-        if (rows.length <= 1) continue;
+      totalLeads++;
+      var fullName = firstName + ' ' + lastName;
+      var timeStart = (row[3] || '').toString();
+      var timeEnd = (row[4] || '').toString();
+      var serviceDate = (row[5] || '').toString();
+      var phone = (row[6] || '').toString();
+      var email = (row[7] || '').toString();
+      var address = (row[8] || '').toString();
+      var city = (row[9] || '').toString().trim();
+      var state = (row[10] || '').toString().trim();
+      var zip = (row[11] || '').toString();
+      var equipType = (row[12] || '').toString().trim();
+      var brand = (row[13] || '').toString().trim();
+      var issue = (row[14] || '').toString().trim();
+      var tech = (row[15] || '').toString().trim();
+      var notes = (row[16] || '').toString().trim();
+      var status = (row[17] || '').toString().toLowerCase().trim();
+      var createdAt = (row[0] || '').toString();
+      var doneCol = (row[30] || '').toString().toLowerCase().trim(); // AE column
 
-        var headers = rows[0];
-        var statusCol = -1, dateCol = -1, firstNameCol = -1, lastNameCol = -1;
-        var phoneCol = -1, cityCol = -1, equipCol = -1, issueCol = -1, availCol = -1;
+      var location = city && state ? city + ', ' + state : (row[17] && row[17].toString().includes(',') ? row[17].toString() : '');
 
-        for (var h = 0; h < headers.length; h++) {
-          var hLower = (headers[h] || '').toString().toLowerCase().trim();
-          if (hLower === 'status') statusCol = h;
-          if (hLower.includes('date called') || hLower === 'date and time') dateCol = h;
-          if (hLower.includes('first name')) firstNameCol = h;
-          if (hLower.includes('last name')) lastNameCol = h;
-          if (hLower.includes('phone')) phoneCol = h;
-          if (hLower === 'city') cityCol = h;
-          if (hLower.includes('type equip') || hLower.includes('type of equip')) equipCol = h;
-          if (hLower.includes('issue')) issueCol = h;
-          if (hLower.includes('date customer')) availCol = h;
+      // Status parsing
+      var isBooked = status.includes('booked') || doneCol === 'done';
+      var isCancelled = status.includes('cancel');
+      var isCompleted = doneCol === 'done' || status.includes('completed') || status.includes('done');
+      var isReturn = status.includes('return');
+      var needsResched = status.includes('reschedul') || status.includes('need') && status.includes('book');
+
+      if (isBooked) totalBooked++;
+      if (isCancelled) totalCancelled++;
+      if (isCompleted) totalCompleted++;
+      if (isReturn) totalReturn++;
+      if (needsResched) needsReschedule.push({ name: fullName, location: location, phone: phone });
+
+      // Location stats
+      if (location) {
+        if (!locationStats[location]) locationStats[location] = { booked: 0, completed: 0, cancelled: 0, total: 0 };
+        locationStats[location].total++;
+        if (isBooked) locationStats[location].booked++;
+        if (isCompleted) locationStats[location].completed++;
+        if (isCancelled) locationStats[location].cancelled++;
+      }
+
+      // Tech stats (enhanced)
+      if (tech) {
+        if (!techStats[tech]) techStats[tech] = {
+          total: 0, completed: 0, cancelled: 0, revenue: 0,
+          locations: {}, equipment: {}, brands: {},
+          recentJobs: [], todayJobs: [], thisWeekJobs: 0, thisMonthJobs: 0,
+          avgResponseDays: [], returnCustomers: 0, firstSeen: null, lastSeen: null,
+        };
+        var ts = techStats[tech];
+        ts.total++;
+        if (isCompleted) ts.completed++;
+        if (isCancelled) ts.cancelled++;
+        if (isReturn) ts.returnCustomers++;
+        if (location) ts.locations[location] = (ts.locations[location] || 0) + 1;
+        if (equipType) {
+          var eqKey = equipNorm || equipType.substring(0, 30);
+          ts.equipment[eqKey] = (ts.equipment[eqKey] || 0) + 1;
         }
-
-        var locBooked = 0, locCancelled = 0, locCompleted = 0;
-
-        for (var r = 1; r < rows.length; r++) {
-          var row = rows[r];
-          var status = (row[statusCol] || '').toString().toLowerCase().trim();
-          var firstName = (row[firstNameCol] || '').toString().trim();
-          var lastName = (row[lastNameCol] || '').toString().trim();
-
-          if (!firstName && !lastName) continue;
-
-          if (status.includes('booked')) { totalBooked++; locBooked++; }
-          if (status.includes('cancel')) { totalCancelled++; locCancelled++; }
-          if (status.includes('completed') || status.includes('done')) { totalCompleted++; locCompleted++; }
-          if (status.includes('return')) totalReturn++;
-          if (status.includes('reschedul')) {
-            needsReschedule.push({
-              name: firstName + ' ' + lastName,
-              location: tabName,
-              phone: (row[phoneCol] || '').toString(),
-            });
-          }
-
-          // Check for today's bookings
-          var availDate = (row[availCol] || '').toString();
-          if (availDate && availDate.includes(today)) {
-            todayBookings.push({
-              name: firstName + ' ' + lastName,
-              location: tabName,
-              equip: (row[equipCol] || '').toString(),
-              issue: (row[issueCol] || '').toString().substring(0, 80),
-            });
-          }
-
-          // Recent bookings (last 5 rows with data per tab)
-          if (r >= rows.length - 3 && firstName) {
-            recentBookings.push({
-              name: firstName + ' ' + lastName,
-              location: tabName,
-              status: status,
-              equip: (row[equipCol] || '').toString(),
-            });
-          }
+        if (brand && brand.length > 1 && brand.toLowerCase() !== 'not specified') {
+          var bKey = brand.split(' ')[0].trim();
+          bKey = bKey.charAt(0).toUpperCase() + bKey.slice(1).toLowerCase();
+          ts.brands[bKey] = (ts.brands[bKey] || 0) + 1;
         }
+        if (createdAt) {
+          try {
+            var tDate = new Date(createdAt);
+            if (!isNaN(tDate.getTime())) {
+              if (!ts.firstSeen || tDate < ts.firstSeen) ts.firstSeen = tDate;
+              if (!ts.lastSeen || tDate > ts.lastSeen) ts.lastSeen = tDate;
+              var tMonthKey = tDate.getFullYear() + '-' + String(tDate.getMonth() + 1).padStart(2, '0');
+              if (tMonthKey === thisMonth) ts.thisMonthJobs++;
+              if (tDate >= weekStart) ts.thisWeekJobs++;
+            }
+          } catch(e){}
+        }
+        if (createdAt && serviceDate) {
+          try {
+            var rc1 = new Date(createdAt), rc2 = new Date(serviceDate);
+            if (!isNaN(rc1.getTime()) && !isNaN(rc2.getTime())) {
+              var respDays = Math.round((rc2 - rc1) / 86400000);
+              if (respDays >= 0 && respDays < 60) ts.avgResponseDays.push(respDays);
+            }
+          } catch(e){}
+        }
+        // Recent jobs for this tech (last 5)
+        if (ts.recentJobs.length < 5 || r >= allRows.length - 50) {
+          if (ts.recentJobs.length >= 5) ts.recentJobs.shift();
+          ts.recentJobs.push({ name: fullName, location: location, equip: equipType, status: status, date: createdAt });
+        }
+        // Today's jobs for this tech
+        if (serviceDate) {
+          try {
+            var tsd = new Date(serviceDate);
+            if (tsd.toISOString().split('T')[0] === todayStr) {
+              ts.todayJobs.push({ name: fullName, location: location, equip: equipType, issue: issue.substring(0, 60) });
+            }
+          } catch(e){}
+        }
+      }
 
-        locationStats[tabName] = { booked: locBooked, cancelled: locCancelled, completed: locCompleted };
-      } catch (e) {
-        // Skip tabs that error
+      // Equipment breakdown
+      if (equipType) {
+        var equipNorm = equipType.toLowerCase().replace(/riding\s*/i, 'Riding ').replace(/snow\s*blow/i, 'Snow Blow').replace(/push\s*mow/i, 'Push Mow');
+        if (equipNorm.toLowerCase().includes('snow')) equipNorm = 'Snow Blower';
+        else if (equipNorm.toLowerCase().includes('riding')) equipNorm = 'Riding Mower';
+        else if (equipNorm.toLowerCase().includes('push')) equipNorm = 'Push Mower';
+        else if (equipNorm.toLowerCase().includes('generator')) equipNorm = 'Generator';
+        else if (equipNorm.toLowerCase().includes('chain') || equipNorm.toLowerCase().includes('saw')) equipNorm = 'Chainsaw';
+        else if (equipNorm.toLowerCase().includes('trim') || equipNorm.toLowerCase().includes('weed')) equipNorm = 'Trimmer';
+        else equipNorm = equipType.substring(0, 30);
+        equipStats[equipNorm] = (equipStats[equipNorm] || 0) + 1;
+
+        // Seasonal demand tracking
+        if (createdAt) {
+          try {
+            var sDate2 = new Date(createdAt);
+            if (!isNaN(sDate2.getTime())) {
+              var sMonth = sDate2.getFullYear() + '-' + String(sDate2.getMonth() + 1).padStart(2, '0');
+              if (!seasonalData[sMonth]) seasonalData[sMonth] = { snow: 0, mower: 0, generator: 0, other: 0 };
+              if (equipNorm === 'Snow Blower') seasonalData[sMonth].snow++;
+              else if (equipNorm.includes('Mower')) seasonalData[sMonth].mower++;
+              else if (equipNorm === 'Generator') seasonalData[sMonth].generator++;
+              else seasonalData[sMonth].other++;
+            }
+          } catch(e){}
+        }
+      }
+
+      // Brand breakdown
+      if (brand && brand.length > 1 && brand.toLowerCase() !== 'not specified') {
+        var brandNorm = brand.split(' ')[0].trim();
+        brandNorm = brandNorm.charAt(0).toUpperCase() + brandNorm.slice(1).toLowerCase();
+        brandStats[brandNorm] = (brandStats[brandNorm] || 0) + 1;
+      }
+
+      // Monthly tracking
+      if (createdAt) {
+        try {
+          var cDate = new Date(createdAt);
+          if (!isNaN(cDate.getTime())) {
+            var mKey = cDate.getFullYear() + '-' + String(cDate.getMonth() + 1).padStart(2, '0');
+            monthlyBookings[mKey] = (monthlyBookings[mKey] || 0) + 1;
+            if (cDate >= weekStart) weeklyBookings++;
+          }
+        } catch (e) {}
+      }
+
+      // Average booking to service days
+      if (createdAt && serviceDate) {
+        try {
+          var cDate2 = new Date(createdAt);
+          var sDate = new Date(serviceDate);
+          if (!isNaN(cDate2.getTime()) && !isNaN(sDate.getTime())) {
+            var daysDiff = Math.round((sDate - cDate2) / 86400000);
+            if (daysDiff >= 0 && daysDiff < 60) bookingToServiceDays.push(daysDiff);
+          }
+        } catch (e) {}
+      }
+
+      // New locations this month
+      if (createdAt && location) {
+        try {
+          var cDate3 = new Date(createdAt);
+          var mKey2 = cDate3.getFullYear() + '-' + String(cDate3.getMonth() + 1).padStart(2, '0');
+          if (mKey2 === thisMonth) newLocationsThisMonth[location] = true;
+        } catch (e) {}
+      }
+
+      // Service date check for today
+      if (serviceDate) {
+        try {
+          var sd = new Date(serviceDate);
+          if (sd.toISOString().split('T')[0] === todayStr) {
+            todayBookings.push({ name: fullName, location: location, equip: equipType, issue: issue.substring(0, 80), tech: tech });
+          }
+        } catch (e) {}
+      }
+
+      // Recent bookings (last 20 rows)
+      if (r >= allRows.length - 20 && firstName) {
+        recentBookings.push({ name: fullName, location: location, status: status, equip: equipType, tech: tech, brand: brand });
       }
     }
 
-    // Tech Numbers
+    // Tech Numbers tab
+    var techList = [];
     try {
-      var techRes = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: "'Tech Numbers'!A1:D40",
-      });
+      var techRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Tech Numbers'!A1:D40" });
       var techRows = techRes.data.values || [];
-      if (techRows.length > 1) {
-        context += "TECHNICIANS:\n";
-        for (var t = 1; t < techRows.length; t++) {
-          if (techRows[t][0]) context += "  " + techRows[t][0] + " — " + (techRows[t][2] || 'No location') + "\n";
-        }
-        context += "\n";
+      for (var t = 1; t < techRows.length; t++) {
+        if (techRows[t][0]) techList.push({ name: techRows[t][0], phone: techRows[t][1] || '', location: techRows[t][2] || '' });
       }
     } catch (e) {}
 
-    // Return Customers count
+    // Return Customers tab
     try {
-      var retRes = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: "'Return Customers'!A:A",
-      });
-      totalReturn = Math.max(0, ((retRes.data.values || []).length) - 1);
+      var retRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Return Customers'!A:A" });
+      var retCount = Math.max(0, ((retRes.data.values || []).length) - 1);
+      if (retCount > totalReturn) totalReturn = retCount;
     } catch (e) {}
 
-    // Promotion replies
+    // Promo replies
     var promoReplies = 0;
     try {
-      var promoRes = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: "'Promotion Customers Reply'!A:A",
-      });
+      var promoRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Promotion Customers Reply'!A:A" });
       promoReplies = Math.max(0, ((promoRes.data.values || []).length) - 1);
     } catch (e) {}
 
+    // Calculate averages
+    var avgBookingDays = bookingToServiceDays.length > 0 ? Math.round(bookingToServiceDays.reduce(function(a,b){return a+b;}, 0) / bookingToServiceDays.length) : 0;
+    var conversionRate = totalLeads > 0 ? Math.round((totalBooked / totalLeads) * 100) : 0;
+    var thisMonthBookings = monthlyBookings[thisMonth] || 0;
+    var lastMonthBookings = monthlyBookings[lastMonthStr] || 0;
+    var monthGrowth = lastMonthBookings > 0 ? Math.round(((thisMonthBookings - lastMonthBookings) / lastMonthBookings) * 100) : 0;
+
+    // Build context string
     context += "OVERVIEW:\n";
+    context += "  Total Leads: " + totalLeads + "\n";
     context += "  Active Bookings: " + totalBooked + "\n";
     context += "  Completed Jobs: " + totalCompleted + "\n";
     context += "  Cancelled: " + totalCancelled + "\n";
     context += "  Return Customers: " + totalReturn + "\n";
     context += "  Promo Replies: " + promoReplies + "\n";
-    context += "  Locations Active: " + locationTabs.length + "\n\n";
+    context += "  Locations Active: " + Object.keys(locationStats).length + "\n";
+    context += "  Technicians: " + techList.length + "\n";
+    context += "  Avg Days Booking→Service: " + avgBookingDays + "\n";
+    context += "  Conversion Rate: " + conversionRate + "%\n";
+    context += "  This Month Bookings: " + thisMonthBookings + "\n";
+    context += "  Last Month Bookings: " + lastMonthBookings + "\n";
+    context += "  Month Growth: " + monthGrowth + "%\n";
+    context += "  This Week Bookings: " + weeklyBookings + "\n\n";
 
     if (todayBookings.length > 0) {
       context += "TODAY'S BOOKINGS:\n";
-      todayBookings.forEach(function(b) {
-        context += "  " + b.name + " (" + b.location + ") — " + b.equip + ": " + b.issue + "\n";
-      });
+      todayBookings.forEach(function(b) { context += "  " + b.name + " (" + b.location + ") — " + b.equip + ": " + b.issue + " [Tech: " + b.tech + "]\n"; });
       context += "\n";
     }
 
     if (needsReschedule.length > 0) {
       context += "NEEDS RESCHEDULING (" + needsReschedule.length + "):\n";
-      needsReschedule.slice(0, 10).forEach(function(n) {
-        context += "  " + n.name + " (" + n.location + ") — " + n.phone + "\n";
+      needsReschedule.slice(0, 10).forEach(function(n) { context += "  " + n.name + " (" + n.location + ") — " + n.phone + "\n"; });
+      context += "\n";
+    }
+
+    // Top equipment types
+    context += "EQUIPMENT BREAKDOWN:\n";
+    var eqSorted = Object.entries(equipStats).sort(function(a,b){return b[1]-a[1];});
+    eqSorted.slice(0, 8).forEach(function(e) { context += "  " + e[0] + ": " + e[1] + "\n"; });
+    context += "\n";
+
+    // Top brands
+    context += "TOP BRANDS:\n";
+    var brSorted = Object.entries(brandStats).sort(function(a,b){return b[1]-a[1];});
+    brSorted.slice(0, 8).forEach(function(b) { context += "  " + b[0] + ": " + b[1] + "\n"; });
+    context += "\n";
+
+    // Tech leaderboard (enhanced profiles)
+    context += "TECHNICIAN PERFORMANCE:\n";
+    var techSorted = Object.entries(techStats).sort(function(a,b){return b[1].total-a[1].total;});
+    techSorted.forEach(function(t) {
+      var ts = t[1];
+      var rate = ts.total > 0 ? Math.round((ts.completed / ts.total) * 100) : 0;
+      var avgResp = ts.avgResponseDays.length > 0 ? Math.round(ts.avgResponseDays.reduce(function(a,b){return a+b;},0) / ts.avgResponseDays.length) : 0;
+      var topEquip = Object.entries(ts.equipment).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(e){return e[0];}).join(', ');
+      var topLocs = Object.entries(ts.locations).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(l){return l[0];}).join(', ');
+      context += "  " + t[0] + ": " + ts.total + " jobs (" + ts.completed + " completed, " + ts.cancelled + " cancelled, " + rate + "% rate)";
+      context += " | This week: " + ts.thisWeekJobs + " | Avg response: " + avgResp + "d";
+      context += " | Specialties: " + (topEquip || 'none') + " | Markets: " + (topLocs || 'none') + "\n";
+    });
+    context += "\n";
+
+    // Auto-task assignment recommendations
+    if (todayBookings.length > 0 || needsReschedule.length > 0) {
+      context += "SMART TASK ASSIGNMENTS:\n";
+      var unassigned = todayBookings.filter(function(b) { return !b.tech || b.tech === ''; });
+      var reschedNeedsTech = needsReschedule.filter(function(n) { return n.name; });
+
+      // For unassigned jobs, recommend best tech
+      unassigned.forEach(function(job) {
+        var bestTech = null, bestScore = -1;
+        techSorted.forEach(function(t) {
+          var ts = t[1];
+          var score = 0;
+          var completionRate = ts.total > 0 ? ts.completed / ts.total : 0;
+          score += completionRate * 40; // weight completion rate
+          if (job.equip && ts.equipment[job.equip]) score += 20; // equipment match
+          if (job.location && ts.locations[job.location]) score += 20; // location match
+          score -= ts.todayJobs.length * 10; // penalize if already busy today
+          if (score > bestScore) { bestScore = score; bestTech = t[0]; }
+        });
+        if (bestTech) {
+          context += "  ASSIGN: " + job.name + " (" + job.equip + " in " + job.location + ") → " + bestTech + " (score: " + Math.round(bestScore) + ")\n";
+        }
       });
       context += "\n";
     }
 
+    // Location breakdown
     context += "LOCATION BREAKDOWN:\n";
-    var locKeys = Object.keys(locationStats);
-    for (var lk = 0; lk < locKeys.length; lk++) {
-      var ls = locationStats[locKeys[lk]];
-      if (ls.booked + ls.completed + ls.cancelled > 0) {
-        context += "  " + locKeys[lk] + ": " + ls.booked + " booked, " + ls.completed + " completed, " + ls.cancelled + " cancelled\n";
-      }
-    }
+    var locSorted = Object.entries(locationStats).sort(function(a,b){return b[1].total-a[1].total;});
+    locSorted.slice(0, 20).forEach(function(l) {
+      context += "  " + l[0] + ": " + l[1].total + " total, " + l[1].booked + " booked, " + l[1].completed + " completed, " + l[1].cancelled + " cancelled\n";
+    });
     context += "\n";
 
     if (recentBookings.length > 0) {
       context += "RECENT ACTIVITY:\n";
-      recentBookings.slice(-10).forEach(function(b) {
-        context += "  " + b.name + " — " + b.location + " — " + b.status + " (" + b.equip + ")\n";
-      });
+      recentBookings.slice(-10).forEach(function(b) { context += "  " + b.name + " — " + b.location + " — " + b.status + " (" + b.equip + ") [" + b.tech + "]\n"; });
       context += "\n";
     }
+
+    // Store parsed data globally for dashboard
+    global.bizMetrics = {
+      totalLeads: totalLeads, totalBooked: totalBooked, totalCompleted: totalCompleted,
+      totalCancelled: totalCancelled, totalReturn: totalReturn, promoReplies: promoReplies,
+      todayBookings: todayBookings, needsReschedule: needsReschedule, recentBookings: recentBookings,
+      locationStats: locationStats, techStats: techStats, equipStats: equipStats, brandStats: brandStats,
+      monthlyBookings: monthlyBookings, weeklyBookings: weeklyBookings,
+      avgBookingDays: avgBookingDays, conversionRate: conversionRate,
+      thisMonthBookings: thisMonthBookings, lastMonthBookings: lastMonthBookings,
+      monthGrowth: monthGrowth, techList: techList, newLocationsThisMonth: Object.keys(newLocationsThisMonth).length,
+      seasonalData: seasonalData,
+    };
 
   } catch (e) {
     context += "Error loading CRM data: " + e.message + "\n";
@@ -2504,48 +2692,35 @@ app.get('/dashboard', async function(req, res) {
     var screenTime = screenTimeMatch ? screenTimeMatch[1] : '?';
     var debtAmount = debtMatch ? debtMatch[1].replace(/,/g, '') : '0';
 
-    // Parse business numbers
-    var bookedMatch = bizContext.match(/Active Bookings:\s*(\d+)/);
-    var completedMatch = bizContext.match(/Completed Jobs:\s*(\d+)/);
-    var cancelledMatch = bizContext.match(/Cancelled:\s*(\d+)/);
-    var returnMatch = bizContext.match(/Return Customers:\s*(\d+)/);
-    var promoMatch = bizContext.match(/Promo Replies:\s*(\d+)/);
-    var locationsMatch = bizContext.match(/Locations Active:\s*(\d+)/);
+    // Business metrics from global (populated by buildBusinessContext)
+    var bm = global.bizMetrics || {};
+    var totalBooked = bm.totalBooked || 0;
+    var totalCompleted = bm.totalCompleted || 0;
+    var totalCancelled = bm.totalCancelled || 0;
+    var totalReturn = bm.totalReturn || 0;
+    var promoReplies = bm.promoReplies || 0;
+    var totalLocations = bm.locationStats ? Object.keys(bm.locationStats).length : 0;
+    var bizTodayBookings = bm.todayBookings || [];
+    var bizReschedule = bm.needsReschedule || [];
+    var bizTechs = bm.techList || [];
+    var bizRecentBookings = bm.recentBookings || [];
+    var equipStats = bm.equipStats || {};
+    var brandStats = bm.brandStats || {};
+    var techPerf = bm.techStats || {};
+    var locationStats = bm.locationStats || {};
+    var avgBookingDays = bm.avgBookingDays || 0;
+    var conversionRate = bm.conversionRate || 0;
+    var thisMonthBookings = bm.thisMonthBookings || 0;
+    var lastMonthBookings = bm.lastMonthBookings || 0;
+    var monthGrowth = bm.monthGrowth || 0;
+    var weeklyBookings = bm.weeklyBookings || 0;
+    var totalLeads = bm.totalLeads || 0;
+    var newLocsThisMonth = bm.newLocationsThisMonth || 0;
+    var monthlyBookings = bm.monthlyBookings || {};
+    var seasonalData = bm.seasonalData || {};
 
-    var totalBooked = bookedMatch ? bookedMatch[1] : '0';
-    var totalCompleted = completedMatch ? completedMatch[1] : '0';
-    var totalCancelled = cancelledMatch ? cancelledMatch[1] : '0';
-    var totalReturn = returnMatch ? returnMatch[1] : '0';
-    var promoReplies = promoMatch ? promoMatch[1] : '0';
-    var totalLocations = locationsMatch ? locationsMatch[1] : '0';
-
-    // Parse today's bookings
-    var bizTodayBookings = [];
-    var todayBizMatch = bizContext.match(/TODAY'S BOOKINGS:\n([\s\S]*?)(\n\n|NEEDS|LOCATION)/);
-    if (todayBizMatch) {
-      todayBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizTodayBookings.push(l.trim()); });
-    }
-
-    // Parse needs rescheduling
-    var bizReschedule = [];
-    var reschedBizMatch = bizContext.match(/NEEDS RESCHEDULING.*?:\n([\s\S]*?)(\n\n|LOCATION)/);
-    if (reschedBizMatch) {
-      reschedBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizReschedule.push(l.trim()); });
-    }
-
-    // Parse location breakdown
-    var bizLocations = [];
-    var locBizMatch = bizContext.match(/LOCATION BREAKDOWN:\n([\s\S]*?)(\n\n|RECENT)/);
-    if (locBizMatch) {
-      locBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizLocations.push(l.trim()); });
-    }
-
-    // Parse technicians
-    var bizTechs = [];
-    var techBizMatch = bizContext.match(/TECHNICIANS:\n([\s\S]*?)\n\n/);
-    if (techBizMatch) {
-      techBizMatch[1].trim().split('\n').forEach(function(l) { if (l.trim()) bizTechs.push(l.trim()); });
-    }
+    // Sort location data
+    var bizLocations = Object.entries(locationStats).sort(function(a,b){return b[1].total-a[1].total;});
 
     // Get email count
     var emailAccounts = Object.keys(gmailTokens);
@@ -3495,73 +3670,648 @@ app.get('/dashboard', async function(req, res) {
     html += '</div>';
     html += '</div>';
 
-    // Athena Stats Grid
+    // ====== ROW 1: Core Stats ======
     html += '<div class="grid">';
-
-    html += '<div class="card" style="--accent:#a855f7;border-color:#a855f715;"><div class="label">Active Bookings</div><div class="value">' + totalBooked + '</div><div class="sub">Across all locations</div><div class="bar"><div class="bar-fill" style="width:70%;background:#a855f7;"></div></div></div>';
-
-    html += '<div class="card" style="--accent:#00ff66;border-color:#00ff6615;"><div class="label">Completed Jobs</div><div class="value">' + totalCompleted + '</div><div class="sub">Revenue generated</div><div class="bar"><div class="bar-fill" style="width:85%;background:#00ff66;"></div></div></div>';
-
-    html += '<div class="card" style="--accent:#ff4757;border-color:#ff475715;"><div class="label">Cancelled</div><div class="value">' + totalCancelled + '</div><div class="sub">' + (parseInt(totalCancelled) > parseInt(totalCompleted) / 5 ? 'HIGH — needs attention' : 'Within normal range') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, parseInt(totalCancelled) * 2) + '%;background:#ff4757;"></div></div></div>';
-
-    html += '<div class="card" style="--accent:#00d4ff;border-color:#00d4ff15;"><div class="label">Today\'s Jobs</div><div class="value">' + bizTodayBookings.length + '</div><div class="sub">' + (bizTodayBookings.length > 0 ? 'Jobs scheduled today' : 'No jobs today') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, bizTodayBookings.length * 15) + '%;background:#00d4ff;"></div></div></div>';
-
-    html += '<div class="card" style="--accent:#ff9f43;border-color:#ff9f4315;"><div class="label">Return Customers</div><div class="value">' + totalReturn + '</div><div class="sub">Repeat business</div><div class="bar"><div class="bar-fill" style="width:60%;background:#ff9f43;"></div></div></div>';
-
-    html += '<div class="card" style="--accent:#55f7d8;border-color:#55f7d815;"><div class="label">Promo Replies</div><div class="value">' + promoReplies + '</div><div class="sub">Campaign responses</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, parseInt(promoReplies) / 5) + '%;background:#55f7d8;"></div></div></div>';
-
+    html += '<div class="card" style="--accent:#a855f7;border-color:#a855f715;"><div class="label">Total Leads</div><div class="value">' + totalLeads + '</div><div class="sub">All-time contacts</div><div class="bar"><div class="bar-fill" style="width:85%;background:#a855f7;"></div></div></div>';
+    html += '<div class="card" style="--accent:#00ff66;border-color:#00ff6615;"><div class="label">Active Bookings</div><div class="value">' + totalBooked + '</div><div class="sub">Scheduled jobs</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, totalBooked) + '%;background:#00ff66;"></div></div></div>';
+    html += '<div class="card" style="--accent:#00d4ff;border-color:#00d4ff15;"><div class="label">Completed</div><div class="value">' + totalCompleted + '</div><div class="sub">Jobs done</div><div class="bar"><div class="bar-fill" style="width:' + (totalLeads > 0 ? Math.round(totalCompleted/totalLeads*100) : 0) + '%;background:#00d4ff;"></div></div></div>';
+    var cancelRate = totalLeads > 0 ? Math.round(totalCancelled/totalLeads*100) : 0;
+    html += '<div class="card" style="--accent:#ff4757;border-color:#ff475715;"><div class="label">Cancelled</div><div class="value">' + totalCancelled + '</div><div class="sub">' + cancelRate + '% cancel rate' + (cancelRate > 20 ? ' — HIGH' : '') + '</div><div class="bar"><div class="bar-fill" style="width:' + cancelRate + '%;background:#ff4757;"></div></div></div>';
     html += '</div>';
 
-    // Today's Bookings Section
+    // ====== ROW 2: Growth & Performance ======
+    html += '<div class="grid">';
+    html += '<div class="card" style="--accent:#ff9f43;border-color:#ff9f4315;"><div class="label">This Month</div><div class="value">' + thisMonthBookings + '</div><div class="sub">' + (monthGrowth >= 0 ? '+' : '') + monthGrowth + '% vs last month (' + lastMonthBookings + ')</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, thisMonthBookings) + '%;background:#ff9f43;"></div></div></div>';
+    html += '<div class="card" style="--accent:#55f7d8;border-color:#55f7d815;"><div class="label">This Week</div><div class="value">' + weeklyBookings + '</div><div class="sub">New bookings this week</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, weeklyBookings*10) + '%;background:#55f7d8;"></div></div></div>';
+    html += '<div class="card" style="--accent:#c084fc;border-color:#c084fc15;"><div class="label">Conversion Rate</div><div class="value">' + conversionRate + '%</div><div class="sub">Lead → Booked</div><div class="bar"><div class="bar-fill" style="width:' + conversionRate + '%;background:#c084fc;"></div></div></div>';
+    html += '<div class="card" style="--accent:#ff6b9d;border-color:#ff6b9d15;"><div class="label">Avg Days to Service</div><div class="value">' + avgBookingDays + '</div><div class="sub">Booking → Service date</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, avgBookingDays*5) + '%;background:#ff6b9d;"></div></div></div>';
+    html += '</div>';
+
+    // ====== ROW 3: Return / Promo / New Locs / Today ======
+    html += '<div class="grid">';
+    html += '<div class="card" style="--accent:#ff9f43;border-color:#ff9f4315;"><div class="label">Return Customers</div><div class="value">' + totalReturn + '</div><div class="sub">Lifetime value builders</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, totalReturn*3) + '%;background:#ff9f43;"></div></div></div>';
+    html += '<div class="card" style="--accent:#55f7d8;border-color:#55f7d815;"><div class="label">Promo Replies</div><div class="value">' + promoReplies + '</div><div class="sub">Campaign responses</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, promoReplies) + '%;background:#55f7d8;"></div></div></div>';
+    html += '<div class="card" style="--accent:#a855f7;border-color:#a855f715;"><div class="label">New Locations</div><div class="value">' + newLocsThisMonth + '</div><div class="sub">New markets this month</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, newLocsThisMonth*15) + '%;background:#a855f7;"></div></div></div>';
+    html += '<div class="card" style="--accent:#00d4ff;border-color:#00d4ff15;"><div class="label">Today\'s Jobs</div><div class="value">' + bizTodayBookings.length + '</div><div class="sub">' + (bizTodayBookings.length > 0 ? 'Dispatch ready' : 'No jobs today') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, bizTodayBookings.length*20) + '%;background:#00d4ff;"></div></div></div>';
+    html += '</div>';
+
+    // ====== EQUIPMENT BREAKDOWN ======
+    var eqSorted = Object.entries(equipStats).sort(function(a,b){return b[1]-a[1];});
+    if (eqSorted.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#c084fc;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#c084fc;border-radius:50%;box-shadow:0 0 8px #c084fc;display:inline-block;"></span>Equipment Breakdown — What You Fix Most</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:10px;">';
+      var eqMax = eqSorted[0][1];
+      eqSorted.slice(0, 8).forEach(function(e) {
+        var pct = Math.round((e[1] / eqMax) * 100);
+        html += '<div style="flex:1;min-width:140px;background:rgba(10,20,35,0.6);border:1px solid #c084fc15;padding:15px;">';
+        html += '<div style="color:#c084fc;font-family:Orbitron;font-size:0.65em;letter-spacing:2px;">' + e[0] + '</div>';
+        html += '<div style="color:#c0d8f0;font-size:1.8em;font-weight:700;margin:5px 0;">' + e[1] + '</div>';
+        html += '<div style="height:3px;background:#0a1520;margin-top:8px;"><div style="height:100%;width:' + pct + '%;background:#c084fc;"></div></div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== TOP BRANDS ======
+    var brSorted = Object.entries(brandStats).sort(function(a,b){return b[1]-a[1];});
+    if (brSorted.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff6b9d;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff6b9d;border-radius:50%;box-shadow:0 0 8px #ff6b9d;display:inline-block;"></span>Top Brands Serviced</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      brSorted.slice(0, 10).forEach(function(b) {
+        html += '<div style="background:rgba(255,107,157,0.03);border:1px solid #ff6b9d20;padding:10px 16px;font-size:0.9em;">';
+        html += '<span style="color:#ff6b9d;font-weight:600;">' + b[0] + '</span>';
+        html += '<span style="color:#4a6a8a;margin-left:8px;">(' + b[1] + ')</span>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== TECHNICIAN LEADERBOARD ======
+    var techSorted = Object.entries(techPerf).sort(function(a,b){return b[1].total-a[1].total;});
+    if (techSorted.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00ff66;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00ff66;border-radius:50%;box-shadow:0 0 8px #00ff66;display:inline-block;"></span>Technician Leaderboard</div>';
+      techSorted.forEach(function(t, idx) {
+        var completionRate = t[1].total > 0 ? Math.round((t[1].completed / t[1].total) * 100) : 0;
+        var rankColor = idx === 0 ? '#ffd700' : idx === 1 ? '#c0c0c0' : idx === 2 ? '#cd7f32' : '#4a6a8a';
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:14px 20px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
+        html += '<div style="display:flex;align-items:center;gap:12px;">';
+        html += '<div style="color:' + rankColor + ';font-family:Orbitron;font-size:0.9em;font-weight:900;">#' + (idx+1) + '</div>';
+        html += '<div style="color:#c0d8f0;font-weight:600;">' + t[0] + '</div>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:20px;align-items:center;">';
+        html += '<div style="text-align:center;"><div style="color:#a855f7;font-size:1.2em;font-weight:700;">' + t[1].total + '</div><div style="color:#4a6a8a;font-size:0.7em;font-family:Orbitron;letter-spacing:1px;">JOBS</div></div>';
+        html += '<div style="text-align:center;"><div style="color:#00ff66;font-size:1.2em;font-weight:700;">' + t[1].completed + '</div><div style="color:#4a6a8a;font-size:0.7em;font-family:Orbitron;letter-spacing:1px;">DONE</div></div>';
+        html += '<div style="text-align:center;"><div style="color:#ff4757;font-size:1.2em;font-weight:700;">' + t[1].cancelled + '</div><div style="color:#4a6a8a;font-size:0.7em;font-family:Orbitron;letter-spacing:1px;">CANCEL</div></div>';
+        html += '<div style="text-align:center;"><div style="color:' + (completionRate >= 70 ? '#00ff66' : completionRate >= 40 ? '#ff9f43' : '#ff4757') + ';font-size:1.2em;font-weight:700;">' + completionRate + '%</div><div style="color:#4a6a8a;font-size:0.7em;font-family:Orbitron;letter-spacing:1px;">RATE</div></div>';
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    // ====== MONTHLY TREND ======
+    var monthKeys = Object.keys(monthlyBookings).sort();
+    if (monthKeys.length > 1) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#55f7d8;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#55f7d8;border-radius:50%;box-shadow:0 0 8px #55f7d8;display:inline-block;"></span>Monthly Booking Trend</div>';
+      html += '<div style="display:flex;align-items:flex-end;gap:4px;height:120px;">';
+      var maxMonth = Math.max.apply(null, monthKeys.map(function(k){return monthlyBookings[k];}));
+      monthKeys.slice(-12).forEach(function(k) {
+        var val = monthlyBookings[k];
+        var h = maxMonth > 0 ? Math.round((val / maxMonth) * 100) : 0;
+        var isThisMonth = k === (new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'));
+        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">';
+        html += '<div style="color:#c0d8f0;font-size:0.7em;">' + val + '</div>';
+        html += '<div style="width:100%;height:' + h + 'px;background:' + (isThisMonth ? '#55f7d8' : '#55f7d830') + ';min-height:2px;transition:all 0.3s;"></div>';
+        html += '<div style="color:#4a6a8a;font-size:0.55em;font-family:Orbitron;">' + k.split('-')[1] + '/' + k.split('-')[0].substring(2) + '</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== TODAY'S BOOKINGS ======
     if (bizTodayBookings.length > 0) {
       html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
-      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Today\'s Bookings</div>';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Today\'s Dispatch</div>';
       bizTodayBookings.forEach(function(b) {
-        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #a855f710;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
-        html += '<div style="color:#c0d8f0;">' + b + '</div>';
-        html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #00ff6640;color:#00ff66;">TODAY</div>';
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #a855f710;padding:14px 18px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
+        html += '<div style="color:#c0d8f0;font-weight:600;">' + b.name + '</div>';
+        html += '<div style="color:#4a6a8a;">' + b.location + '</div>';
+        html += '<div style="color:#c084fc;">' + b.equip + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.85em;max-width:300px;">' + b.issue + '</div>';
+        html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #00ff6640;color:#00ff66;">' + (b.tech || 'UNASSIGNED') + '</div>';
         html += '</div>';
       });
       html += '</div>';
     }
 
-    // Needs Rescheduling Section
+    // ====== NEEDS RESCHEDULING ======
     if (bizReschedule.length > 0) {
       html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
       html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff9f43;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff9f43;border-radius:50%;box-shadow:0 0 8px #ff9f43;display:inline-block;"></span>Needs Rescheduling (' + bizReschedule.length + ')</div>';
-      bizReschedule.forEach(function(r) {
+      bizReschedule.slice(0, 15).forEach(function(r) {
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff9f4315;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
-        html += '<div style="color:#c0d8f0;">' + r + '</div>';
+        html += '<div style="color:#c0d8f0;">' + r.name + ' — ' + r.location + '</div>';
+        html += '<div style="color:#4a6a8a;">' + r.phone + '</div>';
         html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #ff9f4340;color:#ff9f43;">RESCHED</div>';
         html += '</div>';
       });
       html += '</div>';
     }
 
-    // Technicians Section
-    if (bizTechs.length > 0) {
+    // ====== LOCATION PERFORMANCE ======
+    if (bizLocations.length > 0) {
       html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
-      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00ff66;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00ff66;border-radius:50%;box-shadow:0 0 8px #00ff66;display:inline-block;"></span>Technicians</div>';
-      bizTechs.forEach(function(t) {
-        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:12px 16px;margin-bottom:6px;color:#c0d8f0;">' + t + '</div>';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Location Performance (' + bizLocations.length + ' markets)</div>';
+      bizLocations.slice(0, 25).forEach(function(l) {
+        var ls = l[1];
+        var locCompRate = ls.total > 0 ? Math.round((ls.completed / ls.total) * 100) : 0;
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #a855f710;padding:14px 18px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
+        html += '<div style="color:#a855f7;font-weight:600;min-width:200px;">' + l[0] + '</div>';
+        html += '<div style="display:flex;gap:15px;">';
+        html += '<div style="text-align:center;"><span style="color:#c0d8f0;font-weight:700;">' + ls.total + '</span> <span style="color:#4a6a8a;font-size:0.8em;">total</span></div>';
+        html += '<div style="text-align:center;"><span style="color:#00ff66;font-weight:700;">' + ls.booked + '</span> <span style="color:#4a6a8a;font-size:0.8em;">booked</span></div>';
+        html += '<div style="text-align:center;"><span style="color:#00d4ff;font-weight:700;">' + ls.completed + '</span> <span style="color:#4a6a8a;font-size:0.8em;">done</span></div>';
+        html += '<div style="text-align:center;"><span style="color:#ff4757;font-weight:700;">' + ls.cancelled + '</span> <span style="color:#4a6a8a;font-size:0.8em;">cancel</span></div>';
+        html += '<div style="text-align:center;"><span style="color:' + (locCompRate >= 50 ? '#00ff66' : '#ff9f43') + ';font-weight:700;">' + locCompRate + '%</span> <span style="color:#4a6a8a;font-size:0.8em;">rate</span></div>';
+        html += '</div></div>';
       });
       html += '</div>';
     }
 
-    // Location Performance
-    if (bizLocations.length > 0) {
+    // ====== RECENT ACTIVITY ======
+    if (bizRecentBookings.length > 0) {
       html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
-      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Location Performance</div>';
-      html += '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
-      bizLocations.forEach(function(l) {
-        var locName = l.split(':')[0].trim();
-        html += '<div onclick="loadTab(\'' + locName.replace(/'/g, "\\'") + '\')" style="background:rgba(168,85,247,0.03);border:1px solid #a855f720;padding:10px 16px;font-size:0.85em;color:#7a9ab0;cursor:pointer;transition:all 0.3s;" onmouseover="this.style.borderColor=\'#a855f7\';this.style.color=\'#a855f7\'" onmouseout="this.style.borderColor=\'#a855f720\';this.style.color=\'#7a9ab0\'">' + l + '</div>';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00d4ff;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;box-shadow:0 0 8px #00d4ff;display:inline-block;"></span>Recent Activity</div>';
+      bizRecentBookings.slice(-10).forEach(function(b) {
+        var sColor = b.status.includes('booked') ? '#00ff66' : b.status.includes('return') ? '#ff9f43' : b.status.includes('cancel') ? '#ff4757' : '#4a6a8a';
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid ' + sColor + '10;padding:12px 16px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">';
+        html += '<div style="color:#c0d8f0;">' + b.name + '</div>';
+        html += '<div style="color:#4a6a8a;">' + b.location + '</div>';
+        html += '<div style="color:#c084fc;">' + b.equip + '</div>';
+        html += '<div style="color:' + sColor + ';font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:3px 8px;border:1px solid ' + sColor + '30;">' + b.status.toUpperCase() + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + (b.tech || '') + '</div>';
+        html += '</div>';
       });
-      html += '</div></div>';
+      html += '</div>';
     }
 
+    // ====== SEASONAL DEMAND FORECAST ======
+    var seasonKeys = Object.keys(seasonalData).sort();
+    if (seasonKeys.length > 2) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff9f43;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff9f43;border-radius:50%;box-shadow:0 0 8px #ff9f43;display:inline-block;"></span>Seasonal Demand — Snow vs Mower vs Generator</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:4px;">';
+      var monthNames = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      seasonKeys.slice(-12).forEach(function(k) {
+        var sd = seasonalData[k];
+        var total = sd.snow + sd.mower + sd.generator + sd.other;
+        if (total === 0) return;
+        var snowPct = Math.round((sd.snow / total) * 100);
+        var mowerPct = Math.round((sd.mower / total) * 100);
+        var genPct = Math.round((sd.generator / total) * 100);
+        var otherPct = 100 - snowPct - mowerPct - genPct;
+        var mNum = parseInt(k.split("-")[1]);
+        var yr = k.split("-")[0].substring(2);
+        html += '<div style="display:flex;align-items:center;gap:10px;">';
+        html += '<div style="width:60px;color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:1px;">' + monthNames[mNum] + ' ' + yr + '</div>';
+        html += '<div style="flex:1;height:24px;display:flex;overflow:hidden;">';
+        if (snowPct > 0) html += '<div style="width:' + snowPct + '%;background:#00d4ff;display:flex;align-items:center;justify-content:center;font-size:0.6em;color:#020810;font-weight:700;">' + (snowPct > 10 ? sd.snow : '') + '</div>';
+        if (mowerPct > 0) html += '<div style="width:' + mowerPct + '%;background:#00ff66;display:flex;align-items:center;justify-content:center;font-size:0.6em;color:#020810;font-weight:700;">' + (mowerPct > 10 ? sd.mower : '') + '</div>';
+        if (genPct > 0) html += '<div style="width:' + genPct + '%;background:#ff9f43;display:flex;align-items:center;justify-content:center;font-size:0.6em;color:#020810;font-weight:700;">' + (genPct > 10 ? sd.generator : '') + '</div>';
+        if (otherPct > 0) html += '<div style="width:' + otherPct + '%;background:#4a6a8a40;"></div>';
+        html += '</div>';
+        html += '<div style="width:30px;color:#4a6a8a;font-size:0.75em;text-align:right;">' + total + '</div>';
+        html += '</div>';
+      });
+      html += '<div style="display:flex;gap:20px;margin-top:10px;font-size:0.75em;">';
+      html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:12px;background:#00d4ff;"></div><span style="color:#4a6a8a;">Snow Blower</span></div>';
+      html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:12px;background:#00ff66;"></div><span style="color:#4a6a8a;">Mower</span></div>';
+      html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:12px;background:#ff9f43;"></div><span style="color:#4a6a8a;">Generator</span></div>';
+      html += '</div>';
+      // Prediction
+      var currentMonth = today.getMonth() + 1;
+      var prediction = '';
+      if (currentMonth >= 11 || currentMonth <= 3) prediction = 'SNOW SEASON — Push snow blower marketing. Stock carb kits & belts.';
+      else if (currentMonth >= 4 && currentMonth <= 6) prediction = 'MOWER SEASON STARTING — Ramp up mower techs. Blade sharpening demand incoming.';
+      else if (currentMonth >= 7 && currentMonth <= 8) prediction = 'PEAK MOWER — All hands on deck. Generator prep for storm season.';
+      else prediction = 'TRANSITION — Mower winding down, snow ramping up. Start seasonal marketing shift.';
+      html += '<div style="margin-top:12px;padding:12px;border:1px solid #ff9f4320;background:rgba(255,159,67,0.03);color:#ff9f43;font-size:0.85em;">AI FORECAST: ' + prediction + '</div>';
+      html += '</div>';
+    }
+
+    // ====== REVENUE PER TECHNICIAN ======
+    var techRevSorted = Object.entries(techPerf).sort(function(a,b){return b[1].completed-a[1].completed;});
+    if (techRevSorted.length > 0) {
+      // Estimate revenue: $150 avg per completed job
+      var avgJobRevenue = 150;
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ffd700;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ffd700;border-radius:50%;box-shadow:0 0 8px #ffd700;display:inline-block;"></span>Estimated Revenue per Technician</div>';
+      html += '<div style="margin-bottom:8px;color:#4a6a8a;font-size:0.8em;">Based on $' + avgJobRevenue + ' avg job estimate. Add Revenue tab for real tracking.</div>';
+      techRevSorted.forEach(function(t) {
+        var estRev = t[1].completed * avgJobRevenue;
+        var maxRev = techRevSorted[0][1].completed * avgJobRevenue;
+        var barPct = maxRev > 0 ? Math.round((estRev / maxRev) * 100) : 0;
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ffd70010;padding:14px 18px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">';
+        html += '<div style="min-width:100px;color:#c0d8f0;font-weight:600;">' + t[0] + '</div>';
+        html += '<div style="flex:1;margin:0 15px;height:8px;background:#0a1520;"><div style="height:100%;width:' + barPct + '%;background:linear-gradient(90deg,#ffd700,#ff9f43);"></div></div>';
+        html += '<div style="color:#ffd700;font-weight:700;font-size:1.1em;min-width:80px;text-align:right;">$' + estRev.toLocaleString() + '</div>';
+        html += '</div>';
+      });
+      var totalEstRev = totalCompleted * avgJobRevenue;
+      html += '<div style="margin-top:8px;padding:12px;border:1px solid #ffd70030;text-align:center;">';
+      html += '<span style="color:#4a6a8a;font-family:Orbitron;font-size:0.7em;letter-spacing:3px;">ESTIMATED TOTAL REVENUE</span>';
+      html += '<div style="color:#ffd700;font-size:2em;font-weight:900;font-family:Orbitron;">$' + totalEstRev.toLocaleString() + '</div>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // ====== LIVE LOCATION MAP ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Live Service Map — All Locations</div>';
+    html += '<div id="athena-map" style="width:100%;height:400px;border:1px solid #a855f720;background:#0a1520;position:relative;overflow:hidden;">';
+    // US map approximation using dots
+    html += '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#4a6a8a;font-family:Orbitron;font-size:0.7em;letter-spacing:2px;">Loading map...</div>';
+    html += '</div>';
+    // Map script using simple iframe with Google Maps
+    html += '<script>';
+    html += 'var mapDiv=document.getElementById("athena-map");';
+    html += 'var locations=' + JSON.stringify(bizLocations.slice(0, 30).map(function(l){return {name:l[0],count:l[1].total,booked:l[1].booked};})) + ';';
+    html += 'var mapHtml="<div style=\\"display:flex;flex-wrap:wrap;gap:6px;padding:10px;height:100%;overflow-y:auto;align-content:flex-start;\\">";';
+    html += 'locations.forEach(function(l){';
+    html += '  var size=Math.max(40,Math.min(100,l.count*4));';
+    html += '  var glow=l.booked>0?"box-shadow:0 0 "+(l.booked*3)+"px #a855f7;":"";';
+    html += '  mapHtml+="<div style=\\"width:"+size+"px;height:"+size+"px;border-radius:50%;background:rgba(168,85,247,"+(0.1+l.count*0.03)+");border:1px solid #a855f740;display:flex;flex-direction:column;align-items:center;justify-content:center;"+glow+"\\">";';
+    html += '  mapHtml+="<div style=\\"color:#a855f7;font-size:0.6em;font-family:Orbitron;text-align:center;\\">"+l.name.split(",")[0]+"</div>";';
+    html += '  mapHtml+="<div style=\\"color:#c0d8f0;font-weight:700;\\">"+l.count+"</div>";';
+    html += '  mapHtml+="</div>";';
+    html += '});';
+    html += 'mapHtml+="</div>";';
+    html += 'mapDiv.innerHTML=mapHtml;';
+    html += '<\/script>';
+    html += '</div>';
+
+    // ====== SEO LEAD SOURCE TRACKER ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#55f7d8;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#55f7d8;border-radius:50%;box-shadow:0 0 8px #55f7d8;display:inline-block;"></span>Lead Source Tracking</div>';
+    html += '<div style="padding:15px;border:1px solid #55f7d820;background:rgba(85,247,216,0.02);">';
+    html += '<div style="color:#55f7d8;font-weight:600;margin-bottom:10px;">To activate, create a "Lead_Source" tab with columns:</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.9em;line-height:1.8;">Date | Customer | Source (Thumbtack/Google/Referral/Facebook/Yelp/Direct) | Location | Job Value</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.85em;margin-top:8px;">Or add a "Source" column to your Combined sheet and ATHENA will auto-track cost per lead, best performing channels, and ROI by source.</div>';
+    html += '</div></div>';
+
+    // ====== CUSTOMER SATISFACTION TRACKER ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff6b9d;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff6b9d;border-radius:50%;box-shadow:0 0 8px #ff6b9d;display:inline-block;"></span>Customer Satisfaction</div>';
+    // Calculate satisfaction from data we have
+    var satisfactionScore = 0;
+    if (totalLeads > 0) {
+      var returnRate = totalReturn / totalLeads;
+      var completionRate = totalCompleted / totalLeads;
+      var cancelPct = totalCancelled / totalLeads;
+      satisfactionScore = Math.round((completionRate * 50 + returnRate * 30 + (1 - cancelPct) * 20) * 100);
+      satisfactionScore = Math.min(100, Math.max(0, satisfactionScore));
+    }
+    var satColor = satisfactionScore >= 80 ? '#00ff66' : satisfactionScore >= 60 ? '#ff9f43' : '#ff4757';
+    html += '<div style="display:flex;gap:20px;flex-wrap:wrap;">';
+    // Score gauge
+    html += '<div style="flex:1;min-width:200px;text-align:center;padding:20px;background:rgba(10,20,35,0.6);border:1px solid ' + satColor + '20;">';
+    html += '<div style="font-size:3em;font-weight:900;color:' + satColor + ';">' + satisfactionScore + '</div>';
+    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">SATISFACTION SCORE</div>';
+    html += '<div style="margin-top:10px;height:6px;background:#0a1520;"><div style="height:100%;width:' + satisfactionScore + '%;background:' + satColor + ';"></div></div>';
+    html += '</div>';
+    // Breakdown
+    html += '<div style="flex:2;min-width:300px;display:flex;flex-direction:column;gap:8px;">';
+    var returnPct = totalLeads > 0 ? Math.round((totalReturn/totalLeads)*100) : 0;
+    var completePct = totalLeads > 0 ? Math.round((totalCompleted/totalLeads)*100) : 0;
+    html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:12px 16px;display:flex;justify-content:space-between;"><span style="color:#4a6a8a;">Completion Rate</span><span style="color:#00ff66;font-weight:700;">' + completePct + '%</span></div>';
+    html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff9f4310;padding:12px 16px;display:flex;justify-content:space-between;"><span style="color:#4a6a8a;">Return Customer Rate</span><span style="color:#ff9f43;font-weight:700;">' + returnPct + '%</span></div>';
+    html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff475710;padding:12px 16px;display:flex;justify-content:space-between;"><span style="color:#4a6a8a;">Cancel Rate</span><span style="color:#ff4757;font-weight:700;">' + cancelRate + '%</span></div>';
+    html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #a855f710;padding:12px 16px;display:flex;justify-content:space-between;"><span style="color:#4a6a8a;">Avg Wait Time</span><span style="color:#a855f7;font-weight:700;">' + avgBookingDays + ' days</span></div>';
+    html += '</div></div>';
+    html += '<div style="margin-top:10px;padding:12px;border:1px solid #ff6b9d20;background:rgba(255,107,157,0.02);color:#4a6a8a;font-size:0.85em;">Create a "Reviews" tab (Date, Customer, Rating 1-5, Comment, Platform) for real satisfaction tracking with Google/Yelp review monitoring.</div>';
+    html += '</div>';
+
+    // ====== AI WEEKLY BUSINESS INSIGHTS ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#c084fc;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#c084fc;border-radius:50%;box-shadow:0 0 8px #c084fc;display:inline-block;"></span>AI Business Insights</div>';
+    html += '<div id="biz-insights" style="padding:20px;border:1px solid #c084fc20;background:rgba(192,132,252,0.02);min-height:80px;">';
+    html += '<div style="color:#4a6a8a;">Click to generate insights...</div>';
+    html += '</div>';
+    html += '<div onclick="generateBizInsights()" style="margin-top:10px;padding:10px 20px;border:1px solid #c084fc40;color:#c084fc;font-family:Orbitron;font-size:0.65em;letter-spacing:3px;cursor:pointer;text-align:center;transition:all 0.3s;" onmouseover="this.style.background=\'#c084fc10\'" onmouseout="this.style.background=\'transparent\'">GENERATE WEEKLY REPORT</div>';
+    html += '</div>';
+
+    // ====== CUSTOMER SEARCH ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00d4ff;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;box-shadow:0 0 8px #00d4ff;display:inline-block;"></span>Customer Lookup</div>';
+    html += '<div style="display:flex;gap:10px;">';
+    html += '<input id="cust-search" type="text" placeholder="Search by name, phone, or email..." style="flex:1;background:#0a1520;border:1px solid #00d4ff30;color:#c0d8f0;padding:12px 16px;font-family:Rajdhani;font-size:1em;outline:none;" onkeyup="if(event.key===\'Enter\')searchCustomer()">';
+    html += '<div onclick="searchCustomer()" style="padding:12px 20px;border:1px solid #00d4ff40;color:#00d4ff;font-family:Orbitron;font-size:0.65em;letter-spacing:3px;cursor:pointer;display:flex;align-items:center;">SEARCH</div>';
+    html += '</div>';
+    html += '<div id="cust-results" style="margin-top:10px;"></div>';
+    html += '</div>';
+
+    // ====== JOB TIMER ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00ff66;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00ff66;border-radius:50%;box-shadow:0 0 8px #00ff66;display:inline-block;"></span>Job Timer</div>';
+    html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6615;padding:20px;text-align:center;">';
+    html += '<div id="timer-display" style="font-family:Orbitron;font-size:3.5em;color:#00ff66;letter-spacing:8px;">00:00:00</div>';
+    html += '<div style="margin-top:8px;color:#4a6a8a;font-size:0.85em;" id="timer-job-label">No active job</div>';
+    html += '<div style="display:flex;justify-content:center;gap:12px;margin-top:15px;">';
+    html += '<input id="timer-job-name" type="text" placeholder="Customer / Job name" style="background:#0a1520;border:1px solid #00ff6620;color:#c0d8f0;padding:8px 14px;font-family:Rajdhani;font-size:0.95em;outline:none;width:200px;">';
+    html += '<div onclick="startJobTimer()" id="timer-start-btn" style="padding:8px 20px;border:1px solid #00ff6640;color:#00ff66;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;">START</div>';
+    html += '<div onclick="stopJobTimer()" style="padding:8px 20px;border:1px solid #ff475740;color:#ff4757;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;">STOP & LOG</div>';
+    html += '</div>';
+    html += '<div id="timer-history" style="margin-top:15px;text-align:left;"></div>';
+    html += '</div></div>';
+
+    // ====== TECHNICIAN UTILIZATION ======
+    if (techRevSorted.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#55f7d8;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#55f7d8;border-radius:50%;box-shadow:0 0 8px #55f7d8;display:inline-block;"></span>Technician Utilization Rate</div>';
+      // Calculate: jobs this month / working days * max capacity
+      var workDaysThisMonth = Math.min(today.getDate(), 22);
+      var maxJobsPerDay = 3;
+      techRevSorted.forEach(function(t) {
+        var techMonthJobs = 0;
+        // Count this month's jobs per tech from recent bookings
+        bizRecentBookings.forEach(function(b) { if (b.tech === t[0]) techMonthJobs++; });
+        var capacity = workDaysThisMonth * maxJobsPerDay;
+        var utilPct = capacity > 0 ? Math.round((t[1].total / Math.max(capacity, t[1].total)) * 100) : 0;
+        utilPct = Math.min(100, utilPct);
+        var utilColor = utilPct >= 80 ? '#00ff66' : utilPct >= 50 ? '#ff9f43' : '#ff4757';
+        var statusText = utilPct >= 80 ? 'FULLY LOADED' : utilPct >= 50 ? 'AVAILABLE' : 'UNDERUTILIZED';
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid ' + utilColor + '10;padding:14px 18px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">';
+        html += '<div style="min-width:120px;color:#c0d8f0;font-weight:600;">' + t[0] + '</div>';
+        html += '<div style="flex:1;margin:0 15px;">';
+        html += '<div style="height:20px;background:#0a1520;position:relative;">';
+        html += '<div style="height:100%;width:' + utilPct + '%;background:' + utilColor + ';transition:width 0.5s;"></div>';
+        html += '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#c0d8f0;font-size:0.75em;font-weight:700;">' + utilPct + '%</div>';
+        html += '</div></div>';
+        html += '<div style="font-family:Orbitron;font-size:0.55em;letter-spacing:2px;padding:4px 10px;border:1px solid ' + utilColor + '30;color:' + utilColor + ';">' + statusText + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // ====== PROFIT MARGIN CALCULATOR ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ffd700;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ffd700;border-radius:50%;box-shadow:0 0 8px #ffd700;display:inline-block;"></span>Profit Margins by Job Type</div>';
+    // Industry estimates for small engine repair
+    var jobMargins = [
+      { type: 'Snow Blower — Won\'t Start', avgCharge: 165, partsCost: 25, laborHrs: 1.5, margin: 0 },
+      { type: 'Snow Blower — Belt/Auger', avgCharge: 195, partsCost: 45, laborHrs: 2, margin: 0 },
+      { type: 'Snow Blower — Carb Rebuild', avgCharge: 185, partsCost: 35, laborHrs: 1.5, margin: 0 },
+      { type: 'Riding Mower — Tune Up', avgCharge: 175, partsCost: 30, laborHrs: 2, margin: 0 },
+      { type: 'Riding Mower — Blade/Deck', avgCharge: 145, partsCost: 40, laborHrs: 1.5, margin: 0 },
+      { type: 'Riding Mower — Won\'t Start', avgCharge: 155, partsCost: 20, laborHrs: 1.5, margin: 0 },
+      { type: 'Push Mower — General', avgCharge: 95, partsCost: 15, laborHrs: 1, margin: 0 },
+      { type: 'Generator — Won\'t Start', avgCharge: 145, partsCost: 20, laborHrs: 1.5, margin: 0 },
+      { type: 'Chainsaw — General', avgCharge: 85, partsCost: 15, laborHrs: 1, margin: 0 },
+    ];
+    var techPayPerHr = 35;
+    jobMargins.forEach(function(j) {
+      var laborCost = j.laborHrs * techPayPerHr;
+      var totalCost = j.partsCost + laborCost;
+      j.margin = Math.round(((j.avgCharge - totalCost) / j.avgCharge) * 100);
+    });
+    html += '<div style="margin-bottom:8px;color:#4a6a8a;font-size:0.8em;">Based on $' + techPayPerHr + '/hr tech pay. Edit in code to match your rates.</div>';
+    jobMargins.forEach(function(j) {
+      var mColor = j.margin >= 50 ? '#00ff66' : j.margin >= 30 ? '#ff9f43' : '#ff4757';
+      html += '<div style="background:rgba(10,20,35,0.6);border:1px solid ' + mColor + '08;padding:12px 18px;margin-bottom:3px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
+      html += '<div style="min-width:220px;color:#c0d8f0;">' + j.type + '</div>';
+      html += '<div style="display:flex;gap:15px;align-items:center;">';
+      html += '<div style="text-align:center;"><div style="color:#ffd700;font-weight:700;">$' + j.avgCharge + '</div><div style="color:#4a6a8a;font-size:0.65em;font-family:Orbitron;">CHARGE</div></div>';
+      html += '<div style="text-align:center;"><div style="color:#ff6b9d;">$' + j.partsCost + '</div><div style="color:#4a6a8a;font-size:0.65em;font-family:Orbitron;">PARTS</div></div>';
+      html += '<div style="text-align:center;"><div style="color:#ff9f43;">$' + Math.round(j.laborHrs * techPayPerHr) + '</div><div style="color:#4a6a8a;font-size:0.65em;font-family:Orbitron;">LABOR</div></div>';
+      html += '<div style="text-align:center;min-width:60px;"><div style="color:' + mColor + ';font-weight:900;font-size:1.2em;">' + j.margin + '%</div><div style="color:#4a6a8a;font-size:0.65em;font-family:Orbitron;">MARGIN</div></div>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+
+    // ====== CUSTOMER HEATMAP BY ZIP ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff6b9d;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff6b9d;border-radius:50%;box-shadow:0 0 8px #ff6b9d;display:inline-block;"></span>Customer Heatmap — Top Zip Codes</div>';
+    // Build zip code data from Combined sheet
+    var zipCounts = {};
+    if (bm.recentBookings) {
+      // We need zip from the raw data, approximate from locations
+      bizLocations.slice(0, 20).forEach(function(l) {
+        var locName = l[0];
+        var count = l[1].total;
+        // Use location name as proxy
+        if (!zipCounts[locName]) zipCounts[locName] = 0;
+        zipCounts[locName] += count;
+      });
+    }
+    var zipSorted = Object.entries(zipCounts).sort(function(a,b){return b[1]-a[1];});
+    var zipMax = zipSorted.length > 0 ? zipSorted[0][1] : 1;
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+    zipSorted.slice(0, 20).forEach(function(z) {
+      var intensity = Math.round((z[1] / zipMax) * 100);
+      var alpha = (0.15 + (intensity / 100) * 0.85).toFixed(2);
+      var size = Math.max(60, Math.min(120, 40 + z[1] * 2));
+      html += '<div style="width:' + size + 'px;height:' + size + 'px;background:rgba(255,107,157,' + alpha + ');border:1px solid rgba(255,107,157,' + (parseFloat(alpha)*0.5).toFixed(2) + ');display:flex;flex-direction:column;align-items:center;justify-content:center;transition:all 0.3s;" onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">';
+      html += '<div style="color:#fff;font-family:Orbitron;font-size:0.55em;text-align:center;letter-spacing:1px;">' + z[0].split(',')[0] + '</div>';
+      html += '<div style="color:#fff;font-weight:900;font-size:1.3em;">' + z[1] + '</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+
+    // ====== WEEKLY P&L REPORT ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00ff66;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00ff66;border-radius:50%;box-shadow:0 0 8px #00ff66;display:inline-block;"></span>Estimated P&L Summary</div>';
+    var avgJobRev = 150;
+    var avgPartsCost = 28;
+    var avgLaborCost = techPayPerHr * 1.5;
+    var estGrossRev = totalCompleted * avgJobRev;
+    var estPartsTotal = totalCompleted * avgPartsCost;
+    var estLaborTotal = totalCompleted * avgLaborCost;
+    var estProfit = estGrossRev - estPartsTotal - estLaborTotal;
+    var profitMarginTotal = estGrossRev > 0 ? Math.round((estProfit / estGrossRev) * 100) : 0;
+    var monthlyRev = thisMonthBookings * avgJobRev;
+    var monthlyProfit = monthlyRev - (thisMonthBookings * avgPartsCost) - (thisMonthBookings * avgLaborCost);
+    html += '<div style="display:flex;gap:15px;flex-wrap:wrap;">';
+    // Revenue
+    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #00ff6615;padding:20px;text-align:center;">';
+    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">GROSS REVENUE (ALL-TIME)</div>';
+    html += '<div style="color:#00ff66;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + estGrossRev.toLocaleString() + '</div>';
+    html += '</div>';
+    // Costs
+    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #ff475715;padding:20px;text-align:center;">';
+    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">TOTAL COSTS</div>';
+    html += '<div style="color:#ff4757;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + (estPartsTotal + estLaborTotal).toLocaleString() + '</div>';
+    html += '<div style="margin-top:5px;color:#4a6a8a;font-size:0.8em;">Parts: $' + estPartsTotal.toLocaleString() + ' | Labor: $' + estLaborTotal.toLocaleString() + '</div>';
+    html += '</div>';
+    // Profit
+    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #ffd70015;padding:20px;text-align:center;">';
+    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">NET PROFIT</div>';
+    html += '<div style="color:#ffd700;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + estProfit.toLocaleString() + '</div>';
+    html += '<div style="margin-top:5px;color:' + (profitMarginTotal >= 40 ? '#00ff66' : '#ff9f43') + ';font-size:0.9em;font-weight:700;">' + profitMarginTotal + '% margin</div>';
+    html += '</div>';
+    html += '</div>';
+    // Monthly breakdown
+    html += '<div style="display:flex;gap:15px;flex-wrap:wrap;margin-top:15px;">';
+    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #a855f715;padding:15px;text-align:center;">';
+    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;">THIS MONTH REVENUE</div>';
+    html += '<div style="color:#a855f7;font-size:1.8em;font-weight:900;">$' + monthlyRev.toLocaleString() + '</div>';
+    html += '</div>';
+    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #a855f715;padding:15px;text-align:center;">';
+    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;">THIS MONTH PROFIT</div>';
+    html += '<div style="color:' + (monthlyProfit >= 0 ? '#00ff66' : '#ff4757') + ';font-size:1.8em;font-weight:900;">$' + monthlyProfit.toLocaleString() + '</div>';
+    html += '</div>';
+    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #a855f715;padding:15px;text-align:center;">';
+    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;">AVG PROFIT PER JOB</div>';
+    html += '<div style="color:#ffd700;font-size:1.8em;font-weight:900;">$' + Math.round(estProfit / Math.max(1, totalCompleted)) + '</div>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div style="margin-top:10px;padding:10px;border:1px solid #00ff6620;color:#4a6a8a;font-size:0.8em;">Estimates based on $' + avgJobRev + ' avg charge, $' + avgPartsCost + ' avg parts, $' + techPayPerHr + '/hr tech pay. Create a Revenue tab with actual amounts for precise tracking.</div>';
+    html += '</div>';
+
+    // ====== AUTO-TEXT SECTION (CONFIG) ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#55f7d8;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#55f7d8;border-radius:50%;box-shadow:0 0 8px #55f7d8;display:inline-block;"></span>Auto-Text System</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:10px;">';
+    html += '<div style="flex:1;min-width:250px;background:rgba(10,20,35,0.6);border:1px solid #55f7d815;padding:15px;">';
+    html += '<div style="color:#55f7d8;font-weight:600;margin-bottom:8px;">Booking Confirmation</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.85em;">Auto-sends when status = "Booked"</div>';
+    html += '<div style="color:#00ff66;font-family:Orbitron;font-size:0.6em;margin-top:8px;letter-spacing:2px;">ACTIVE</div>';
+    html += '</div>';
+    html += '<div style="flex:1;min-width:250px;background:rgba(10,20,35,0.6);border:1px solid #55f7d815;padding:15px;">';
+    html += '<div style="color:#55f7d8;font-weight:600;margin-bottom:8px;">3-Day Follow-Up</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.85em;">Sends 3 days after job marked "DONE"</div>';
+    html += '<div style="color:#00ff66;font-family:Orbitron;font-size:0.6em;margin-top:8px;letter-spacing:2px;">ACTIVE</div>';
+    html += '</div>';
+    html += '<div style="flex:1;min-width:250px;background:rgba(10,20,35,0.6);border:1px solid #55f7d815;padding:15px;">';
+    html += '<div style="color:#55f7d8;font-weight:600;margin-bottom:8px;">Review Request</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.85em;">Sends 5 days after completion</div>';
+    html += '<div style="color:#ff9f43;font-family:Orbitron;font-size:0.6em;margin-top:8px;letter-spacing:2px;">COMING SOON</div>';
+    html += '</div>';
+    html += '</div></div>';
+
+    // ====== TEAM MANAGEMENT SECTION ======
+    html += '<div style="max-width:1400px;margin:30px auto;padding:0 40px;">';
+
+    // Section Header
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:25px;">';
+    html += '<div style="width:10px;height:10px;background:#55f7d8;border-radius:50%;box-shadow:0 0 12px #55f7d8;animation:dotPulse 2s infinite;"></div>';
+    html += '<div style="font-family:Orbitron;font-size:0.9em;letter-spacing:5px;color:#55f7d8;text-transform:uppercase;">Team Command Center</div>';
+    html += '</div>';
+
+    // Workload Overview Cards
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:25px;">';
+    var techEntries2 = Object.entries(techPerf).sort(function(a,b){return b[1].total-a[1].total;});
+    var totalTeamJobs = techEntries2.reduce(function(s,t){return s+t[1].total;},0);
+    var avgLoad = techEntries2.length > 0 ? Math.round(totalTeamJobs / techEntries2.length) : 0;
+    html += '<div style="background:rgba(10,20,35,0.7);border:1px solid #55f7d820;padding:20px;text-align:center;">';
+    html += '<div style="font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#4a6a8a;">TEAM SIZE</div>';
+    html += '<div style="font-family:Orbitron;font-size:2.2em;color:#55f7d8;margin:8px 0;">' + techEntries2.length + '</div>';
+    html += '</div>';
+    html += '<div style="background:rgba(10,20,35,0.7);border:1px solid #55f7d820;padding:20px;text-align:center;">';
+    html += '<div style="font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#4a6a8a;">TOTAL JOBS</div>';
+    html += '<div style="font-family:Orbitron;font-size:2.2em;color:#c084fc;margin:8px 0;">' + totalTeamJobs + '</div>';
+    html += '</div>';
+    html += '<div style="background:rgba(10,20,35,0.7);border:1px solid #55f7d820;padding:20px;text-align:center;">';
+    html += '<div style="font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#4a6a8a;">AVG PER TECH</div>';
+    html += '<div style="font-family:Orbitron;font-size:2.2em;color:#ff9f43;margin:8px 0;">' + avgLoad + '</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Individual Tech Scorecards
+    html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:3px;color:#55f7d8;margin-bottom:15px;">TECHNICIAN SCORECARDS</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:15px;margin-bottom:30px;">';
+
+    techEntries2.forEach(function(t, idx) {
+      var s = t[1];
+      var rate = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
+      var cancelRate = s.total > 0 ? Math.round((s.cancelled / s.total) * 100) : 0;
+      var avgResp = (s.avgResponseDays || []).length > 0 ? Math.round(s.avgResponseDays.reduce(function(a,b){return a+b;},0) / s.avgResponseDays.length) : 0;
+      var deviation = s.total - avgLoad;
+
+      // Grade
+      var grade = 'C', gradeColor = '#ff9f43';
+      if (rate >= 85 && s.total >= 10) { grade = 'A+'; gradeColor = '#00ff66'; }
+      else if (rate >= 75 && s.total >= 8) { grade = 'A'; gradeColor = '#00ff66'; }
+      else if (rate >= 65 && s.total >= 5) { grade = 'B'; gradeColor = '#55f7d8'; }
+      else if (rate >= 50) { grade = 'C'; gradeColor = '#ff9f43'; }
+      else { grade = 'D'; gradeColor = '#ff4757'; }
+
+      // Workload status
+      var wlStatus = 'BALANCED', wlColor = '#00ff66';
+      if (deviation > avgLoad * 0.5) { wlStatus = 'OVERLOADED'; wlColor = '#ff4757'; }
+      else if (deviation < -avgLoad * 0.3) { wlStatus = 'UNDERUTILIZED'; wlColor = '#ff9f43'; }
+
+      // Medal for top 3
+      var medal = '';
+      if (idx === 0) medal = '<span style="color:#ffd700;font-size:1.2em;">&#9733;</span> ';
+      else if (idx === 1) medal = '<span style="color:#c0c0c0;font-size:1em;">&#9733;</span> ';
+      else if (idx === 2) medal = '<span style="color:#cd7f32;font-size:0.9em;">&#9733;</span> ';
+
+      // Top equipment
+      var topEquip = Object.entries(s.equipment || {}).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+      // Top locations
+      var topLocs = Object.entries(s.locations || {}).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+
+      html += '<div style="background:rgba(10,20,35,0.7);border:1px solid #55f7d815;padding:20px;position:relative;overflow:hidden;">';
+      html += '<div style="position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,' + gradeColor + ',transparent);animation:borderScan 3s linear infinite;"></div>';
+
+      // Header: Name + Grade
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">';
+      html += '<div>' + medal + '<span style="color:#c0d8f0;font-weight:700;font-size:1.15em;">' + t[0] + '</span></div>';
+      html += '<div style="display:flex;align-items:center;gap:10px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:' + wlColor + ';padding:3px 8px;border:1px solid ' + wlColor + '30;background:' + wlColor + '10;">' + wlStatus + '</div>';
+      html += '<div style="font-family:Orbitron;font-size:1.5em;font-weight:900;color:' + gradeColor + ';text-shadow:0 0 20px ' + gradeColor + '40;">' + grade + '</div>';
+      html += '</div></div>';
+
+      // Stats row
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">';
+      html += '<div style="text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;letter-spacing:2px;">TOTAL</div><div style="font-family:Orbitron;font-size:1.3em;color:#c084fc;">' + s.total + '</div></div>';
+      html += '<div style="text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;letter-spacing:2px;">DONE</div><div style="font-family:Orbitron;font-size:1.3em;color:#00ff66;">' + s.completed + '</div></div>';
+      html += '<div style="text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;letter-spacing:2px;">CANCEL</div><div style="font-family:Orbitron;font-size:1.3em;color:#ff4757;">' + s.cancelled + '</div></div>';
+      html += '<div style="text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;letter-spacing:2px;">RATE</div><div style="font-family:Orbitron;font-size:1.3em;color:' + (rate >= 70 ? '#00ff66' : rate >= 50 ? '#ff9f43' : '#ff4757') + ';">' + rate + '%</div></div>';
+      html += '</div>';
+
+      // Completion bar
+      html += '<div style="height:4px;background:#0a1520;margin-bottom:12px;border-radius:2px;overflow:hidden;">';
+      html += '<div style="height:100%;width:' + rate + '%;background:linear-gradient(90deg,' + gradeColor + ',' + gradeColor + '80);border-radius:2px;"></div>';
+      html += '</div>';
+
+      // Activity row
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:10px;font-size:0.85em;">';
+      html += '<span style="color:#4a6a8a;">This week: <span style="color:#c0d8f0;">' + (s.thisWeekJobs || 0) + ' jobs</span></span>';
+      html += '<span style="color:#4a6a8a;">Avg response: <span style="color:#c0d8f0;">' + avgResp + ' days</span></span>';
+      html += '</div>';
+
+      // Specialties
+      if (topEquip.length > 0) {
+        html += '<div style="margin-bottom:8px;">';
+        html += '<div style="font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#4a6a8a;margin-bottom:5px;">SPECIALTIES</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+        topEquip.forEach(function(e) {
+          html += '<span style="padding:2px 8px;font-size:0.8em;border:1px solid #c084fc20;color:#c084fc;background:#c084fc08;">' + e[0] + ' (' + e[1] + ')</span>';
+        });
+        html += '</div></div>';
+      }
+
+      // Markets
+      if (topLocs.length > 0) {
+        html += '<div>';
+        html += '<div style="font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#4a6a8a;margin-bottom:5px;">MARKETS</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+        topLocs.forEach(function(l) {
+          html += '<span style="padding:2px 8px;font-size:0.8em;border:1px solid #ff6b9d20;color:#ff6b9d;background:#ff6b9d08;">' + l[0].split(',')[0] + ' (' + l[1] + ')</span>';
+        });
+        html += '</div></div>';
+      }
+
+      html += '</div>'; // close card
+    });
+    html += '</div>'; // close grid
+
+    // Smart Task Assignment Panel
+    html += '<div style="background:rgba(10,20,35,0.7);border:1px solid #55f7d815;padding:25px;margin-bottom:25px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:3px;color:#55f7d8;">SMART TASK ASSIGNMENT</div>';
+    html += '<div onclick="loadTaskAssignments()" style="padding:6px 15px;border:1px solid #55f7d840;color:#55f7d8;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;cursor:pointer;transition:all 0.3s;" onmouseover="this.style.background=\'#55f7d810\'" onmouseout="this.style.background=\'transparent\'">GENERATE ASSIGNMENTS</div>';
+    html += '</div>';
+    html += '<div id="task-assignments" style="color:#4a6a8a;font-size:0.9em;">Click "Generate Assignments" to auto-assign unassigned jobs to the best available technician based on skills, location, and workload.</div>';
+    html += '</div>';
+
+    // AI Team Coaching
+    html += '<div style="background:rgba(10,20,35,0.7);border:1px solid #c084fc15;padding:25px;margin-bottom:25px;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:3px;color:#c084fc;">AI TEAM COACHING</div>';
+    html += '<div onclick="loadTeamCoaching()" style="padding:6px 15px;border:1px solid #c084fc40;color:#c084fc;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;cursor:pointer;transition:all 0.3s;" onmouseover="this.style.background=\'#c084fc10\'" onmouseout="this.style.background=\'transparent\'">GENERATE COACHING REPORT</div>';
+    html += '</div>';
+    html += '<div id="team-coaching" style="color:#4a6a8a;font-size:0.9em;">Click to get AI-generated individual coaching recommendations for each technician based on their performance data.</div>';
+    html += '</div>';
+
+    html += '</div>'; // close team section
+
     // Athena Footer
-    html += '<div style="text-align:center;padding:40px 20px;font-family:Orbitron;font-size:0.6em;letter-spacing:4px;color:#1a2a3a;border-top:1px solid #0a1520;">A.T.H.E.N.A. v1.0 // Wildwood Small Engine Repair CRM // Powered by Claude AI</div>';
+    html += '<div style="text-align:center;padding:40px 20px;font-family:Orbitron;font-size:0.6em;letter-spacing:4px;color:#1a2a3a;border-top:1px solid #0a1520;">A.T.H.E.N.A. v5.0 // Wildwood Small Engine Repair CRM + Team Command // Powered by Claude AI</div>';
 
     html += '</div>'; // close z-index wrapper
     html += '</div>'; // close #athena-panel
@@ -3569,6 +4319,108 @@ app.get('/dashboard', async function(req, res) {
 
     // ====== SWIPE / TAB SWITCH JAVASCRIPT ======
     html += '<script>';
+
+    // AI Business Insights generator
+    html += 'async function generateBizInsights(){';
+    html += '  var div=document.getElementById("biz-insights");';
+    html += '  div.innerHTML="<div style=\\"color:#c084fc;\\">Analyzing CRM data...</div>";';
+    html += '  try{var r=await fetch("/business/insights");var d=await r.json();';
+    html += '  if(d.insights){div.innerHTML="<div style=\\"color:#c0d8f0;white-space:pre-wrap;line-height:1.8;font-size:0.95em;\\">"+d.insights+"</div>";}';
+    html += '  else{div.innerHTML="<div style=\\"color:#ff4757;\\">Error: "+d.error+"</div>";}}';
+    html += '  catch(e){div.innerHTML="<div style=\\"color:#ff4757;\\">Failed: "+e.message+"</div>";}';
+    html += '}';
+
+    // Customer Search
+    html += 'async function searchCustomer(){';
+    html += '  var q=document.getElementById("cust-search").value;if(!q)return;';
+    html += '  var div=document.getElementById("cust-results");div.innerHTML="<div style=\\"color:#00d4ff;\\">Searching...</div>";';
+    html += '  try{var r=await fetch("/business/search?q="+encodeURIComponent(q));var d=await r.json();';
+    html += '  if(d.results.length===0){div.innerHTML="<div style=\\"color:#4a6a8a;padding:15px;\\">No customers found.</div>";return;}';
+    html += '  var h="";d.results.forEach(function(c){';
+    html += '    h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid #00d4ff10;padding:14px 18px;margin-bottom:6px;\\">";';
+    html += '    h+="<div style=\\"display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;\\">";';
+    html += '    h+="<div style=\\"color:#00d4ff;font-weight:700;\\">"+c.name+"</div>";';
+    html += '    h+="<div style=\\"color:#4a6a8a;\\">"+c.phone+"</div>";';
+    html += '    h+="<div style=\\"color:#4a6a8a;\\">"+c.city+"</div>";';
+    html += '    var sColor=c.status.toLowerCase().includes("booked")?"#00ff66":c.status.toLowerCase().includes("cancel")?"#ff4757":"#ff9f43";';
+    html += '    h+="<div style=\\"font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:3px 8px;border:1px solid "+sColor+"30;color:"+sColor+";\\">"+(c.status||"N/A").toUpperCase()+"</div>";';
+    html += '    h+="</div>";';
+    html += '    h+="<div style=\\"margin-top:6px;color:#4a6a8a;font-size:0.85em;\\">"+c.equip+" "+c.brand+" — "+c.issue+"</div>";';
+    html += '    h+="<div style=\\"margin-top:6px;display:flex;gap:8px;\\">";';
+    html += '    h+="<div onclick=\\"sendConfirmText(\'"+c.phone+"\'  ,\'"+c.name.replace(/\'/g,"")+"\')\\" style=\\"padding:5px 12px;border:1px solid #55f7d830;color:#55f7d8;font-family:Orbitron;font-size:0.55em;letter-spacing:1px;cursor:pointer;\\">CONFIRM TEXT</div>";';
+    html += '    h+="<div onclick=\\"sendFollowUp(\'" +c.phone+"\'  ,\'"+c.name.replace(/\'/g,"")+"\')\\" style=\\"padding:5px 12px;border:1px solid #ff9f4330;color:#ff9f43;font-family:Orbitron;font-size:0.55em;letter-spacing:1px;cursor:pointer;\\">FOLLOW-UP</div>";';
+    html += '    h+="</div></div>";';
+    html += '  });div.innerHTML=h;}catch(e){div.innerHTML="<div style=\\"color:#ff4757;\\">Error: "+e.message+"</div>";}';
+    html += '}';
+
+    // Send confirmation text
+    html += 'async function sendConfirmText(phone,name){';
+    html += '  try{var r=await fetch("/business/confirm-text",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:phone,name:name})});';
+    html += '  var d=await r.json();alert(d.success?"Confirmation sent to "+name:"Error: "+d.error);}catch(e){alert("Failed: "+e.message);}';
+    html += '}';
+
+    // Send follow-up text
+    html += 'async function sendFollowUp(phone,name){';
+    html += '  try{var r=await fetch("/business/followup-text",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({phone:phone,name:name})});';
+    html += '  var d=await r.json();alert(d.success?"Follow-up sent to "+name:"Error: "+d.error);}catch(e){alert("Failed: "+e.message);}';
+    html += '}';
+
+    // Job Timer
+    html += 'var timerInterval=null;var timerSeconds=0;var timerRunning=false;';
+    html += 'function startJobTimer(){';
+    html += '  var name=document.getElementById("timer-job-name").value;if(!name){alert("Enter job name");return;}';
+    html += '  if(timerRunning)return;timerRunning=true;timerSeconds=0;';
+    html += '  document.getElementById("timer-job-label").textContent="Timing: "+name;';
+    html += '  document.getElementById("timer-start-btn").style.color="#4a6a8a";';
+    html += '  timerInterval=setInterval(function(){timerSeconds++;';
+    html += '    var h=String(Math.floor(timerSeconds/3600)).padStart(2,"0");';
+    html += '    var m=String(Math.floor((timerSeconds%3600)/60)).padStart(2,"0");';
+    html += '    var s=String(timerSeconds%60).padStart(2,"0");';
+    html += '    document.getElementById("timer-display").textContent=h+":"+m+":"+s;';
+    html += '  },1000);';
+    html += '}';
+    html += 'function stopJobTimer(){';
+    html += '  if(!timerRunning)return;clearInterval(timerInterval);timerRunning=false;';
+    html += '  var name=document.getElementById("timer-job-name").value;';
+    html += '  var mins=Math.round(timerSeconds/60);';
+    html += '  var dur=document.getElementById("timer-display").textContent;';
+    html += '  document.getElementById("timer-job-label").textContent="Logged: "+name+" ("+dur+")";';
+    html += '  document.getElementById("timer-start-btn").style.color="#00ff66";';
+    html += '  document.getElementById("timer-job-name").value="";';
+    html += '  fetch("/business/log-timer",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobName:name,duration:dur,minutes:mins})});';
+    html += '  var hist=document.getElementById("timer-history");';
+    html += '  hist.innerHTML="<div style=\\"background:rgba(0,255,102,0.03);border:1px solid #00ff6610;padding:8px 12px;margin-bottom:4px;display:flex;justify-content:space-between;\\"><span style=\\"color:#c0d8f0;\\">"+name+"</span><span style=\\"color:#00ff66;\\">"+dur+" ("+mins+" min)</span></div>"+hist.innerHTML;';
+    html += '  timerSeconds=0;document.getElementById("timer-display").textContent="00:00:00";';
+    html += '}';
+
+    // Team Management JS
+    html += 'async function loadTaskAssignments(){';
+    html += '  var div=document.getElementById("task-assignments");';
+    html += '  div.innerHTML="<div style=\\"color:#55f7d8;\\">Analyzing team skills, locations, and workload...</div>";';
+    html += '  try{var r=await fetch("/team/assign");var d=await r.json();';
+    html += '  if(!d.assignments||d.assignments.length===0){div.innerHTML="<div style=\\"color:#00ff66;padding:10px;\\">All jobs are assigned. No action needed.</div>";return;}';
+    html += '  var h="<div style=\\"color:#4a6a8a;font-size:0.85em;margin-bottom:10px;\\">" + d.unassignedCount + " unassigned jobs found</div>";';
+    html += '  d.assignments.forEach(function(a){';
+    html += '    h+="<div style=\\"background:rgba(85,247,216,0.03);border:1px solid #55f7d815;padding:12px 16px;margin-bottom:6px;\\">";';
+    html += '    h+="<div style=\\"display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;\\">";';
+    html += '    h+="<div style=\\"color:#c0d8f0;font-weight:600;\\">"+a.job+"</div>";';
+    html += '    h+="<div style=\\"font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:3px 10px;border:1px solid #55f7d840;color:#55f7d8;background:#55f7d810;\\">ASSIGN → "+a.recommendedTech+"</div>";';
+    html += '    h+="</div>";';
+    html += '    h+="<div style=\\"margin-top:5px;color:#4a6a8a;font-size:0.85em;\\">"+(a.location||"")+" — "+(a.equipment||"")+"</div>";';
+    html += '    h+="<div style=\\"margin-top:4px;color:#55f7d860;font-size:0.8em;font-style:italic;\\">Reason: "+a.reasoning+"</div>";';
+    html += '    h+="</div>";';
+    html += '  });div.innerHTML=h;}catch(e){div.innerHTML="<div style=\\"color:#ff4757;\\">Error: "+e.message+"</div>";}';
+    html += '}';
+
+    html += 'async function loadTeamCoaching(){';
+    html += '  var div=document.getElementById("team-coaching");';
+    html += '  div.innerHTML="<div style=\\"color:#c084fc;\\">Generating individual coaching reports...</div>";';
+    html += '  try{var r=await fetch("/team/coaching");var d=await r.json();';
+    html += '  if(d.coaching){div.innerHTML="<div style=\\"color:#c0d8f0;white-space:pre-wrap;line-height:1.8;font-size:0.95em;\\">"+d.coaching+"</div>";}';
+    html += '  else{div.innerHTML="<div style=\\"color:#ff4757;\\">Error: "+(d.error||"Unknown")+"</div>";}}';
+    html += '  catch(e){div.innerHTML="<div style=\\"color:#ff4757;\\">Failed: "+e.message+"</div>";}';
+    html += '}';
+
     html += 'var currentPanel = 0;';
     html += 'var wrapper = document.getElementById("swipe-wrapper");';
 
@@ -4330,6 +5182,101 @@ app.post('/email/send-reply', async function(req, res) {
    GET /nightly-checkin — Auto trigger daily check-in via cron
 =========================== */
 
+/* ===========================
+   GET /business/search — Customer Lookup
+=========================== */
+app.get('/business/search', async function(req, res) {
+  try {
+    var q = (req.query.q || '').toLowerCase().trim();
+    if (!q || q.length < 2) return res.json({ results: [] });
+    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Combined'!A1:AE" });
+    var rows = combinedRes.data.values || [];
+    var results = [];
+    for (var i = 1; i < rows.length && results.length < 20; i++) {
+      var row = rows[i];
+      var name = ((row[1] || '') + ' ' + (row[2] || '')).toLowerCase();
+      var phone = (row[6] || '').toString().toLowerCase();
+      var email = (row[7] || '').toString().toLowerCase();
+      var city = (row[9] || '').toString().toLowerCase();
+      if (name.includes(q) || phone.includes(q) || email.includes(q) || city.includes(q)) {
+        results.push({
+          name: ((row[1] || '') + ' ' + (row[2] || '')).trim(),
+          phone: row[6] || '', email: row[7] || '',
+          city: (row[9] || '') + ', ' + (row[10] || ''),
+          address: row[8] || '', equip: row[12] || '',
+          brand: row[13] || '', issue: (row[14] || '').substring(0, 80),
+          tech: row[15] || '', status: row[17] || '',
+          date: row[0] || ''
+        });
+      }
+    }
+    res.json({ results: results });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   POST /business/confirm-text — Send booking confirmation
+=========================== */
+app.post('/business/confirm-text', async function(req, res) {
+  try {
+    var phone = req.body.phone;
+    var name = req.body.name;
+    var date = req.body.date || 'your scheduled date';
+    if (!phone) return res.status(400).json({ error: 'Phone required' });
+    var cleanPhone = phone.replace(/[^\d+]/g, '');
+    if (!cleanPhone.startsWith('+')) cleanPhone = '+1' + cleanPhone.replace(/^1/, '');
+    var msg = 'Hi ' + name + '! This is Wildwood Small Engine Repair confirming your appointment for ' + date + '. Our technician will arrive during the scheduled window. Reply CONFIRM to confirm or call us to reschedule. Thank you!';
+    await twilioClient.messages.create({ body: msg, from: TWILIO_NUMBER, to: cleanPhone });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   POST /business/followup-text — Send 3-day follow-up
+=========================== */
+app.post('/business/followup-text', async function(req, res) {
+  try {
+    var phone = req.body.phone;
+    var name = req.body.name;
+    if (!phone) return res.status(400).json({ error: 'Phone required' });
+    var cleanPhone = phone.replace(/[^\d+]/g, '');
+    if (!cleanPhone.startsWith('+')) cleanPhone = '+1' + cleanPhone.replace(/^1/, '');
+    var msg = 'Hi ' + name + '! This is Wildwood Small Engine Repair. We hope your equipment is running great! If you have any questions or need anything else, don\'t hesitate to reach out. We appreciate your business!';
+    await twilioClient.messages.create({ body: msg, from: TWILIO_NUMBER, to: cleanPhone });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   POST /business/log-timer — Log job timer
+=========================== */
+app.post('/business/log-timer', async function(req, res) {
+  try {
+    var d = new Date();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: "'Job_Timers'!A:E",
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [[d.toISOString().split('T')[0], req.body.jobName, req.body.duration, req.body.minutes, d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })]] },
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   GET /business/insights — AI Weekly Business Report
+=========================== */
+app.get('/business/insights', async function(req, res) {
+  try {
+    var bizContext = await buildBusinessContext();
+    var insights = await askClaude(
+      "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. Analyze the CRM data and generate a sharp weekly business report. Be specific with numbers. Cover: 1) What's working (top performing locations, best techs, growing markets), 2) What needs attention (high cancel rates, understaffed areas, slow response times), 3) Growth opportunities (new markets to target, seasonal prep, upsell opportunities), 4) Action items for this week (specific, numbered, actionable). Keep it under 500 words. No markdown formatting, use plain text with line breaks.",
+      [{ role: 'user', content: 'Generate my weekly business insights report.\n\nCRM DATA:\n' + bizContext }]
+    );
+    res.json({ insights: insights });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/nightly-checkin', async function(req, res) {
   var secret = process.env.CALL_SECRET;
   if (secret && req.query.key !== secret) return res.status(403).json({ error: 'Unauthorized' });
@@ -4356,12 +5303,208 @@ app.get('/nightly-checkin', async function(req, res) {
 });
 
 /* ===========================
+   GET /team — Full Team Overview
+=========================== */
+app.get('/team', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var bm = global.bizMetrics || {};
+    var ts = bm.techStats || {};
+    var techList = bm.techList || [];
+
+    var profiles = Object.entries(ts).sort(function(a,b){return b[1].total-a[1].total;}).map(function(t) {
+      var s = t[1];
+      var rate = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
+      var avgResp = s.avgResponseDays.length > 0 ? Math.round(s.avgResponseDays.reduce(function(a,b){return a+b;},0) / s.avgResponseDays.length) : 0;
+      var topEquip = Object.entries(s.equipment || {}).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+      var topLocs = Object.entries(s.locations || {}).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+      var topBrands = Object.entries(s.brands || {}).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+      var phone = '';
+      techList.forEach(function(tl) { if (tl.name && tl.name.toLowerCase().includes(t[0].toLowerCase())) phone = tl.phone; });
+
+      // Performance grade
+      var grade = 'C';
+      if (rate >= 85 && s.total >= 10) grade = 'A+';
+      else if (rate >= 75 && s.total >= 8) grade = 'A';
+      else if (rate >= 65 && s.total >= 5) grade = 'B';
+      else if (rate >= 50) grade = 'C';
+      else grade = 'D';
+
+      return {
+        name: t[0], total: s.total, completed: s.completed, cancelled: s.cancelled,
+        rate: rate, avgResponseDays: avgResp, phone: phone, grade: grade,
+        thisWeek: s.thisWeekJobs, thisMonth: s.thisMonthJobs,
+        todayJobs: s.todayJobs || [], recentJobs: s.recentJobs || [],
+        topEquipment: topEquip, topLocations: topLocs, topBrands: topBrands,
+        returnCustomers: s.returnCustomers || 0,
+        firstSeen: s.firstSeen ? s.firstSeen.toISOString().split('T')[0] : null,
+        lastSeen: s.lastSeen ? s.lastSeen.toISOString().split('T')[0] : null,
+      };
+    });
+
+    res.json({ teamSize: profiles.length, profiles: profiles });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   GET /team/:name — Individual Tech Profile
+=========================== */
+app.get('/team/:name', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var ts = (global.bizMetrics || {}).techStats || {};
+    var name = req.params.name;
+    var found = null;
+    Object.keys(ts).forEach(function(k) {
+      if (k.toLowerCase() === name.toLowerCase() || k.toLowerCase().includes(name.toLowerCase())) found = { key: k, data: ts[k] };
+    });
+    if (!found) return res.status(404).json({ error: 'Tech not found' });
+    var s = found.data;
+    var rate = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
+    var avgResp = s.avgResponseDays.length > 0 ? Math.round(s.avgResponseDays.reduce(function(a,b){return a+b;},0) / s.avgResponseDays.length) : 0;
+    res.json({
+      name: found.key, total: s.total, completed: s.completed, cancelled: s.cancelled,
+      rate: rate, avgResponseDays: avgResp, thisWeek: s.thisWeekJobs, thisMonth: s.thisMonthJobs,
+      todayJobs: s.todayJobs, recentJobs: s.recentJobs,
+      equipment: Object.entries(s.equipment).sort(function(a,b){return b[1]-a[1];}),
+      locations: Object.entries(s.locations).sort(function(a,b){return b[1]-a[1];}),
+      brands: Object.entries(s.brands).sort(function(a,b){return b[1]-a[1];}),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   GET /team/assign — Smart Auto-Assignment
+=========================== */
+app.get('/team/assign', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var bm = global.bizMetrics || {};
+    var ts = bm.techStats || {};
+    var todayJobs = bm.todayBookings || [];
+    var needsResched = bm.needsReschedule || [];
+
+    var allJobs = todayJobs.concat(needsResched.map(function(n){return { name: n.name, location: n.location, equip: '', issue: 'Rescheduling needed', tech: '' };}));
+    var unassigned = allJobs.filter(function(j){return !j.tech || j.tech === '';});
+    var techEntries = Object.entries(ts).sort(function(a,b){return b[1].completed - a[1].completed;});
+
+    var assignments = unassigned.map(function(job) {
+      var bestTech = null, bestScore = -1, reasoning = '';
+      techEntries.forEach(function(t) {
+        var s = t[1], score = 0, reasons = [];
+        var completionRate = s.total > 0 ? s.completed / s.total : 0;
+        score += completionRate * 40; reasons.push(Math.round(completionRate*100) + '% completion');
+        if (job.equip && s.equipment) {
+          Object.keys(s.equipment).forEach(function(e) {
+            if (e.toLowerCase().includes(job.equip.toLowerCase()) || job.equip.toLowerCase().includes(e.toLowerCase())) {
+              score += 25; reasons.push('specializes in ' + e);
+            }
+          });
+        }
+        if (job.location && s.locations && s.locations[job.location]) {
+          score += 20; reasons.push('works in ' + job.location);
+        }
+        score -= (s.todayJobs || []).length * 15;
+        if ((s.todayJobs || []).length === 0) { score += 10; reasons.push('free today'); }
+        if (score > bestScore) { bestScore = score; bestTech = t[0]; reasoning = reasons.join(', '); }
+      });
+      return { job: job.name, location: job.location, equipment: job.equip, recommendedTech: bestTech, score: Math.round(bestScore), reasoning: reasoning };
+    });
+
+    res.json({ unassignedCount: unassigned.length, totalToday: allJobs.length, assignments: assignments });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   GET /team/daily-tasks — Auto-Generated Daily Task Lists Per Tech
+=========================== */
+app.get('/team/daily-tasks', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var bm = global.bizMetrics || {};
+    var ts = bm.techStats || {};
+    var techEntries = Object.entries(ts).sort(function(a,b){return b[1].total-a[1].total;});
+
+    var taskLists = techEntries.map(function(t) {
+      var s = t[1];
+      var tasks = [];
+
+      // Today's assigned jobs
+      (s.todayJobs || []).forEach(function(j) {
+        tasks.push({ priority: 'HIGH', type: 'Job', task: j.name + ' — ' + j.equip + ' (' + j.location + ')', detail: j.issue });
+      });
+
+      // Follow up on recent incomplete
+      (s.recentJobs || []).forEach(function(j) {
+        if (j.status && (j.status.includes('pending') || j.status.includes('schedul'))) {
+          tasks.push({ priority: 'MEDIUM', type: 'Follow-up', task: 'Follow up: ' + j.name + ' (' + j.location + ')', detail: 'Status: ' + j.status });
+        }
+      });
+
+      // Coaching note based on stats
+      var rate = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
+      var coaching = '';
+      if (rate < 60 && s.total >= 5) coaching = 'Cancel rate is high (' + (100-rate) + '%). Focus on confirming appointments before going out.';
+      else if (s.thisWeekJobs === 0 && s.total > 0) coaching = 'No jobs this week. Check scheduling or availability.';
+      else if (rate >= 85) coaching = 'Excellent performance. Consider for team lead responsibilities.';
+
+      return { tech: t[0], taskCount: tasks.length, tasks: tasks, coaching: coaching, todayLoad: (s.todayJobs || []).length, weekLoad: s.thisWeekJobs };
+    });
+
+    res.json({ taskLists: taskLists });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   GET /team/coaching — AI Coaching Report Per Tech
+=========================== */
+app.get('/team/coaching', async function(req, res) {
+  try {
+    var bizContext = await buildBusinessContext();
+    var coaching = await askClaude(
+      "You are ATHENA, business operations AI for Wildwood Small Engine Repair. Generate individual coaching reports for each technician. For EACH tech: 1) Strengths (what they do well, backed by data), 2) Areas to improve (specific, actionable), 3) This week's focus (one priority), 4) Equipment they should study (based on gaps). Be specific with numbers. Keep each tech's section to 3-4 sentences. No markdown.",
+      [{ role: 'user', content: 'Generate coaching reports for my team:\n\n' + bizContext }]
+    );
+    res.json({ coaching: coaching });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
+   GET /team/workload — Workload Balance Analysis
+=========================== */
+app.get('/team/workload', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var ts = (global.bizMetrics || {}).techStats || {};
+    var entries = Object.entries(ts).sort(function(a,b){return b[1].total-a[1].total;});
+    var totalJobs = entries.reduce(function(sum,t){return sum + t[1].total;},0);
+    var avgPerTech = entries.length > 0 ? Math.round(totalJobs / entries.length) : 0;
+
+    var analysis = entries.map(function(t) {
+      var s = t[1];
+      var deviation = s.total - avgPerTech;
+      var status = 'balanced';
+      if (deviation > avgPerTech * 0.5) status = 'overloaded';
+      else if (deviation < -avgPerTech * 0.3) status = 'underutilized';
+      return {
+        tech: t[0], total: s.total, thisWeek: s.thisWeekJobs, thisMonth: s.thisMonthJobs,
+        todayCount: (s.todayJobs || []).length, deviation: deviation, status: status,
+        topLocation: Object.entries(s.locations || {}).sort(function(a,b){return b[1]-a[1];})[0],
+        topEquip: Object.entries(s.equipment || {}).sort(function(a,b){return b[1]-a[1];})[0],
+      };
+    });
+
+    res.json({ teamSize: entries.length, totalJobs: totalJobs, avgPerTech: avgPerTech, analysis: analysis });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+/* ===========================
    START SERVER
 =========================== */
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /chat /daily-questions /nightly-checkin");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload");
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
