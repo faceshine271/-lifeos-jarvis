@@ -5552,3 +5552,4 @@ app.listen(PORT, function() {
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
+});
