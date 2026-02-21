@@ -3886,6 +3886,286 @@ app.get('/dashboard', async function(req, res) {
       html += '</div>';
     }
 
+    // ====== CALL VOLUME CHART + FIBONACCI PREDICTION ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00d4ff;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;box-shadow:0 0 8px #00d4ff;display:inline-block;"></span>Call Volume Trends + Fibonacci Forecast</div>';
+    
+    // Build monthly volume data
+    var volMonths = Object.keys(monthlyBookings).sort();
+    var volData = volMonths.map(function(k) { return monthlyBookings[k] || 0; });
+    var monthLabels = volMonths.map(function(k) {
+      var parts = k.split("-");
+      var mNames = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return mNames[parseInt(parts[1])] + " " + parts[0].substring(2);
+    });
+    
+    // Fibonacci retracement calculation
+    // Uses last 6 months of data to find trend, then projects 3 months forward
+    var fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+    var recentVol = volData.slice(-6);
+    var fibHigh = Math.max.apply(null, recentVol.length > 0 ? recentVol : [0]);
+    var fibLow = Math.min.apply(null, recentVol.length > 0 ? recentVol : [0]);
+    var fibRange = fibHigh - fibLow;
+    
+    // Trend detection: compare avg of last 3 months vs prior 3
+    var last3Avg = 0, prior3Avg = 0;
+    if (recentVol.length >= 6) {
+      last3Avg = (recentVol[3] + recentVol[4] + recentVol[5]) / 3;
+      prior3Avg = (recentVol[0] + recentVol[1] + recentVol[2]) / 3;
+    } else if (recentVol.length >= 2) {
+      last3Avg = recentVol[recentVol.length - 1];
+      prior3Avg = recentVol[0];
+    }
+    var trendUp = last3Avg >= prior3Avg;
+    
+    // Generate 3 months of Fibonacci predictions
+    var predictions = [];
+    var predLabels = [];
+    var nowMonth = today.getMonth() + 1;
+    var nowYear = today.getFullYear();
+    for (var fp = 1; fp <= 3; fp++) {
+      var pm = nowMonth + fp;
+      var py = nowYear;
+      if (pm > 12) { pm -= 12; py++; }
+      var mNames2 = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      predLabels.push(mNames2[pm] + " " + String(py).substring(2));
+      
+      // Fibonacci projection: if trending up, use 0.618 extension above; if down, 0.382 retracement
+      if (trendUp) {
+        var fibTarget = fibHigh + fibRange * 0.618 * (1 - fp * 0.15); // Diminishing extension
+        predictions.push(Math.round(Math.max(fibTarget, fibLow)));
+      } else {
+        var fibTarget2 = fibHigh - fibRange * 0.618 * (1 - fp * 0.15); // Diminishing retracement
+        predictions.push(Math.round(Math.max(fibTarget2, 0)));
+      }
+    }
+
+    // Chart container
+    html += '<div style="position:relative;background:rgba(10,20,35,0.6);border:1px solid #00d4ff10;padding:30px 20px 20px;min-height:350px;">';
+    
+    // Y-axis labels
+    var allVals = volData.concat(predictions);
+    var chartMax = Math.max.apply(null, allVals.length > 0 ? allVals : [10]);
+    chartMax = Math.ceil(chartMax * 1.2 / 10) * 10 || 10;
+    
+    html += '<div style="position:absolute;left:10px;top:30px;bottom:50px;width:40px;display:flex;flex-direction:column;justify-content:space-between;">';
+    for (var yi = 0; yi <= 4; yi++) {
+      var yVal = Math.round(chartMax - (chartMax / 4) * yi);
+      html += '<div style="color:#4a6a8a;font-size:0.6em;font-family:Orbitron;text-align:right;">' + yVal + '</div>';
+    }
+    html += '</div>';
+    
+    // Chart area
+    html += '<div style="margin-left:50px;display:flex;align-items:flex-end;gap:2px;height:250px;border-bottom:1px solid #1a3050;border-left:1px solid #1a3050;padding:0 5px;position:relative;">';
+    
+    // Fibonacci level lines
+    if (fibRange > 0) {
+      var fibColors = ["#ff475740","#ff9f4340","#ffd70040","#00ff6640","#00d4ff40","#a855f740","#ff6b9d40"];
+      var fibLabelsArr = ["0%","23.6%","38.2%","50%","61.8%","78.6%","100%"];
+      for (var fi = 0; fi < fibLevels.length; fi++) {
+        var fibVal = fibLow + fibRange * fibLevels[fi];
+        var fibPct = chartMax > 0 ? (fibVal / chartMax) * 100 : 0;
+        if (fibPct > 0 && fibPct <= 100) {
+          html += '<div style="position:absolute;bottom:' + fibPct + '%;left:0;right:0;border-top:1px dashed ' + fibColors[fi] + ';z-index:1;">';
+          html += '<span style="position:absolute;right:0;top:-12px;color:' + fibColors[fi].replace("40","") + ';font-size:0.5em;font-family:Orbitron;">' + fibLabelsArr[fi] + ' (' + Math.round(fibVal) + ')</span>';
+          html += '</div>';
+        }
+      }
+    }
+    
+    // Actual data bars
+    var allLabels = monthLabels.concat(predLabels);
+    var totalBars = volData.length + predictions.length;
+    var barWidth = totalBars > 0 ? Math.max(12, Math.floor(100 / totalBars)) : 30;
+    
+    volData.forEach(function(v, idx) {
+      var barH = chartMax > 0 ? (v / chartMax) * 100 : 0;
+      var isThisMonth2 = idx === volData.length - 1;
+      var barColor = isThisMonth2 ? '#00d4ff' : '#00d4ff80';
+      var glow = isThisMonth2 ? 'box-shadow:0 0 10px #00d4ff40;' : '';
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:' + barWidth + 'px;z-index:2;">';
+      html += '<div style="color:#c0d8f0;font-size:0.6em;font-weight:700;margin-bottom:2px;">' + v + '</div>';
+      html += '<div style="width:70%;height:' + barH + '%;background:' + barColor + ';min-height:2px;transition:height 0.5s;' + glow + '"></div>';
+      html += '<div style="color:#4a6a8a;font-size:0.5em;margin-top:4px;font-family:Orbitron;white-space:nowrap;">' + monthLabels[idx] + '</div>';
+      html += '</div>';
+    });
+    
+    // Prediction bars (dashed/striped style)
+    predictions.forEach(function(v, idx) {
+      var barH = chartMax > 0 ? (v / chartMax) * 100 : 0;
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:' + barWidth + 'px;z-index:2;">';
+      html += '<div style="color:#ff9f43;font-size:0.6em;font-weight:700;margin-bottom:2px;">~' + v + '</div>';
+      html += '<div style="width:70%;height:' + barH + '%;background:repeating-linear-gradient(0deg,#ff9f43 0px,#ff9f43 4px,transparent 4px,transparent 8px);min-height:2px;opacity:0.7;border:1px dashed #ff9f4360;"></div>';
+      html += '<div style="color:#ff9f43;font-size:0.5em;margin-top:4px;font-family:Orbitron;white-space:nowrap;">' + predLabels[idx] + '</div>';
+      html += '</div>';
+    });
+    
+    html += '</div>'; // end chart area
+    
+    // Legend
+    html += '<div style="display:flex;gap:20px;margin-top:15px;font-size:0.75em;flex-wrap:wrap;">';
+    html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:12px;background:#00d4ff;"></div><span style="color:#4a6a8a;">Actual Call Volume</span></div>';
+    html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:12px;background:repeating-linear-gradient(0deg,#ff9f43 0px,#ff9f43 3px,transparent 3px,transparent 6px);border:1px dashed #ff9f4360;"></div><span style="color:#4a6a8a;">Fibonacci Forecast</span></div>';
+    html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:1px;border-top:1px dashed #00ff6640;"></div><span style="color:#4a6a8a;">Fib Levels (Support/Resistance)</span></div>';
+    html += '</div>';
+    
+    // Fibonacci Analysis Box
+    html += '<div style="margin-top:15px;padding:15px;border:1px solid #00d4ff20;background:rgba(0,212,255,0.02);">';
+    html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#00d4ff;margin-bottom:10px;">FIBONACCI ANALYSIS</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">';
+    
+    // Trend
+    var trendIcon = trendUp ? '▲' : '▼';
+    var trendColor = trendUp ? '#00ff66' : '#ff4757';
+    var trendPct = prior3Avg > 0 ? Math.round(((last3Avg - prior3Avg) / prior3Avg) * 100) : 0;
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
+    html += '<div style="color:#4a6a8a;font-size:0.75em;">TREND</div>';
+    html += '<div style="color:' + trendColor + ';font-size:1.3em;font-weight:900;">' + trendIcon + ' ' + (trendUp ? 'UPTREND' : 'DOWNTREND') + '</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.8em;">' + (trendPct >= 0 ? '+' : '') + trendPct + '% momentum</div>';
+    html += '</div>';
+    
+    // Support level (Fib 0.618)
+    var supportLevel = Math.round(fibLow + fibRange * 0.382);
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
+    html += '<div style="color:#4a6a8a;font-size:0.75em;">SUPPORT (38.2%)</div>';
+    html += '<div style="color:#00ff66;font-size:1.3em;font-weight:900;">' + supportLevel + ' calls</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.8em;">Floor — volume unlikely below this</div>';
+    html += '</div>';
+    
+    // Resistance level (Fib 0.618 from top)
+    var resistLevel = Math.round(fibLow + fibRange * 0.618);
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
+    html += '<div style="color:#4a6a8a;font-size:0.75em;">RESISTANCE (61.8%)</div>';
+    html += '<div style="color:#ff9f43;font-size:1.3em;font-weight:900;">' + resistLevel + ' calls</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.8em;">Ceiling — breakout means growth spike</div>';
+    html += '</div>';
+    
+    // Next month prediction
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
+    html += '<div style="color:#4a6a8a;font-size:0.75em;">NEXT MONTH PREDICTION</div>';
+    html += '<div style="color:#ff9f43;font-size:1.3em;font-weight:900;">~' + (predictions[0] || 0) + ' calls</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.8em;">Based on 0.618 Fibonacci ' + (trendUp ? 'extension' : 'retracement') + '</div>';
+    html += '</div>';
+    
+    html += '</div>'; // end grid
+    
+    // Strategy recommendation
+    var fibStrategy = '';
+    if (trendUp && trendPct > 20) {
+      fibStrategy = 'STRONG GROWTH — Volume breaking above 61.8% resistance. Hire more techs NOW. Each week of delay = lost revenue. Target: ' + Math.round(fibHigh * 1.3) + ' calls/month capacity.';
+    } else if (trendUp) {
+      fibStrategy = 'MODERATE GROWTH — Volume trending up but below 61.8% resistance. Prepare to scale. Keep 2-3 techs on standby. Watch for breakout above ' + resistLevel + ' calls.';
+    } else if (trendPct > -15) {
+      fibStrategy = 'CONSOLIDATION — Volume holding between 38.2%-61.8% levels. Normal seasonal pattern. Focus on conversion rate and customer retention over new leads.';
+    } else {
+      fibStrategy = 'PULLBACK — Volume retracing toward 38.2% support at ' + supportLevel + ' calls. Reduce ad spend, focus on rebooking cancelled jobs. If volume holds above ' + supportLevel + ', expect reversal.';
+    }
+    html += '<div style="margin-top:12px;padding:12px;border:1px solid #00d4ff20;background:rgba(0,212,255,0.03);color:#00d4ff;font-size:0.85em;">STRATEGY: ' + fibStrategy + '</div>';
+    html += '</div>'; // end fib analysis box
+    html += '</div>'; // end chart container
+    html += '</div>'; // end section
+
+    // ====== WEEKLY CALL VOLUME HEATMAP ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#55f7d8;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#55f7d8;border-radius:50%;box-shadow:0 0 8px #55f7d8;display:inline-block;"></span>Weekly Call Volume Heatmap</div>';
+    
+    // Build weekly data from last 12 weeks
+    var weeklyData = {};
+    var dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    
+    // Parse all dates to build day-of-week distribution
+    for (var wd = 1; wd < allRows.length; wd++) {
+      var wRow = allRows[wd];
+      var wDate = (wRow[0] || '').toString();
+      if (!wDate) continue;
+      try {
+        var wD = new Date(wDate);
+        if (isNaN(wD.getTime())) continue;
+        var wWeekKey = wD.getFullYear() + '-W' + String(Math.ceil((wD.getDate() + new Date(wD.getFullYear(), wD.getMonth(), 1).getDay()) / 7)).padStart(2, '0') + '-' + String(wD.getMonth()+1).padStart(2,'0');
+        var wDayIdx = wD.getDay();
+        if (!weeklyData[wDayIdx]) weeklyData[wDayIdx] = 0;
+        weeklyData[wDayIdx]++;
+      } catch(e) {}
+    }
+    
+    var maxDayVol = Math.max.apply(null, Object.values(weeklyData).concat([1]));
+    
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+    for (var di = 0; di < 7; di++) {
+      var dVol = weeklyData[di] || 0;
+      var dPct = maxDayVol > 0 ? dVol / maxDayVol : 0;
+      var dR = Math.round(0 + dPct * 0);
+      var dG = Math.round(50 + dPct * 205);
+      var dB = Math.round(80 + dPct * 175);
+      var dayColor = 'rgb(' + dR + ',' + dG + ',' + dB + ')';
+      var intensity = Math.round(dPct * 100);
+      html += '<div style="flex:1;min-width:80px;text-align:center;padding:20px 10px;background:rgba(' + dR + ',' + dG + ',' + dB + ',0.15);border:1px solid ' + dayColor + '30;">';
+      html += '<div style="color:' + dayColor + ';font-family:Orbitron;font-size:0.7em;letter-spacing:2px;">' + dayNames[di] + '</div>';
+      html += '<div style="color:#c0d8f0;font-size:1.8em;font-weight:900;margin:8px 0;">' + dVol + '</div>';
+      html += '<div style="height:4px;background:#0a1520;margin-top:5px;"><div style="height:100%;width:' + intensity + '%;background:' + dayColor + ';"></div></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    
+    // Peak day insight
+    var peakDay = 0, peakVol2 = 0;
+    for (var pd = 0; pd < 7; pd++) {
+      if ((weeklyData[pd] || 0) > peakVol2) { peakDay = pd; peakVol2 = weeklyData[pd] || 0; }
+    }
+    var slowDay = 0, slowVol = Infinity;
+    for (var sd2 = 0; sd2 < 7; sd2++) {
+      if ((weeklyData[sd2] || 0) < slowVol) { slowDay = sd2; slowVol = weeklyData[sd2] || 0; }
+    }
+    html += '<div style="margin-top:12px;padding:12px;border:1px solid #55f7d820;background:rgba(85,247,216,0.02);color:#55f7d8;font-size:0.85em;">';
+    html += 'PEAK DAY: <strong>' + dayNames[peakDay] + '</strong> (' + peakVol2 + ' calls) — Schedule extra receptionist coverage. ';
+    html += 'SLOWEST: <strong>' + dayNames[slowDay] + '</strong> (' + slowVol + ' calls) — Best day for tech training & admin.';
+    html += '</div>';
+    html += '</div>';
+
+    // ====== BOOKING STATUS FUNNEL ======
+    html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#c084fc;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#c084fc;border-radius:50%;box-shadow:0 0 8px #c084fc;display:inline-block;"></span>Booking Pipeline Funnel</div>';
+    
+    var funnelStages = [
+      { label: "Total Leads", value: totalLeads, color: "#00d4ff" },
+      { label: "Booked", value: totalBooked, color: "#a855f7" },
+      { label: "Completed", value: totalCompleted, color: "#00ff66" },
+      { label: "Return Customers", value: totalReturn, color: "#ffd700" }
+    ];
+    
+    html += '<div style="display:flex;flex-direction:column;gap:4px;">';
+    funnelStages.forEach(function(stage, idx) {
+      var funnelPct = totalLeads > 0 ? Math.round((stage.value / totalLeads) * 100) : 0;
+      var barWidth2 = Math.max(20, funnelPct);
+      var convRate = idx > 0 && funnelStages[idx-1].value > 0 ? Math.round((stage.value / funnelStages[idx-1].value) * 100) : 100;
+      html += '<div style="display:flex;align-items:center;gap:10px;">';
+      html += '<div style="width:130px;text-align:right;color:#4a6a8a;font-size:0.8em;">' + stage.label + '</div>';
+      html += '<div style="flex:1;height:40px;background:#0a1520;position:relative;overflow:hidden;">';
+      html += '<div style="height:100%;width:' + barWidth2 + '%;background:' + stage.color + '20;border-right:3px solid ' + stage.color + ';display:flex;align-items:center;justify-content:center;transition:width 1s;">';
+      html += '<span style="color:' + stage.color + ';font-weight:900;font-size:1.1em;">' + stage.value + '</span>';
+      html += '</div>';
+      html += '</div>';
+      html += '<div style="width:60px;color:' + stage.color + ';font-size:0.8em;font-weight:700;">' + funnelPct + '%</div>';
+      if (idx > 0) {
+        html += '<div style="width:50px;color:#4a6a8a;font-size:0.7em;">(' + convRate + '%↓)</div>';
+      } else {
+        html += '<div style="width:50px;"></div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    
+    // Funnel insight
+    var leakPoint = '';
+    var bookConv = totalLeads > 0 ? Math.round((totalBooked / totalLeads) * 100) : 0;
+    var complConv = totalBooked > 0 ? Math.round((totalCompleted / totalBooked) * 100) : 0;
+    if (bookConv < 60) leakPoint = 'BIGGEST LEAK: Lead → Booked (' + bookConv + '%). Improve follow-up speed. Call back within 5 minutes of inquiry.';
+    else if (complConv < 70) leakPoint = 'BIGGEST LEAK: Booked → Completed (' + complConv + '%). Too many cancellations. Send day-before confirmation texts.';
+    else leakPoint = 'STRONG PIPELINE: ' + bookConv + '% booking rate, ' + complConv + '% completion. Focus on growing top-of-funnel leads.';
+    
+    html += '<div style="margin-top:12px;padding:12px;border:1px solid #c084fc20;background:rgba(192,132,252,0.02);color:#c084fc;font-size:0.85em;">' + leakPoint + '</div>';
+    html += '</div>';
+
     // ====== REVENUE PER TECHNICIAN ======
     var techRevSorted = Object.entries(techPerf).sort(function(a,b){return b[1].completed-a[1].completed;});
     if (techRevSorted.length > 0) {
@@ -5552,4 +5832,3 @@ app.listen(PORT, function() {
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
-});
