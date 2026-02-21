@@ -352,7 +352,7 @@ async function buildBusinessContext() {
     // Read Combined sheet — ALL data in one call
     var combinedRes = await sheets.spreadsheets.values.get({
       spreadsheetId: BUSINESS_SPREADSHEET_ID,
-      range: "'Combined'!A1:AE",
+      range: "'Combined'!A1:Z",
     });
     var allRows = combinedRes.data.values || [];
     if (allRows.length <= 1) {
@@ -399,13 +399,15 @@ async function buildBusinessContext() {
       var equipType = (row[12] || '').toString().trim();
       var brand = (row[13] || '').toString().trim();
       var issue = (row[14] || '').toString().trim();
-      var tech = (row[15] || '').toString().trim();
+      var receptionist = (row[15] || '').toString().trim();
       var notes = (row[16] || '').toString().trim();
       var status = (row[17] || '').toString().toLowerCase().trim();
       var createdAt = (row[0] || '').toString();
-      var doneCol = (row[30] || '').toString().toLowerCase().trim(); // AE column
+      var tech = (row[23] || '').toString().trim(); // Col X = Tech
+      var locationTab = (row[24] || '').toString().trim(); // Col Y = Location Tab
+      var doneCol = (row[25] || '').toString().toLowerCase().trim(); // Col Z = Done Flag
 
-      var location = city && state ? city + ', ' + state : (row[17] && row[17].toString().includes(',') ? row[17].toString() : '');
+      var location = city && state ? city + ', ' + state : locationTab;
 
       // Status parsing
       var isBooked = status.includes('booked') || doneCol === 'done';
@@ -5191,7 +5193,7 @@ app.get('/business/search', async function(req, res) {
   try {
     var q = (req.query.q || '').toLowerCase().trim();
     if (!q || q.length < 2) return res.json({ results: [] });
-    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Combined'!A1:AE" });
+    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Combined'!A1:Z" });
     var rows = combinedRes.data.values || [];
     var results = [];
     for (var i = 1; i < rows.length && results.length < 20; i++) {
@@ -5524,7 +5526,7 @@ app.get('/debug-sheets', async function(req, res) {
 
   // Try reading Combined tab
   try {
-    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Combined'!A1:AE5" });
+    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Combined'!A1:Z5" });
     var rows = combinedRes.data.values || [];
     results.combined_headers = rows[0] || 'NO HEADERS';
     results.combined_row_count = rows.length;
@@ -5550,4 +5552,3 @@ app.listen(PORT, function() {
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
-});
