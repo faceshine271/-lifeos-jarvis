@@ -19,6 +19,7 @@ console.log("Starting LifeOS Jarvis...");
 =========================== */
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+const BUSINESS_SPREADSHEET_ID = process.env.BUSINESS_SPREADSHEET_ID || SPREADSHEET_ID;
 
 if (!SPREADSHEET_ID) {
   console.error("Missing SPREADSHEET_ID");
@@ -350,7 +351,7 @@ async function buildBusinessContext() {
   try {
     // Read Combined sheet — ALL data in one call
     var combinedRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: BUSINESS_SPREADSHEET_ID,
       range: "'Combined'!A1:AE",
     });
     var allRows = combinedRes.data.values || [];
@@ -575,7 +576,7 @@ async function buildBusinessContext() {
     // Tech Numbers tab
     var techList = [];
     try {
-      var techRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Tech Numbers'!A1:D40" });
+      var techRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Tech Numbers'!A1:D40" });
       var techRows = techRes.data.values || [];
       for (var t = 1; t < techRows.length; t++) {
         if (techRows[t][0]) techList.push({ name: techRows[t][0], phone: techRows[t][1] || '', location: techRows[t][2] || '' });
@@ -584,7 +585,7 @@ async function buildBusinessContext() {
 
     // Return Customers tab
     try {
-      var retRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Return Customers'!A:A" });
+      var retRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Return Customers'!A:A" });
       var retCount = Math.max(0, ((retRes.data.values || []).length) - 1);
       if (retCount > totalReturn) totalReturn = retCount;
     } catch (e) {}
@@ -592,7 +593,7 @@ async function buildBusinessContext() {
     // Promo replies
     var promoReplies = 0;
     try {
-      var promoRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Promotion Customers Reply'!A:A" });
+      var promoRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Promotion Customers Reply'!A:A" });
       promoReplies = Math.max(0, ((promoRes.data.values || []).length) - 1);
     } catch (e) {}
 
@@ -5189,7 +5190,7 @@ app.get('/business/search', async function(req, res) {
   try {
     var q = (req.query.q || '').toLowerCase().trim();
     if (!q || q.length < 2) return res.json({ results: [] });
-    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: "'Combined'!A1:AE" });
+    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Combined'!A1:AE" });
     var rows = combinedRes.data.values || [];
     var results = [];
     for (var i = 1; i < rows.length && results.length < 20; i++) {
@@ -5254,7 +5255,7 @@ app.post('/business/log-timer', async function(req, res) {
   try {
     var d = new Date();
     await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
+      spreadsheetId: BUSINESS_SPREADSHEET_ID,
       range: "'Job_Timers'!A:E",
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [[d.toISOString().split('T')[0], req.body.jobName, req.body.duration, req.body.minutes, d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Chicago' })]] },
@@ -5502,10 +5503,49 @@ app.get('/team/workload', async function(req, res) {
    START SERVER
 =========================== */
 
+/* ===========================
+   DEBUG: Sheet Diagnostics
+=========================== */
+app.get('/debug-sheets', async function(req, res) {
+  if (req.query.key !== 'jarvis-wake-up-2026') return res.status(403).send('Forbidden');
+  var results = {};
+  results.SPREADSHEET_ID = SPREADSHEET_ID ? SPREADSHEET_ID.substring(0, 10) + '...' : 'NOT SET';
+  results.BUSINESS_SPREADSHEET_ID = BUSINESS_SPREADSHEET_ID ? BUSINESS_SPREADSHEET_ID.substring(0, 10) + '...' : 'NOT SET';
+  results.same_sheet = SPREADSHEET_ID === BUSINESS_SPREADSHEET_ID;
+
+  // Try to list all tabs on the business sheet
+  try {
+    var meta = await sheets.spreadsheets.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, fields: 'sheets.properties.title' });
+    results.business_tabs = meta.data.sheets.map(function(s) { return s.properties.title; });
+  } catch (e) {
+    results.business_tabs_error = e.message;
+  }
+
+  // Try reading Combined tab
+  try {
+    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Combined'!A1:AE5" });
+    var rows = combinedRes.data.values || [];
+    results.combined_headers = rows[0] || 'NO HEADERS';
+    results.combined_row_count = rows.length;
+    results.combined_sample = rows[1] || 'NO DATA';
+  } catch (e) {
+    results.combined_error = e.message;
+  }
+
+  // Also try personal sheet tabs
+  try {
+    var meta2 = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID, fields: 'sheets.properties.title' });
+    results.personal_tabs = meta2.data.sheets.map(function(s) { return s.properties.title; });
+  } catch (e) {
+    results.personal_tabs_error = e.message;
+  }
+
+  res.json(results);
+});
+
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
   console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload");
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
-});
