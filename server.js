@@ -2678,6 +2678,7 @@ app.post('/gmail/archive', async function(req, res) {
 
 app.get('/dashboard', async function(req, res) {
   try {
+    var today = new Date();
     // Fetch key data — PERSONAL + BUSINESS in parallel
     var tabs = await getAllTabNames();
     var contextPromise = buildLifeOSContext();
