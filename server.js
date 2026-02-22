@@ -4624,6 +4624,7 @@ app.get('/dashboard', async function(req, res) {
     html += '</div></div>';
 
     // ====== TECHNICIAN UTILIZATION ======
+    var techRevSorted = Object.entries(techPerf).sort(function(a,b){return b[1].completed-a[1].completed;});
     if (techRevSorted.length > 0) {
       html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
       html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#55f7d8;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#55f7d8;border-radius:50%;box-shadow:0 0 8px #55f7d8;display:inline-block;"></span>Technician Utilization Rate</div>';
