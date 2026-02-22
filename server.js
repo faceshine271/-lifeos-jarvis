@@ -2867,9 +2867,10 @@ app.get('/dashboard', async function(req, res) {
   try {
     var today = new Date();
     // Fetch key data — PERSONAL + BUSINESS in parallel
-    var tabs = await getAllTabNames();
-    var contextPromise = buildLifeOSContext();
-    var bizPromise = buildBusinessContext();
+    var tabs = [];
+    try { tabs = await getAllTabNames(); } catch(e) { tabs = []; }
+    var contextPromise = buildLifeOSContext().catch(function(e) { return "Error loading context: " + e.message; });
+    var bizPromise = buildBusinessContext().catch(function(e) { return "Error loading business: " + e.message; });
 
     var context = await contextPromise;
     var bizContext = await bizPromise;
@@ -2912,18 +2913,22 @@ app.get('/dashboard', async function(req, res) {
     var bizLocations = Object.entries(locationStats).sort(function(a,b){return b[1].total-a[1].total;});
 
     // Get email count
-    var emailAccounts = Object.keys(gmailTokens);
+    var emailAccounts = Object.keys(gmailTokens || {});
     var totalUnread = 0;
     for (var ea = 0; ea < emailAccounts.length; ea++) {
-      var emails = await getUnreadEmails(emailAccounts[ea], 50);
-      totalUnread += emails.length;
+      try {
+        var emails = await getUnreadEmails(emailAccounts[ea], 50);
+        totalUnread += (emails || []).length;
+      } catch(e) {}
     }
 
     // Get today's calendar events
     var todayEvents = [];
     for (var ca = 0; ca < emailAccounts.length; ca++) {
-      var events = await getCalendarEvents(emailAccounts[ca], 1);
-      todayEvents = todayEvents.concat(events);
+      try {
+        var events = await getCalendarEvents(emailAccounts[ca], 1);
+        todayEvents = todayEvents.concat(events || []);
+      } catch(e) {}
     }
 
     // Get recent wins
