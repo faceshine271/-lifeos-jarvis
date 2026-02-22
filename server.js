@@ -5080,7 +5080,8 @@ app.get('/dashboard', async function(req, res) {
     html += '</body></html>';
     res.send(html);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Dashboard error:", err.stack || err.message);
+    res.status(500).json({ error: err.message, stack: (err.stack || '').split('\n').slice(0,5) });
   }
 });
 
