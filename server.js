@@ -163,6 +163,15 @@ async function getTabRowCount(tabName) {
 }
 
 /* ===========================
+   HTML escaping helper — prevents XSS from sheet data
+=========================== */
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* ===========================
    Build Life OS context for Claude — PERSONAL FOCUS
    Cached for 10 minutes to speed up responses
 =========================== */
@@ -3704,8 +3713,8 @@ app.get('/dashboard', async function(req, res) {
     html += '<style>';
 
     // Base
-    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
     html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
     html += 'body { background: #020810; color: #c0d8f0; font-family: "Rajdhani", sans-serif; min-height: 100vh; overflow-x: hidden; }';
 
     // ===== SWIPE CONTAINER =====
@@ -3727,11 +3736,6 @@ app.get('/dashboard', async function(req, res) {
     html += '.swipe-dot.jarvis-dot.active { background: #00d4ff; box-shadow: 0 0 10px #00d4ff; }';
     html += '.swipe-dot.athena-dot { background: #a855f730; }';
     html += '.swipe-dot.athena-dot.active { background: #a855f7; box-shadow: 0 0 10px #a855f7; }';
-
-    // Base
-    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
-    html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
-    html += 'body { background: #020810; color: #c0d8f0; font-family: "Rajdhani", sans-serif; min-height: 100vh; overflow-x: hidden; }';
 
     // Animated background grid
     html += '.bg-grid { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }';
@@ -3845,7 +3849,7 @@ app.get('/dashboard', async function(req, res) {
     
     // Center ring animation
     html += '<div id="boot-ring" style="width:120px;height:120px;border:2px solid #00d4ff20;border-radius:50%;position:relative;animation:bootRingSpin 2s linear infinite;opacity:0;">';
-    html += '<div style="position:absolute;top:-2px;left:50%;width:8px;height:8px;background:#00d4ff;border-radius:50;margin-left:-4px;box-shadow:0 0 20px #00d4ff;"></div>';
+    html += '<div style="position:absolute;top:-2px;left:50%;width:8px;height:8px;background:#00d4ff;border-radius:50%;margin-left:-4px;box-shadow:0 0 20px #00d4ff;"></div>';
     html += '</div>';
     
     // Boot text lines
@@ -3951,8 +3955,8 @@ app.get('/dashboard', async function(req, res) {
     html += 'All systems are online.";';
     
     // Try ElevenLabs first, fall back to browser speech
-    html += '    fetch("https://api.elevenlabs.io/v1/text-to-speech/jP5jSWhfXz3nfQENMtf4",{method:"POST",headers:{"xi-api-key":"sk_2106002b395df58e01d77515940ca9ca6baa0cb4d856dd1b","Content-Type":"application/json","Accept":"audio/mpeg"},body:JSON.stringify({text:greetText,model_id:"eleven_turbo_v2",voice_settings:{stability:0.5,similarity_boost:0.75,style:0.3}})})';
-    html += '    .then(function(r){if(!r.ok)throw new Error("ElevenLabs failed");return r.blob();})';
+    html += '    fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:greetText})})';
+    html += '    .then(function(r){if(!r.ok)throw new Error("TTS failed");return r.blob();})';
     html += '    .then(function(b){var a=new Audio(URL.createObjectURL(b));a.play();})';
     html += '    .catch(function(e){';
     html += '      console.log("ElevenLabs unavailable, using browser voice");';
@@ -4214,9 +4218,9 @@ app.get('/dashboard', async function(req, res) {
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff634820;padding:15px;margin-bottom:8px;position:relative;" id="email-' + ed.id + '">';
         html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;">';
         html += '<div style="flex:1;">';
-        html += '<div style="color:#ff6348;font-size:0.9em;font-weight:600;">' + ed.from.substring(0, 40) + '</div>';
-        html += '<div style="color:#c0d8f0;font-size:0.95em;margin:4px 0;">' + ed.subject.substring(0, 60) + '</div>';
-        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + ed.snippet.substring(0, 100) + '...</div>';
+        html += '<div style="color:#ff6348;font-size:0.9em;font-weight:600;">' + escapeHtml(ed.from.substring(0, 40)) + '</div>';
+        html += '<div style="color:#c0d8f0;font-size:0.95em;margin:4px 0;">' + escapeHtml(ed.subject.substring(0, 60)) + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + escapeHtml(ed.snippet.substring(0, 100)) + '...</div>';
         html += '</div>';
         html += '<div style="display:flex;gap:8px;margin-left:10px;flex-shrink:0;">';
         // AI Reply button
@@ -4454,7 +4458,7 @@ app.get('/dashboard', async function(req, res) {
     html += 'var audioQueue=[];var currentAudio=null;';
     html += 'function speakResponse(text){';
     html += '  isSpeaking=true;document.getElementById("voice-status").textContent="JARVIS SPEAKING...";document.getElementById("voice-status").style.color="#00ff66";startWave("#00ff6680");';
-    html += '  fetch("https://api.elevenlabs.io/v1/text-to-speech/jP5jSWhfXz3nfQENMtf4",{method:"POST",headers:{"xi-api-key":"sk_2106002b395df58e01d77515940ca9ca6baa0cb4d856dd1b","Content-Type":"application/json","Accept":"audio/mpeg"},body:JSON.stringify({text:text,model_id:"eleven_turbo_v2",voice_settings:{stability:0.5,similarity_boost:0.75,style:0.3}})})';
+    html += '  fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text})})';
     html += '    .then(function(r){if(!r.ok)throw new Error("TTS status "+r.status);return r.blob();})';
     html += '    .then(function(blob){';
     html += '      if(blob.size<1000)throw new Error("Audio too small");';
@@ -4654,11 +4658,11 @@ app.get('/dashboard', async function(req, res) {
       html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Today\'s Dispatch</div>';
       bizTodayBookings.forEach(function(b) {
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #a855f710;padding:14px 18px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
-        html += '<div style="color:#c0d8f0;font-weight:600;">' + b.name + '</div>';
-        html += '<div style="color:#4a6a8a;">' + b.location + '</div>';
-        html += '<div style="color:#c084fc;">' + b.equip + '</div>';
-        html += '<div style="color:#4a6a8a;font-size:0.85em;max-width:300px;">' + b.issue + '</div>';
-        html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #00ff6640;color:#00ff66;">' + (b.tech || 'UNASSIGNED') + '</div>';
+        html += '<div style="color:#c0d8f0;font-weight:600;">' + escapeHtml(b.name) + '</div>';
+        html += '<div style="color:#4a6a8a;">' + escapeHtml(b.location) + '</div>';
+        html += '<div style="color:#c084fc;">' + escapeHtml(b.equip) + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.85em;max-width:300px;">' + escapeHtml(b.issue) + '</div>';
+        html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #00ff6640;color:#00ff66;">' + escapeHtml(b.tech || 'UNASSIGNED') + '</div>';
         html += '</div>';
       });
       html += '</div>';
@@ -4670,8 +4674,8 @@ app.get('/dashboard', async function(req, res) {
       html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff9f43;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff9f43;border-radius:50%;box-shadow:0 0 8px #ff9f43;display:inline-block;"></span>Needs Rescheduling (' + bizReschedule.length + ')</div>';
       bizReschedule.slice(0, 15).forEach(function(r) {
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff9f4315;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
-        html += '<div style="color:#c0d8f0;">' + r.name + ' — ' + r.location + '</div>';
-        html += '<div style="color:#4a6a8a;">' + r.phone + '</div>';
+        html += '<div style="color:#c0d8f0;">' + escapeHtml(r.name) + ' — ' + escapeHtml(r.location) + '</div>';
+        html += '<div style="color:#4a6a8a;">' + escapeHtml(r.phone) + '</div>';
         html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #ff9f4340;color:#ff9f43;">RESCHED</div>';
         html += '</div>';
       });
@@ -4686,7 +4690,7 @@ app.get('/dashboard', async function(req, res) {
         var ls = l[1];
         var locCompRate = ls.total > 0 ? Math.round((ls.completed / ls.total) * 100) : 0;
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #a855f710;padding:14px 18px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">';
-        html += '<div style="color:#a855f7;font-weight:600;min-width:200px;">' + l[0] + '</div>';
+        html += '<div style="color:#a855f7;font-weight:600;min-width:200px;">' + escapeHtml(l[0]) + '</div>';
         html += '<div style="display:flex;gap:15px;">';
         html += '<div style="text-align:center;"><span style="color:#c0d8f0;font-weight:700;">' + ls.total + '</span> <span style="color:#4a6a8a;font-size:0.8em;">total</span></div>';
         html += '<div style="text-align:center;"><span style="color:#00ff66;font-weight:700;">' + ls.booked + '</span> <span style="color:#4a6a8a;font-size:0.8em;">booked</span></div>';
@@ -4705,11 +4709,11 @@ app.get('/dashboard', async function(req, res) {
       bizRecentBookings.slice(-10).forEach(function(b) {
         var sColor = b.status.includes('booked') ? '#00ff66' : b.status.includes('return') ? '#ff9f43' : b.status.includes('cancel') ? '#ff4757' : '#4a6a8a';
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid ' + sColor + '10;padding:12px 16px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">';
-        html += '<div style="color:#c0d8f0;">' + b.name + '</div>';
-        html += '<div style="color:#4a6a8a;">' + b.location + '</div>';
-        html += '<div style="color:#c084fc;">' + b.equip + '</div>';
-        html += '<div style="color:' + sColor + ';font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:3px 8px;border:1px solid ' + sColor + '30;">' + b.status.toUpperCase() + '</div>';
-        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + (b.tech || '') + '</div>';
+        html += '<div style="color:#c0d8f0;">' + escapeHtml(b.name) + '</div>';
+        html += '<div style="color:#4a6a8a;">' + escapeHtml(b.location) + '</div>';
+        html += '<div style="color:#c084fc;">' + escapeHtml(b.equip) + '</div>';
+        html += '<div style="color:' + sColor + ';font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:3px 8px;border:1px solid ' + sColor + '30;">' + escapeHtml(b.status.toUpperCase()) + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + escapeHtml(b.tech || '') + '</div>';
         html += '</div>';
       });
       html += '</div>';
@@ -6072,8 +6076,8 @@ app.get('/business', async function(req, res) {
     html += '<style>';
 
     // Base
-    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
     html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+    html += '* { margin: 0; padding: 0; box-sizing: border-box; }';
     html += 'body { background: #020810; color: #c0d8f0; font-family: "Rajdhani", sans-serif; min-height: 100vh; overflow-x: hidden; }';
 
     // Animated background
@@ -6966,7 +6970,7 @@ app.get('/business', async function(req, res) {
     if (metaEntries.length > 0) {
       metaEntries.forEach(function(m) {
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:10px;display:flex;align-items:center;gap:10px;">';
-        html += '<div style="width:6px;height:6px;background:#00ff66;border-radius:50;box-shadow:0 0 6px #00ff66;"></div>';
+        html += '<div style="width:6px;height:6px;background:#00ff66;border-radius:50%;box-shadow:0 0 6px #00ff66;"></div>';
         html += '<div><div style="color:#c0d8f0;font-size:0.9em;">' + m[0] + '</div>';
         html += '<div style="color:#4a6a8a;font-size:0.7em;">' + (m[1].tabs || []).length + ' tabs</div></div></div>';
       });
@@ -7476,8 +7480,9 @@ app.get('/business/tabs', async function(req, res) {
         return { source: t.ssTitle, tab: t.tabTitle, rows: t.rowCount, headers: t.headers };
       });
       var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>ATHENA — All Tabs</title>';
-      html += '<style>body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;padding:20px;}';
+      html += '<style>';
       html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+      html += 'body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;padding:20px;}';
       html += 'h1{font-family:Orbitron;color:#a855f7;text-align:center;letter-spacing:5px;}';
       html += '.source{margin:20px 0;border:1px solid #a855f720;padding:15px;}';
       html += '.source-title{font-family:Orbitron;color:#ffd700;font-size:1.1em;letter-spacing:3px;margin-bottom:10px;}';
@@ -7536,8 +7541,9 @@ app.get('/business/tabs', async function(req, res) {
     }
     
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + tName + ' — ATHENA</title>';
-    html += '<style>body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;padding:20px;}';
+    html += '<style>';
     html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+    html += 'body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;padding:20px;}';
     html += 'h1{font-family:Orbitron;color:#a855f7;letter-spacing:3px;font-size:1.3em;}';
     html += 'h2{color:#ffd700;font-family:Orbitron;font-size:0.8em;letter-spacing:2px;}';
     html += 'table{border-collapse:collapse;width:100%;margin-top:15px;}';
