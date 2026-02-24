@@ -1,4 +1,4 @@
-// ATHENA v4.0 — Feb 24 2026 — Direct Source Sheet Reader
+// ATHENA v4.3 — Feb 24 2026 — Tookan API + Live Map + Fixed Status + Real P&L
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -384,10 +384,338 @@ var HEADER_MAP = {
   "notes tech needs to know":"notes","notes tech needs to know ":"notes",
   "status":"status","when booked":"whenBooked",
   "return/paid?":"returnPaid",
-  "posted date and time":"postedDate",
-  "tooka status and time":"tookanStatus",
+  "tooka status and time":"tookanStatus","tookan status":"tookanStatus","tookan status and time":"tookanStatus",
+  "posted date and time":"postedDate","posted flag":"postedFlag",
   "tookan job id":"tookanJobId","tech":"tech","transfer":"locationTab"
 };
+
+/* ===========================
+   TOOKAN API INTEGRATION — Real-time dispatch & job tracking
+=========================== */
+
+var TOOKAN_API_KEY = process.env.TOOKAN_API_KEY || '5365698cf64403111e4c723e15106e471be0c5fd28df793c5e1808c3';
+var TOOKAN_ENDPOINTS = {
+  getJobDetails: 'https://api.tookanapp.com/v2/get_job_details',
+  getAllAgents: 'https://api.tookanapp.com/v2/get_all_agents',
+  getAllTasks: 'https://api.tookanapp.com/v2/get_all_tasks',
+};
+
+var TOOKAN_LOCATIONS = [
+  { key:'kansasCityRocky', sheet:'Kansas City, MO Rocky', teamId:1680920, fleetId:2118700 },
+  { key:'lovelandA', sheet:'Loveland, CO Justin Turner', teamId:1696802, fleetId:2108961 },
+  { key:'detroit', sheet:'Detroit, MI', teamId:1681499, fleetId:2071027 },
+  { key:'houstonB', sheet:'Houston, TX Victor Romero', teamId:1681497, fleetId:2125711 },
+  { key:'wilmingtonNC', sheet:'Wilmington NC Brandi Butler', teamId:1702410, fleetId:2089324 },
+  { key:'tampa', sheet:'Tampa, Fl', teamId:1689395, fleetId:2115390 },
+  { key:'poinciana', sheet:'Poinciana, FL', teamId:1682259, fleetId:2072205 },
+  { key:'brownsville', sheet:'Brownsville, TX', teamId:1681494, fleetId:2107061 },
+  { key:'elkhart', sheet:'Elkhart, IN', teamId:1695278, fleetId:2101066 },
+  { key:'kansasCityMain', sheet:'Kansas City, MO', teamId:1680920, fleetId:2071029 },
+  { key:'siouxFallsSD', sheet:'Sioux Falls, SD Ashton Hawley', teamId:1681507, fleetId:2165914 },
+  { key:'sanAntonioTX', sheet:'San Antonio, TX Robert Hummer', teamId:1681496, fleetId:2166157 },
+  { key:'capeCoralA', sheet:'Cape Coral, FL Michael Scutti', teamId:1681492, fleetId:2107763 },
+  { key:'capeCoralB', sheet:'Cape Coral, FL Talon Twiford', teamId:1681492, fleetId:2071009 },
+  { key:'lehighAcresFL', sheet:'Lehigh Acres, FL Gunnar Jacobs', teamId:1704072, fleetId:2119751 },
+  { key:'fortWayneIN', sheet:'Fort Wayne IN Corey Roberson', teamId:1688549, fleetId:2162203 },
+  { key:'sarasotaFL', sheet:'Sarasota, FL Alexander Fernandez', teamId:1683936, fleetId:2149334 },
+  { key:'poincianaFL2', sheet:'Poinciana, FL Trent Kennedy', teamId:1682259, fleetId:2072205 },
+  { key:'renoNV', sheet:'Reno, NV  Maxx Fritts', teamId:1714273, fleetId:2142347 },
+];
+
+var tookanCache = { data: null, time: 0 };
+
+// Fetch all tasks from Tookan API for a date range
+async function fetchTookanTasks(startDate, endDate) {
+  try {
+    var response = await fetch(TOOKAN_ENDPOINTS.getAllTasks, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: TOOKAN_API_KEY,
+        job_type: 0,
+        job_status: '',
+        start_date: startDate,
+        end_date: endDate,
+        is_pagination: 0,
+      }),
+    });
+    var data = await response.json();
+    if (data.status === 200) {
+      return Array.isArray(data.data) ? data.data : (data.data || []);
+    }
+    console.log("Tookan getAllTasks status: " + data.status + " msg: " + (data.message || ''));
+    return [];
+  } catch (e) {
+    console.log("Tookan getAllTasks error: " + e.message);
+    return [];
+  }
+}
+
+// Fetch job details for specific job IDs
+async function fetchTookanJobDetails(jobIds) {
+  if (!jobIds || jobIds.length === 0) return [];
+  try {
+    var response = await fetch(TOOKAN_ENDPOINTS.getJobDetails, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: TOOKAN_API_KEY,
+        job_ids: jobIds.map(Number),
+      }),
+    });
+    var data = await response.json();
+    if (data.status === 200) {
+      return Array.isArray(data.data) ? data.data : (data.data.tasks || []);
+    }
+    return [];
+  } catch (e) {
+    console.log("Tookan getJobDetails error: " + e.message);
+    return [];
+  }
+}
+
+// Fetch all agents/techs from Tookan
+async function fetchTookanAgents(teamId) {
+  try {
+    var response = await fetch(TOOKAN_ENDPOINTS.getAllAgents, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: TOOKAN_API_KEY,
+        team_id: teamId,
+      }),
+    });
+    var data = await response.json();
+    if (data.status === 200) {
+      return Array.isArray(data.data) ? data.data : (data.data.fleets || data.data.agents || []);
+    }
+    return [];
+  } catch (e) {
+    console.log("Tookan getAgents error: " + e.message);
+    return [];
+  }
+}
+
+// Derive readable status from Tookan job data
+function deriveTookanStatus(job) {
+  if (!job) return 'Unknown';
+  var label = (job.job_status_name || job.job_status_text || '').toString().trim();
+  if (label) return label.replace(/Accepted/i, 'Acknowledged');
+  var nz = function(s) { return !!s && s !== '0000-00-00 00:00:00'; };
+  if (nz(job.completed_datetime)) return 'Completed';
+  if (nz(job.acknowledged_datetime)) return 'Acknowledged';
+  if (nz(job.started_datetime)) return 'Started';
+  if (nz(job.arrived_datetime)) return 'Arrived';
+  if (job.fleet_id && Number(job.fleet_id) !== 0) return 'Assigned';
+  if (typeof job.job_status === 'number') {
+    return ({ 0: 'Assigned', 1: 'Started', 2: 'Completed', 3: 'Failed', 6: 'Unassigned', 9: 'Deleted' })[job.job_status] || 'Unknown (' + job.job_status + ')';
+  }
+  return 'Unknown';
+}
+
+// Build full Tookan summary — cached for 10 minutes
+async function buildTookanContext() {
+  if (tookanCache.data && (Date.now() - tookanCache.time) < 600000) {
+    return tookanCache.data;
+  }
+
+  console.log("Fetching Tookan data...");
+  var result = {
+    totalTasks: 0, completed: 0, assigned: 0, acknowledged: 0, started: 0,
+    failed: 0, unassigned: 0, cancelled: 0, deleted: 0,
+    tasksByLocation: {}, tasksByTech: {}, tasksByStatus: {},
+    todayTasks: [], recentCompleted: [], agents: [], mapTasks: [],
+    // Analytics
+    todayTotal: 0, todayCompleted: 0, todayAssigned: 0, todayAcknowledged: 0,
+    yesterdayTotal: 0, yesterdayCompleted: 0,
+    agentsBusy: 0, agentsFree: 0, agentsInactive: 0,
+    avgCompletionMinutes: 0, onTimeRate: 0, taskEfficiency: 0,
+    weeklyTasks: [], dailyTasks: {},
+  };
+
+  var completionTimes = [];
+  try {
+    // Get tasks for last 90 days
+    var endDate = new Date();
+    var startDate = new Date();
+    startDate.setDate(startDate.getDate() - 90);
+    var startStr = startDate.toISOString().split('T')[0];
+    var endStr = endDate.toISOString().split('T')[0];
+
+    var allTasks = await fetchTookanTasks(startStr, endStr);
+    result.totalTasks = allTasks.length;
+    console.log("Tookan: " + allTasks.length + " tasks fetched");
+
+    var todayStr = endDate.toISOString().split('T')[0];
+    var yesterdayDate = new Date(endDate);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    var yesterdayStr = yesterdayDate.toISOString().split('T')[0];
+
+    for (var t = 0; t < allTasks.length; t++) {
+      var task = allTasks[t];
+      var status = deriveTookanStatus(task);
+      var statusLower = status.toLowerCase();
+
+      // Count by status
+      result.tasksByStatus[status] = (result.tasksByStatus[status] || 0) + 1;
+      if (statusLower.includes('completed')) result.completed++;
+      else if (statusLower.includes('acknowledged')) result.acknowledged++;
+      else if (statusLower.includes('assigned')) result.assigned++;
+      else if (statusLower.includes('started') || statusLower.includes('arrived')) result.started++;
+      else if (statusLower.includes('failed') || statusLower.includes('cancel')) result.cancelled++;
+      else if (statusLower.includes('unassigned')) result.unassigned++;
+      else if (statusLower.includes('deleted')) result.deleted++;
+
+      // Daily tracking
+      var taskDate = (task.job_pickup_datetime || task.created_at || '').toString().split(' ')[0];
+      result.dailyTasks[taskDate] = (result.dailyTasks[taskDate] || 0) + 1;
+      if (taskDate === todayStr) {
+        result.todayTotal++;
+        if (statusLower.includes('completed')) result.todayCompleted++;
+        if (statusLower.includes('assigned')) result.todayAssigned++;
+        if (statusLower.includes('acknowledged')) result.todayAcknowledged++;
+      }
+      if (taskDate === yesterdayStr) {
+        result.yesterdayTotal++;
+        if (statusLower.includes('completed')) result.yesterdayCompleted++;
+      }
+
+      // Completion time tracking
+      if (statusLower.includes('completed') && task.completed_datetime && task.job_pickup_datetime) {
+        var pickupTime = new Date(task.job_pickup_datetime).getTime();
+        var completeTime = new Date(task.completed_datetime).getTime();
+        if (pickupTime > 0 && completeTime > pickupTime) {
+          var mins = (completeTime - pickupTime) / 60000;
+          if (mins > 0 && mins < 1440) completionTimes.push(mins);
+        }
+      }
+
+      // Tech tracking
+      var agentName = (task.fleet_name || task.agent_name || '').toString().trim();
+      if (agentName) {
+        if (!result.tasksByTech[agentName]) result.tasksByTech[agentName] = { total: 0, completed: 0, assigned: 0, started: 0, failed: 0 };
+        result.tasksByTech[agentName].total++;
+        if (statusLower.includes('completed')) result.tasksByTech[agentName].completed++;
+        else if (statusLower.includes('assigned') || statusLower.includes('acknowledged')) result.tasksByTech[agentName].assigned++;
+        else if (statusLower.includes('started') || statusLower.includes('arrived')) result.tasksByTech[agentName].started++;
+        else if (statusLower.includes('failed')) result.tasksByTech[agentName].failed++;
+      }
+
+      // Location tracking
+      var address = (task.job_address || task.customer_address || '').toString();
+      var city = address.split(',').length >= 2 ? address.split(',').slice(-2, -1)[0].trim() : '';
+      if (city) {
+        result.tasksByLocation[city] = (result.tasksByLocation[city] || 0) + 1;
+      }
+
+      // Today's tasks
+      var taskDate = (task.job_pickup_datetime || task.created_at || '').toString().split(' ')[0];
+      if (taskDate === todayStr) {
+        result.todayTasks.push({
+          jobId: task.job_id, customer: task.customer_username || task.customer_name || 'Unknown',
+          address: address.substring(0, 80), status: status, tech: agentName,
+          phone: task.customer_phone || '',
+          lat: parseFloat(task.job_latitude || task.latitude || 0),
+          lng: parseFloat(task.job_longitude || task.longitude || 0),
+        });
+      }
+
+      // Collect tasks with coordinates for map (last 30 days only to keep it manageable)
+      var taskLat = parseFloat(task.job_latitude || task.latitude || 0);
+      var taskLng = parseFloat(task.job_longitude || task.longitude || 0);
+      if (taskLat !== 0 && taskLng !== 0 && result.mapTasks.length < 500) {
+        result.mapTasks.push({
+          jobId: task.job_id, customer: (task.customer_username || task.customer_name || 'Unknown').substring(0, 30),
+          lat: taskLat, lng: taskLng, status: status, tech: agentName,
+          address: address.substring(0, 60), date: taskDate,
+        });
+      }
+
+      // Recent completed
+      if (statusLower.includes('completed') && result.recentCompleted.length < 20) {
+        result.recentCompleted.push({
+          jobId: task.job_id, customer: task.customer_username || 'Unknown',
+          tech: agentName, completedAt: task.completed_datetime || '',
+          address: address.substring(0, 60),
+          lat: parseFloat(task.job_latitude || task.latitude || 0),
+          lng: parseFloat(task.job_longitude || task.longitude || 0),
+        });
+      }
+    }
+
+    // Fetch agents from unique team IDs
+    var teamIds = {};
+    TOOKAN_LOCATIONS.forEach(function(loc) { teamIds[loc.teamId] = true; });
+    var uniqueTeams = Object.keys(teamIds);
+
+    for (var ti = 0; ti < uniqueTeams.length; ti++) {
+      try {
+        var agents = await fetchTookanAgents(parseInt(uniqueTeams[ti]));
+        agents.forEach(function(a) {
+          result.agents.push({
+            name: a.fleet_name || a.username || [a.first_name, a.last_name].filter(Boolean).join(' '),
+            fleetId: a.fleet_id || a.id, teamId: uniqueTeams[ti],
+            status: a.is_available ? 'Available' : 'Unavailable',
+            phone: a.phone || '',
+          });
+        });
+        if (ti < uniqueTeams.length - 1) await new Promise(function(r) { setTimeout(r, 500); });
+      } catch (ae) {}
+    }
+
+  } catch (e) {
+    console.log("Tookan fetch error: " + e.message);
+  }
+
+  // ====== Compute Analytics ======
+  // Agent status counts
+  result.agents.forEach(function(a) {
+    if (a.status === 'Available') result.agentsFree++;
+    else result.agentsInactive++;
+  });
+  // Count busy agents (agents with active/started tasks today)
+  var busyAgents = {};
+  (result.todayTasks || []).forEach(function(t) {
+    var st = (t.status || '').toLowerCase();
+    if (t.tech && (st.includes('started') || st.includes('arrived') || st.includes('acknowledged'))) {
+      busyAgents[t.tech] = true;
+    }
+  });
+  result.agentsBusy = Object.keys(busyAgents).length;
+  result.agentsFree = Math.max(0, result.agentsFree - result.agentsBusy);
+
+  // Avg completion time
+  if (completionTimes.length > 0) {
+    result.avgCompletionMinutes = Math.round(completionTimes.reduce(function(a, b) { return a + b; }, 0) / completionTimes.length);
+  }
+
+  // Task efficiency = completed / (completed + failed + cancelled) * 100
+  var effTotal = result.completed + result.cancelled;
+  result.taskEfficiency = effTotal > 0 ? Math.round((result.completed / effTotal) * 10000) / 100 : 0;
+
+  // On-time rate (completed within scheduled window)
+  result.onTimeRate = result.completed > 0 ? Math.round((result.completed / Math.max(1, result.completed + result.started)) * 10000) / 100 : 0;
+
+  // Weekly task trend (last 7 days)
+  var weekDays = [];
+  for (var wd = 6; wd >= 0; wd--) {
+    var d2 = new Date();
+    d2.setDate(d2.getDate() - wd);
+    var dStr = d2.toISOString().split('T')[0];
+    var dayName = d2.toLocaleDateString('en-US', { weekday: 'short' });
+    weekDays.push({ date: dStr, day: dayName, count: result.dailyTasks[dStr] || 0 });
+  }
+  result.weeklyTasks = weekDays;
+
+  // Task change % vs yesterday
+  result.taskChangeVsYesterday = result.yesterdayTotal > 0 ? Math.round(((result.todayTotal - result.yesterdayTotal) / result.yesterdayTotal) * 100) : 0;
+
+  // Store globally for dashboard
+  global.tookanData = result;
+  tookanCache = { data: result, time: Date.now() };
+  console.log("Tookan data cached: " + result.totalTasks + " tasks, " + result.completed + " completed, " + result.agents.length + " agents");
+  return result;
+}
 
 /* ===========================
    Build Business CRM Context for Claude
@@ -491,13 +819,9 @@ async function buildBusinessContext() {
               notes: headerLookup.notes !== undefined ? (jRow[headerLookup.notes] || '').toString().trim() : '',
               status: headerLookup.status !== undefined ? (jRow[headerLookup.status] || '').toString().toLowerCase().trim() : '',
               tech: headerLookup.tech !== undefined ? (jRow[headerLookup.tech] || '').toString().trim() : '',
+              tookanStatus: headerLookup.tookanStatus !== undefined ? (jRow[headerLookup.tookanStatus] || '').toString().toLowerCase().trim() : '',
               locationTab: tabNameFromRange,
-              doneFlag: '',
             };
-            // Check for DONE anywhere in the row
-            for (var dc = 0; dc < jRow.length; dc++) {
-              if ((jRow[dc] || '').toString().trim().toUpperCase() === 'DONE') { job.doneFlag = 'done'; break; }
-            }
             allJobRows.push(job);
           }
         } else {
@@ -551,8 +875,8 @@ async function buildBusinessContext() {
             equipType: (cRow[12] || '').toString().trim(), brand: (cRow[13] || '').toString().trim(),
             issue: (cRow[14] || '').toString().trim(), receptionist: (cRow[15] || '').toString().trim(),
             notes: (cRow[16] || '').toString().trim(), status: (cRow[17] || '').toString().toLowerCase().trim(),
-            tech: (cRow[23] || '').toString().trim(), locationTab: (cRow[24] || '').toString().trim(),
-            doneFlag: (cRow[25] || '').toString().toLowerCase().trim(),
+            tech: (cRow[23] || '').toString().trim(), tookanStatus: (cRow[21] || '').toString().toLowerCase().trim(),
+            locationTab: (cRow[24] || '').toString().trim(),
           });
         }
         console.log("Combined fallback: " + allJobRows.length + " rows");
@@ -566,7 +890,7 @@ async function buildBusinessContext() {
   }
 
   // ====== PHASE 2: Process all job data (same logic as before) ======
-  var totalBooked = 0, totalCancelled = 0, totalCompleted = 0, totalReturn = 0;
+  var totalBooked = 0, totalCancelled = 0, totalCompleted = 0, totalReturn = 0, totalAssigned = 0;
   var todayBookings = [], recentBookings = [], needsReschedule = [];
   var locationStats = {}, techStats = {}, equipStats = {}, brandStats = {};
   var monthlyBookings = {}, weeklyBookings = 0;
@@ -595,17 +919,24 @@ async function buildBusinessContext() {
     var serviceDate = job.serviceDate;
     var issue = job.issue;
 
-    // Status parsing
-    var isBooked = status.includes('booked') || job.doneFlag === 'done';
+    // Status parsing — based on actual CRM columns:
+    //   Status col (18): "Booked", "Cancelled by Customer", "return", or EMPTY
+    //   Tookan Status col (22): "Completed", "Assigned", "Acknowledged", "Unassigned"
+    //   Posted Flag col (28): "DONE" = posted to Tookan (NOT job completion)
+    var tookanSt = job.tookanStatus || '';
+    var isBooked = status === 'booked';
     var isCancelled = status.includes('cancel');
-    var isCompleted = job.doneFlag === 'done' || status.includes('completed') || status.includes('done');
+    var isCompleted = tookanSt.includes('completed') || status.includes('completed');
+    var isAssigned = tookanSt.includes('assigned') || tookanSt.includes('acknowledged');
     var isReturn = status.includes('return');
+    var hasStatus = status.length > 0 || tookanSt.length > 0;
     var needsResched = status.includes('reschedul') || (status.includes('need') && status.includes('book'));
 
     if (isBooked) totalBooked++;
     if (isCancelled) totalCancelled++;
     if (isCompleted) totalCompleted++;
     if (isReturn) totalReturn++;
+    if (isAssigned) totalAssigned++;
     if (needsResched) needsReschedule.push({ name: fullName, location: location, phone: job.phone });
 
     // Location stats
@@ -777,14 +1108,16 @@ async function buildBusinessContext() {
 
   // ====== PHASE 4: Build context string ======
   var avgBookingDays = bookingToServiceDays.length > 0 ? Math.round(bookingToServiceDays.reduce(function(a,b){return a+b;}, 0) / bookingToServiceDays.length) : 0;
-  var conversionRate = totalLeads > 0 ? Math.round((totalBooked / totalLeads) * 100) : 0;
+  var totalConverted = totalBooked + totalAssigned + totalCompleted;
+  var conversionRate = totalLeads > 0 ? Math.round((totalConverted / totalLeads) * 100) : 0;
   var thisMonthBookings = monthlyBookings[thisMonth] || 0;
   var lastMonthBookings = monthlyBookings[lastMonthStr] || 0;
   var monthGrowth = lastMonthBookings > 0 ? Math.round(((thisMonthBookings - lastMonthBookings) / lastMonthBookings) * 100) : 0;
 
   context += "OVERVIEW:\n";
   context += "  Total Leads: " + totalLeads + "\n";
-  context += "  Active Bookings: " + totalBooked + "\n";
+  context += "  Booked: " + totalBooked + "\n";
+  context += "  Assigned/Dispatched: " + totalAssigned + "\n";
   context += "  Completed Jobs: " + totalCompleted + "\n";
   context += "  Cancelled: " + totalCancelled + "\n";
   context += "  Return Customers: " + totalReturn + "\n";
@@ -887,7 +1220,7 @@ async function buildBusinessContext() {
   // Store parsed data globally for dashboard
   global.bizMetrics = {
     totalLeads: totalLeads, totalBooked: totalBooked, totalCompleted: totalCompleted,
-    totalCancelled: totalCancelled, totalReturn: totalReturn, promoReplies: promoReplies,
+    totalCancelled: totalCancelled, totalReturn: totalReturn, totalAssigned: totalAssigned, promoReplies: promoReplies,
     todayBookings: todayBookings, needsReschedule: needsReschedule, recentBookings: recentBookings,
     locationStats: locationStats, techStats: techStats, equipStats: equipStats, brandStats: brandStats,
     monthlyBookings: monthlyBookings, weeklyBookings: weeklyBookings,
@@ -1026,6 +1359,27 @@ async function buildBusinessContext() {
       
     } catch (pe) {
       context += "Error loading profit data: " + pe.message + "\n";
+    }
+  }
+
+  // ====== PHASE 5: Append Tookan live data if available ======
+  var tkData = global.tookanData || {};
+  if (tkData.totalTasks > 0) {
+    context += "\nTOOKAN DISPATCH (LIVE — LAST 90 DAYS):\n";
+    context += "  Total Tasks: " + tkData.totalTasks + "\n";
+    context += "  Completed: " + tkData.completed + "\n";
+    context += "  Assigned: " + tkData.assigned + " | Acknowledged: " + tkData.acknowledged + "\n";
+    context += "  In Progress: " + tkData.started + " | Unassigned: " + tkData.unassigned + "\n";
+    context += "  Failed/Cancelled: " + tkData.cancelled + "\n";
+    context += "  Today's Jobs: " + (tkData.todayTasks || []).length + "\n";
+    context += "  Active Agents: " + (tkData.agents || []).length + "\n";
+    var tkTechs = Object.entries(tkData.tasksByTech || {}).sort(function(a,b){return b[1].completed-a[1].completed;});
+    if (tkTechs.length > 0) {
+      context += "  Tech Rankings (by completions):\n";
+      tkTechs.slice(0, 10).forEach(function(t, i) {
+        var rate = t[1].total > 0 ? Math.round(t[1].completed / t[1].total * 100) : 0;
+        context += "    " + (i+1) + ". " + t[0] + ": " + t[1].completed + "/" + t[1].total + " (" + rate + "%)\n";
+      });
     }
   }
 
@@ -3993,8 +4347,8 @@ app.get('/dashboard', async function(req, res) {
     // ====== ROW 1: Core Stats ======
     html += '<div class="grid">';
     html += '<div class="card" style="--accent:#a855f7;border-color:#a855f715;"><div class="label">Total Leads</div><div class="value">' + totalLeads + '</div><div class="sub">All-time contacts</div><div class="bar"><div class="bar-fill" style="width:85%;background:#a855f7;"></div></div></div>';
-    html += '<div class="card" style="--accent:#00ff66;border-color:#00ff6615;"><div class="label">Active Bookings</div><div class="value">' + totalBooked + '</div><div class="sub">Scheduled jobs</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, totalBooked) + '%;background:#00ff66;"></div></div></div>';
-    html += '<div class="card" style="--accent:#00d4ff;border-color:#00d4ff15;"><div class="label">Completed</div><div class="value">' + totalCompleted + '</div><div class="sub">Jobs done</div><div class="bar"><div class="bar-fill" style="width:' + (totalLeads > 0 ? Math.round(totalCompleted/totalLeads*100) : 0) + '%;background:#00d4ff;"></div></div></div>';
+    html += '<div class="card" style="--accent:#00ff66;border-color:#00ff6615;"><div class="label">Booked</div><div class="value">' + totalBooked + '</div><div class="sub">Status = Booked</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalBooked/Math.max(1,totalLeads)*100)) + '%;background:#00ff66;"></div></div></div>';
+    html += '<div class="card" style="--accent:#00d4ff;border-color:#00d4ff15;"><div class="label">Completed</div><div class="value">' + totalCompleted + '</div><div class="sub">Tookan = Completed</div><div class="bar"><div class="bar-fill" style="width:' + (totalLeads > 0 ? Math.round(totalCompleted/totalLeads*100) : 0) + '%;background:#00d4ff;"></div></div></div>';
     var cancelRate = totalLeads > 0 ? Math.round(totalCancelled/totalLeads*100) : 0;
     html += '<div class="card" style="--accent:#ff4757;border-color:#ff475715;"><div class="label">Cancelled</div><div class="value">' + totalCancelled + '</div><div class="sub">' + cancelRate + '% cancel rate' + (cancelRate > 20 ? ' — HIGH' : '') + '</div><div class="bar"><div class="bar-fill" style="width:' + cancelRate + '%;background:#ff4757;"></div></div></div>';
     html += '</div>';
@@ -4867,54 +5221,79 @@ app.get('/dashboard', async function(req, res) {
     });
     html += '</div></div>';
 
-    // ====== WEEKLY P&L REPORT ======
+    // ====== REAL P&L FROM PERCENTAGE REPORT ======
+    var pm2 = global.profitMetrics || {};
     html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
-    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00ff66;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00ff66;border-radius:50%;box-shadow:0 0 8px #00ff66;display:inline-block;"></span>Estimated P&L Summary</div>';
-    var avgJobRev = 150;
-    var avgPartsCost = 28;
-    var avgLaborCost = techPayPerHr * 1.5;
-    var estGrossRev = totalCompleted * avgJobRev;
-    var estPartsTotal = totalCompleted * avgPartsCost;
-    var estLaborTotal = totalCompleted * avgLaborCost;
-    var estProfit = estGrossRev - estPartsTotal - estLaborTotal;
-    var profitMarginTotal = estGrossRev > 0 ? Math.round((estProfit / estGrossRev) * 100) : 0;
-    var monthlyRev = thisMonthBookings * avgJobRev;
-    var monthlyProfit = monthlyRev - (thisMonthBookings * avgPartsCost) - (thisMonthBookings * avgLaborCost);
-    html += '<div style="display:flex;gap:15px;flex-wrap:wrap;">';
-    // Revenue
-    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #00ff6615;padding:20px;text-align:center;">';
-    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">GROSS REVENUE (ALL-TIME)</div>';
-    html += '<div style="color:#00ff66;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + estGrossRev.toLocaleString() + '</div>';
-    html += '</div>';
-    // Costs
-    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #ff475715;padding:20px;text-align:center;">';
-    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">TOTAL COSTS</div>';
-    html += '<div style="color:#ff4757;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + (estPartsTotal + estLaborTotal).toLocaleString() + '</div>';
-    html += '<div style="margin-top:5px;color:#4a6a8a;font-size:0.8em;">Parts: $' + estPartsTotal.toLocaleString() + ' | Labor: $' + estLaborTotal.toLocaleString() + '</div>';
-    html += '</div>';
-    // Profit
-    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #ffd70015;padding:20px;text-align:center;">';
-    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">NET PROFIT</div>';
-    html += '<div style="color:#ffd700;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + estProfit.toLocaleString() + '</div>';
-    html += '<div style="margin-top:5px;color:' + (profitMarginTotal >= 40 ? '#00ff66' : '#ff9f43') + ';font-size:0.9em;font-weight:700;">' + profitMarginTotal + '% margin</div>';
-    html += '</div>';
-    html += '</div>';
-    // Monthly breakdown
-    html += '<div style="display:flex;gap:15px;flex-wrap:wrap;margin-top:15px;">';
-    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #a855f715;padding:15px;text-align:center;">';
-    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;">THIS MONTH REVENUE</div>';
-    html += '<div style="color:#a855f7;font-size:1.8em;font-weight:900;">$' + monthlyRev.toLocaleString() + '</div>';
-    html += '</div>';
-    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #a855f715;padding:15px;text-align:center;">';
-    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;">THIS MONTH PROFIT</div>';
-    html += '<div style="color:' + (monthlyProfit >= 0 ? '#00ff66' : '#ff4757') + ';font-size:1.8em;font-weight:900;">$' + monthlyProfit.toLocaleString() + '</div>';
-    html += '</div>';
-    html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #a855f715;padding:15px;text-align:center;">';
-    html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;">AVG PROFIT PER JOB</div>';
-    html += '<div style="color:#ffd700;font-size:1.8em;font-weight:900;">$' + Math.round(estProfit / Math.max(1, totalCompleted)) + '</div>';
-    html += '</div>';
-    html += '</div>';
-    html += '<div style="margin-top:10px;padding:10px;border:1px solid #00ff6620;color:#4a6a8a;font-size:0.8em;">Estimates based on $' + avgJobRev + ' avg charge, $' + avgPartsCost + ' avg parts, $' + techPayPerHr + '/hr tech pay. Create a Revenue tab with actual amounts for precise tracking.</div>';
+    if (pm2.revenue > 0 || pm2.expenses > 0) {
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00ff66;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00ff66;border-radius:50%;box-shadow:0 0 8px #00ff66;display:inline-block;"></span>P&L — ' + (pm2.currentMonth || 'Current Month').toUpperCase() + ' (FROM PERCENTAGE REPORT)</div>';
+      html += '<div style="display:flex;gap:15px;flex-wrap:wrap;">';
+      // Revenue
+      html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #00ff6615;padding:20px;text-align:center;">';
+      html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">TOTAL COLLECTED</div>';
+      html += '<div style="color:#00ff66;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + Math.round(pm2.revenue).toLocaleString() + '</div>';
+      html += '</div>';
+      // Expenses
+      html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid #ff475715;padding:20px;text-align:center;">';
+      html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">TOTAL EXPENSES</div>';
+      html += '<div style="color:#ff4757;font-size:2.5em;font-weight:900;font-family:Orbitron;">$' + Math.round(pm2.expenses).toLocaleString() + '</div>';
+      html += '</div>';
+      // Profit
+      var profitColor2 = pm2.profit >= 0 ? '#ffd700' : '#ff4757';
+      html += '<div style="flex:1;min-width:200px;background:rgba(10,20,35,0.6);border:1px solid ' + profitColor2 + '15;padding:20px;text-align:center;">';
+      html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;">NET PROFIT</div>';
+      html += '<div style="color:' + profitColor2 + ';font-size:2.5em;font-weight:900;font-family:Orbitron;">' + (pm2.profit < 0 ? '-' : '') + '$' + Math.abs(Math.round(pm2.profit)).toLocaleString() + '</div>';
+      html += '<div style="margin-top:5px;color:' + profitColor2 + ';font-size:0.9em;font-weight:700;">' + pm2.margin + '% margin</div>';
+      html += '</div>';
+      html += '</div>';
+
+      // Expense breakdown
+      var expEntries2 = Object.entries(pm2.expenseBreakdown || {}).sort(function(a,b){return b[1]-a[1];});
+      if (expEntries2.length > 0) {
+        var maxExp2 = expEntries2[0][1];
+        html += '<div style="margin-top:15px;">';
+        expEntries2.forEach(function(e) {
+          var pct2 = maxExp2 > 0 ? Math.round((e[1] / maxExp2) * 100) : 0;
+          var barColor2 = e[0].includes('Labor') ? '#a855f7' : e[0].includes('Ads') ? '#00d4ff' : '#ff9f43';
+          html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:3px;">';
+          html += '<div style="min-width:140px;color:#7a9ab0;font-size:0.85em;">' + e[0] + '</div>';
+          html += '<div style="flex:1;height:18px;background:#0a1520;position:relative;">';
+          html += '<div style="height:100%;width:' + pct2 + '%;background:' + barColor2 + ';"></div>';
+          html += '<div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#c0d8f0;font-size:0.7em;font-weight:700;">$' + Math.round(e[1]).toLocaleString() + '</div>';
+          html += '</div></div>';
+        });
+        html += '</div>';
+      }
+
+      // Tech payouts
+      var techPay2 = Object.entries(pm2.techPayouts || {}).sort(function(a,b){return b[1]-a[1];});
+      if (techPay2.length > 0) {
+        html += '<div style="margin-top:15px;color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:3px;margin-bottom:8px;">TECH PAYOUTS</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;">';
+        techPay2.forEach(function(t) {
+          if (t[1] > 0) {
+            html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:10px;display:flex;justify-content:space-between;align-items:center;">';
+            html += '<span style="color:#c0d8f0;font-weight:600;">' + t[0] + '</span>';
+            html += '<span style="font-family:Orbitron;font-size:0.85em;color:#00ff66;">$' + Math.round(t[1]).toLocaleString() + '</span>';
+            html += '</div>';
+          }
+        });
+        html += '</div>';
+      }
+
+      // Ad ROI
+      if (pm2.avgDailyAds > 0 && pm2.avgDailyRev > 0) {
+        var adROI2 = (pm2.avgDailyRev / pm2.avgDailyAds).toFixed(2);
+        var roiColor2 = adROI2 >= 5 ? '#00ff66' : adROI2 >= 2 ? '#ff9f43' : '#ff4757';
+        html += '<div style="margin-top:15px;background:rgba(0,212,255,0.03);border:1px solid #00d4ff15;padding:16px;display:flex;justify-content:space-around;align-items:center;text-align:center;flex-wrap:wrap;gap:15px;">';
+        html += '<div><div style="color:#4a6a8a;font-size:0.7em;">AVG DAILY REVENUE</div><div style="font-family:Orbitron;font-size:1.3em;color:#00ff66;">$' + Math.round(pm2.avgDailyRev) + '</div></div>';
+        html += '<div><div style="color:#4a6a8a;font-size:0.7em;">AVG DAILY AD SPEND</div><div style="font-family:Orbitron;font-size:1.3em;color:#00d4ff;">$' + Math.round(pm2.avgDailyAds) + '</div></div>';
+        html += '<div><div style="color:#4a6a8a;font-size:0.7em;">AD ROI</div><div style="font-family:Orbitron;font-size:1.8em;color:' + roiColor2 + ';">$' + adROI2 + '</div><div style="color:#4a6a8a;font-size:0.65em;">per $1 spent</div></div>';
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff9f43;text-transform:uppercase;margin-bottom:15px;">P&L — WAITING FOR DATA</div>';
+      html += '<div style="color:#4a6a8a;padding:20px;border:1px solid #ff9f4320;">Profit sheet not loading. Verify PROFIT_SPREADSHEET_ID is set to 1TXwXvcjt1M9bl38_0GhjK6izRGjTTuaGTN8RAmEiFwc in Render environment variables.</div>';
+    }
     html += '</div>';
 
     // ====== AUTO-TEXT SECTION (CONFIG) ======
@@ -5249,6 +5628,8 @@ var webChatHistory = {};
 app.get('/business', async function(req, res) {
   try {
     var bizContext = await buildBusinessContext();
+    // Fetch Tookan data in parallel (non-blocking, uses 10-min cache)
+    buildTookanContext().catch(function(e) { console.log("Tookan bg fetch: " + e.message); });
     var tabs = [];
     try { tabs = await getAllTabNames(); } catch(e) { tabs = []; }
 
@@ -5258,6 +5639,7 @@ app.get('/business', async function(req, res) {
     var totalCompleted = bm.totalCompleted || 0;
     var totalCancelled = bm.totalCancelled || 0;
     var totalReturn = bm.totalReturn || 0;
+    var totalAssigned = bm.totalAssigned || 0;
     var promoReplies = bm.promoReplies || 0;
     var totalLocations = Object.keys(bm.locationStats || {}).length;
     var totalLeads = bm.totalLeads || 0;
@@ -5423,9 +5805,11 @@ app.get('/business', async function(req, res) {
     // Stats Grid
     html += '<div class="grid">';
 
-    html += '<div class="card"><div class="label">Active Bookings</div><div class="value">' + totalBooked + '</div><div class="sub">Across all locations</div><div class="bar"><div class="bar-fill" style="width:70%;background:#a855f7;"></div></div></div>';
+    html += '<div class="card"><div class="label">Booked</div><div class="value">' + totalBooked + '</div><div class="sub">Status = Booked</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalBooked/Math.max(1,totalLeads)*100)) + '%;background:#a855f7;"></div></div></div>';
 
-    html += '<div class="card"><div class="label">Completed Jobs</div><div class="value">' + totalCompleted + '</div><div class="sub">Revenue generated</div><div class="bar"><div class="bar-fill" style="width:85%;background:#00ff66;"></div></div></div>';
+    html += '<div class="card"><div class="label">Dispatched</div><div class="value">' + totalAssigned + '</div><div class="sub">Assigned/Acknowledged in Tookan</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalAssigned/Math.max(1,totalLeads)*100)) + '%;background:#00d4ff;"></div></div></div>';
+
+    html += '<div class="card"><div class="label">Completed Jobs</div><div class="value">' + totalCompleted + '</div><div class="sub">Tookan status = Completed</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalCompleted/Math.max(1,totalLeads)*100)) + '%;background:#00ff66;"></div></div></div>';
 
     html += '<div class="card"><div class="label">Cancelled</div><div class="value">' + totalCancelled + '</div><div class="sub">' + (parseInt(totalCancelled) > parseInt(totalCompleted) / 5 ? 'HIGH — needs attention' : 'Within normal range') + '</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, parseInt(totalCancelled) * 2) + '%;background:#ff4757;"></div></div></div>';
 
@@ -5482,6 +5866,7 @@ app.get('/business', async function(req, res) {
     html += '<div class="actions">';
     html += '<a class="holo-btn" href="/dashboard">Personal Dashboard</a>';
     html += '<a class="holo-btn green" href="/business/tabs" target="_blank">Browse All Data</a>';
+    html += '<a class="holo-btn" href="/tookan" target="_blank">Tookan Live</a>';
     html += '<a class="holo-btn" href="/tabs" target="_blank">Personal Tabs</a>';
     html += '<a class="holo-btn" href="/search?q=booked" target="_blank">Search Bookings</a>';
     html += '<a class="holo-btn" href="/briefing" target="_blank">AI Briefing</a>';
@@ -5496,6 +5881,65 @@ app.get('/business', async function(req, res) {
     var pm = global.profitMetrics || {};
     var techPerf2 = bm.techStats || {};
     var locStats = bm.locationStats || {};
+
+    // ====== TOOKAN LIVE DISPATCH ======
+    var tk = global.tookanData || {};
+    if (tk.totalTasks > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.9em;letter-spacing:5px;color:#00d4ff;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:10px;height:10px;background:#00d4ff;border-radius:50%;box-shadow:0 0 12px #00d4ff;display:inline-block;"></span>TOOKAN LIVE DISPATCH <span style="font-size:0.6em;color:#4a6a8a;margin-left:10px;">' + tk.totalTasks + ' tasks (90 days)</span></div>';
+
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:15px;">';
+      var tkCards = [
+        { label:'COMPLETED', val:tk.completed, color:'#00ff66' },
+        { label:'ASSIGNED', val:tk.assigned, color:'#00d4ff' },
+        { label:'ACKNOWLEDGED', val:tk.acknowledged, color:'#a855f7' },
+        { label:'IN PROGRESS', val:tk.started, color:'#ff9f43' },
+        { label:'UNASSIGNED', val:tk.unassigned, color:'#c0c0c0' },
+        { label:'FAILED', val:tk.cancelled, color:'#ff4757' },
+      ];
+      tkCards.forEach(function(c) {
+        html += '<div style="background:rgba(10,20,35,0.8);border:1px solid ' + c.color + '15;padding:14px;text-align:center;">';
+        html += '<div style="font-family:Orbitron;font-size:0.45em;letter-spacing:3px;color:#4a6a8a;">' + c.label + '</div>';
+        html += '<div style="font-family:Orbitron;font-size:1.8em;color:' + c.color + ';font-weight:900;">' + (c.val || 0) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+
+      // Today's Tookan jobs
+      if (tk.todayTasks && tk.todayTasks.length > 0) {
+        html += '<div style="color:#ffd700;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;margin-bottom:8px;">TODAY\'S DISPATCHED JOBS (' + tk.todayTasks.length + ')</div>';
+        tk.todayTasks.slice(0, 8).forEach(function(t) {
+          var sColor = t.status.toLowerCase().includes('completed') ? '#00ff66' : t.status.toLowerCase().includes('started') ? '#ff9f43' : '#00d4ff';
+          html += '<div style="background:rgba(10,20,35,0.6);border:1px solid ' + sColor + '10;padding:8px 14px;margin-bottom:3px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';
+          html += '<div style="min-width:50px;font-family:Orbitron;font-size:0.65em;color:#4a6a8a;">#' + t.jobId + '</div>';
+          html += '<div style="flex:1;color:#c0d8f0;font-weight:600;">' + t.customer + '</div>';
+          html += '<div style="color:#a855f7;min-width:120px;">' + (t.tech || 'Unassigned') + '</div>';
+          html += '<div style="font-family:Orbitron;font-size:0.45em;letter-spacing:2px;padding:2px 8px;border:1px solid ' + sColor + '30;color:' + sColor + ';">' + t.status.toUpperCase() + '</div>';
+          html += '</div>';
+        });
+      }
+
+      // Top techs by completion
+      var techRank = Object.entries(tk.tasksByTech || {}).sort(function(a, b) { return b[1].completed - a[1].completed; });
+      if (techRank.length > 0) {
+        html += '<div style="margin-top:15px;color:#00ff66;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;margin-bottom:8px;">TECH DISPATCH RANKINGS</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px;">';
+        techRank.slice(0, 10).forEach(function(t, idx) {
+          var compRate = t[1].total > 0 ? Math.round(t[1].completed / t[1].total * 100) : 0;
+          var medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '•';
+          html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:10px;display:flex;align-items:center;gap:10px;">';
+          html += '<div style="font-size:1.2em;">' + medal + '</div>';
+          html += '<div style="flex:1;"><div style="color:#c0d8f0;font-weight:700;">' + t[0] + '</div>';
+          html += '<div style="color:#4a6a8a;font-size:0.8em;">' + t[1].completed + ' done / ' + t[1].total + ' total</div></div>';
+          html += '<div style="font-family:Orbitron;font-size:0.9em;color:' + (compRate >= 70 ? '#00ff66' : '#ff9f43') + ';">' + compRate + '%</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      html += '<div style="margin-top:10px;"><a href="/tookan" style="font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#00d4ff;text-decoration:none;padding:8px 16px;border:1px solid #00d4ff30;">VIEW FULL TOOKAN DASHBOARD →</a></div>';
+      html += '</div>';
+    }
 
     // ====== 1. STAFFING GAP ALERTS ======
     // Cross-reference locations that have bookings but no tech assigned
@@ -6843,10 +7287,422 @@ app.get('/debug-sheets', async function(req, res) {
   res.json(results);
 });
 
+/* ===========================
+   TOOKAN LIVE DASHBOARD
+=========================== */
+
+app.get('/tookan', async function(req, res) {
+  try {
+    var tk = await buildTookanContext();
+    var todayStr = new Date().toISOString().split('T')[0];
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>ATHENA — Tookan Live</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">';
+    html += '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />';
+    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script>';
+    html += '<style>';
+    html += 'body{margin:0;background:#050d18;color:#c0d8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}';
+    html += '.wrap{max-width:1400px;margin:0 auto;padding:30px 40px;}';
+    html += '.title{font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#00d4ff;margin-bottom:5px;}';
+    html += '.sub{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;color:#4a6a8a;margin-bottom:30px;}';
+    html += '.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:30px;}';
+    html += '.card{background:rgba(10,20,35,0.8);border:1px solid rgba(255,255,255,0.05);padding:20px;text-align:center;}';
+    html += '.card .label{font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#4a6a8a;margin-bottom:8px;}';
+    html += '.card .val{font-family:Orbitron;font-size:2.2em;font-weight:900;}';
+    html += '.card .sub2{color:#4a6a8a;font-size:0.8em;margin-top:4px;}';
+    html += '.section{margin-bottom:30px;}';
+    html += '.section-title{font-family:Orbitron;font-size:0.8em;letter-spacing:5px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:10px;}';
+    html += '.dot{width:8px;height:8px;border-radius:50%;display:inline-block;}';
+    html += '.row{background:rgba(10,20,35,0.6);border:1px solid rgba(255,255,255,0.03);padding:12px 16px;margin-bottom:4px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}';
+    html += '.badge{font-family:Orbitron;font-size:0.5em;letter-spacing:2px;padding:3px 10px;border:1px solid;}';
+    html += '.b-completed{color:#00ff66;border-color:#00ff6640;}';
+    html += '.b-assigned{color:#00d4ff;border-color:#00d4ff40;}';
+    html += '.b-acknowledged{color:#a855f7;border-color:#a855f740;}';
+    html += '.b-started{color:#ff9f43;border-color:#ff9f4340;}';
+    html += '.b-failed{color:#ff4757;border-color:#ff475740;}';
+    html += '.b-unassigned{color:#c0c0c0;border-color:#c0c0c040;}';
+    html += '.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;}';
+    html += '.holo-btn{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;padding:10px 20px;color:#00d4ff;border:1px solid #00d4ff30;background:transparent;text-decoration:none;transition:all 0.3s;}';
+    html += '.holo-btn:hover{background:rgba(0,212,255,0.1);}';
+    html += '</style></head><body><div class="wrap">';
+
+    html += '<div class="title">TOOKAN DISPATCH CENTER</div>';
+    html += '<div class="sub">REAL-TIME JOB TRACKING • ' + tk.totalTasks + ' TASKS (90 DAYS) • ' + tk.agents.length + ' AGENTS</div>';
+
+    // Status overview cards
+    html += '<div class="grid">';
+    html += '<div class="card"><div class="label">TOTAL TASKS</div><div class="val" style="color:#00d4ff;">' + tk.totalTasks + '</div><div class="sub2">Last 90 days</div></div>';
+    html += '<div class="card"><div class="label">COMPLETED</div><div class="val" style="color:#00ff66;">' + tk.completed + '</div><div class="sub2">' + (tk.totalTasks > 0 ? Math.round(tk.completed / tk.totalTasks * 100) : 0) + '% completion rate</div></div>';
+    html += '<div class="card"><div class="label">ASSIGNED</div><div class="val" style="color:#00d4ff;">' + tk.assigned + '</div><div class="sub2">Waiting for tech</div></div>';
+    html += '<div class="card"><div class="label">ACKNOWLEDGED</div><div class="val" style="color:#a855f7;">' + tk.acknowledged + '</div><div class="sub2">Tech confirmed</div></div>';
+    html += '<div class="card"><div class="label">IN PROGRESS</div><div class="val" style="color:#ff9f43;">' + tk.started + '</div><div class="sub2">Started / Arrived</div></div>';
+    html += '<div class="card"><div class="label">UNASSIGNED</div><div class="val" style="color:#c0c0c0;">' + tk.unassigned + '</div><div class="sub2">Needs dispatch</div></div>';
+    html += '<div class="card"><div class="label">FAILED/CANCELLED</div><div class="val" style="color:#ff4757;">' + tk.cancelled + '</div><div class="sub2">' + (tk.totalTasks > 0 ? Math.round(tk.cancelled / tk.totalTasks * 100) : 0) + '% fail rate</div></div>';
+    html += '</div>';
+
+    // ====== ANALYTICS — DONUT CHARTS + KPI CARDS ======
+    // SVG donut chart helper
+    html += '<style>';
+    html += '.analytics-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:30px;}';
+    html += '.chart-card{background:rgba(10,20,35,0.8);border:1px solid rgba(255,255,255,0.05);padding:20px;text-align:center;}';
+    html += '.chart-title{font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#00d4ff;padding:4px 12px;background:rgba(0,212,255,0.1);display:inline-block;margin-bottom:15px;}';
+    html += '.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:30px;}';
+    html += '.kpi{background:rgba(10,20,35,0.8);border:1px solid rgba(255,255,255,0.05);padding:20px;text-align:center;position:relative;}';
+    html += '.kpi .kpi-label{font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#00d4ff;padding:3px 10px;background:rgba(0,212,255,0.1);display:inline-block;margin-bottom:12px;}';
+    html += '.kpi .kpi-val{font-family:Orbitron;font-size:2em;font-weight:900;color:#c0d8f0;}';
+    html += '.kpi .kpi-change{font-size:0.85em;margin-top:6px;}';
+    html += '.kpi .kpi-sub{color:#4a6a8a;font-size:0.8em;margin-top:2px;}';
+    html += '.week-chart{display:flex;align-items:flex-end;gap:6px;height:80px;margin-top:15px;padding:0 10px;}';
+    html += '.week-bar{flex:1;display:flex;flex-direction:column;align-items:center;}';
+    html += '.week-bar-inner{width:100%;background:linear-gradient(180deg,#00d4ff,#00d4ff40);border-radius:2px 2px 0 0;transition:height 0.3s;}';
+    html += '.week-bar-label{color:#4a6a8a;font-size:0.65em;margin-top:4px;}';
+    html += '.week-bar-count{color:#c0d8f0;font-size:0.7em;margin-bottom:2px;}';
+    html += '@media(max-width:768px){.analytics-grid{grid-template-columns:1fr;}.kpi-grid{grid-template-columns:repeat(2,1fr);}}';
+    html += '</style>';
+
+    // Task Status donut & Agent Status donut
+    var taskAccepted = tk.acknowledged + tk.started;
+    var taskAssignedOnly = tk.assigned + tk.unassigned;
+    var taskTotal = taskAccepted + taskAssignedOnly + tk.completed;
+
+    html += '<div class="analytics-grid">';
+
+    // Task Status Donut
+    html += '<div class="chart-card">';
+    html += '<div class="chart-title">Task Status ▾</div>';
+    html += '<svg viewBox="0 0 200 200" width="220" height="220" style="display:block;margin:0 auto;">';
+    // Build donut segments
+    var donutData = [
+      { val: taskAccepted, color: '#1a73e8', label: 'Accepted' },
+      { val: taskAssignedOnly, color: '#64b5f6', label: 'Assigned' },
+      { val: tk.completed, color: '#00ff66', label: 'Completed' },
+    ].filter(function(d) { return d.val > 0; });
+    var donutTotal = donutData.reduce(function(a, b) { return a + b.val; }, 0) || 1;
+    var startAngle = 0;
+    var cx = 100, cy = 100, r = 70, strokeW = 30;
+    var circumference = 2 * Math.PI * r;
+    donutData.forEach(function(seg) {
+      var pct = seg.val / donutTotal;
+      var dashLen = circumference * pct;
+      var dashGap = circumference - dashLen;
+      var rotation = startAngle * 360 - 90;
+      html += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + seg.color + '" stroke-width="' + strokeW + '" stroke-dasharray="' + dashLen + ' ' + dashGap + '" transform="rotate(' + rotation + ' ' + cx + ' ' + cy + ')" />';
+      // Label
+      var midAngle = (startAngle + pct / 2) * 2 * Math.PI - Math.PI / 2;
+      var lx = cx + (r) * Math.cos(midAngle);
+      var ly = cy + (r) * Math.sin(midAngle);
+      html += '<text x="' + lx + '" y="' + ly + '" fill="white" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="central">' + seg.val + '</text>';
+      startAngle += pct;
+    });
+    html += '</svg>';
+    // Legend
+    html += '<div style="display:flex;justify-content:center;gap:20px;margin-top:10px;">';
+    donutData.forEach(function(seg) {
+      html += '<div style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:' + seg.color + ';display:inline-block;"></span><span style="color:#c0d8f0;font-size:0.85em;">' + seg.label + '</span></div>';
+    });
+    html += '</div></div>';
+
+    // Agent Status Donut
+    html += '<div class="chart-card">';
+    html += '<div class="chart-title">Agent Status ▾</div>';
+    html += '<svg viewBox="0 0 200 200" width="220" height="220" style="display:block;margin:0 auto;">';
+    var agentData = [
+      { val: tk.agentsBusy, color: '#64b5f6', label: 'Busy' },
+      { val: tk.agentsFree, color: '#00c853', label: 'Free' },
+      { val: tk.agentsInactive, color: '#9e9e9e', label: 'Inactive' },
+    ].filter(function(d) { return d.val > 0; });
+    var agentTotal2 = agentData.reduce(function(a, b) { return a + b.val; }, 0) || 1;
+    startAngle = 0;
+    agentData.forEach(function(seg) {
+      var pct = seg.val / agentTotal2;
+      var dashLen = circumference * pct;
+      var dashGap = circumference - dashLen;
+      var rotation = startAngle * 360 - 90;
+      html += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + seg.color + '" stroke-width="' + strokeW + '" stroke-dasharray="' + dashLen + ' ' + dashGap + '" transform="rotate(' + rotation + ' ' + cx + ' ' + cy + ')" />';
+      var midAngle = (startAngle + pct / 2) * 2 * Math.PI - Math.PI / 2;
+      var lx = cx + (r) * Math.cos(midAngle);
+      var ly = cy + (r) * Math.sin(midAngle);
+      html += '<text x="' + lx + '" y="' + ly + '" fill="white" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="central">' + seg.val + '</text>';
+      startAngle += pct;
+    });
+    html += '</svg>';
+    html += '<div style="display:flex;justify-content:center;gap:20px;margin-top:10px;">';
+    agentData.forEach(function(seg) {
+      html += '<div style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:' + seg.color + ';display:inline-block;"></span><span style="color:#c0d8f0;font-size:0.85em;">' + seg.label + '</span></div>';
+    });
+    html += '</div></div>';
+    html += '</div>';
+
+    // KPI Cards row
+    var changeColor = tk.taskChangeVsYesterday >= 0 ? '#ff4757' : '#00ff66';
+    var changeSign = tk.taskChangeVsYesterday >= 0 ? '' : '';
+    html += '<div class="kpi-grid">';
+
+    // Total Tasks
+    html += '<div class="kpi">';
+    html += '<div class="kpi-label">Total Tasks ▾</div>';
+    html += '<div class="kpi-val">' + tk.todayTotal + '</div>';
+    html += '<div class="kpi-change" style="color:' + changeColor + ';">' + changeSign + tk.taskChangeVsYesterday + '%</div>';
+    html += '<div class="kpi-sub">vs yesterday (' + tk.yesterdayTotal + ')</div>';
+    html += '</div>';
+
+    // Task Efficiency
+    html += '<div class="kpi">';
+    html += '<div class="kpi-label">Task Efficiency ▾</div>';
+    html += '<div class="kpi-val">' + tk.taskEfficiency + '%</div>';
+    html += '<div class="kpi-sub">completed / total dispatched</div>';
+    html += '</div>';
+
+    // Avg Completion Time
+    var avgHrs = Math.floor(tk.avgCompletionMinutes / 60);
+    var avgMins = tk.avgCompletionMinutes % 60;
+    html += '<div class="kpi">';
+    html += '<div class="kpi-label">Avg Completion Time ▾</div>';
+    html += '<div class="kpi-val">' + (avgHrs > 0 ? avgHrs + 'h ' : '') + avgMins + 'm</div>';
+    html += '<div class="kpi-sub">pickup to completed</div>';
+    html += '</div>';
+
+    // Completion Rate
+    var completionRate = tk.totalTasks > 0 ? Math.round((tk.completed / tk.totalTasks) * 10000) / 100 : 0;
+    html += '<div class="kpi">';
+    html += '<div class="kpi-label">Completion Rate ▾</div>';
+    html += '<div class="kpi-val" style="color:' + (completionRate >= 70 ? '#00ff66' : completionRate >= 40 ? '#ff9f43' : '#ff4757') + ';">' + completionRate + '%</div>';
+    html += '<div class="kpi-sub">of all ' + tk.totalTasks + ' tasks (90d)</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Weekly trend bar chart
+    var weekData = tk.weeklyTasks || [];
+    if (weekData.length > 0) {
+      var maxDay = Math.max.apply(null, weekData.map(function(d) { return d.count; })) || 1;
+      html += '<div class="section">';
+      html += '<div class="section-title" style="color:#00d4ff;"><span class="dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff;"></span>7-DAY TASK TREND</div>';
+      html += '<div class="week-chart">';
+      weekData.forEach(function(d) {
+        var barH = Math.max(4, Math.round((d.count / maxDay) * 100));
+        var isToday = d.date === todayStr;
+        var barCol = isToday ? '#ffd700' : '#00d4ff';
+        html += '<div class="week-bar">';
+        html += '<div class="week-bar-count">' + d.count + '</div>';
+        html += '<div class="week-bar-inner" style="height:' + barH + '%;background:' + barCol + (isToday ? '' : '60') + ';"></div>';
+        html += '<div class="week-bar-label" style="' + (isToday ? 'color:#ffd700;font-weight:700;' : '') + '">' + d.day + '</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== LIVE MAP ======
+    html += '<div class="section">';
+    html += '<div class="section-title" style="color:#00d4ff;"><span class="dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff;"></span>DISPATCH MAP</div>';
+    html += '<div id="dispatch-map" style="height:500px;border:1px solid rgba(0,212,255,0.15);margin-bottom:20px;background:#0a1520;"></div>';
+    html += '</div>';
+
+    // Map initialization script (runs after page load)
+    var mapTasks = tk.mapTasks || [];
+    var todayMapTasks = (tk.todayTasks || []).filter(function(t) { return t.lat && t.lng && t.lat !== 0; });
+    html += '<script>';
+    html += 'document.addEventListener("DOMContentLoaded", function() {';
+    html += '  var map = L.map("dispatch-map", { zoomControl: true }).setView([37.5, -96], 4);';
+    // Dark map tiles
+    html += '  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {';
+    html += '    attribution: "CartoDB", subdomains: "abcd", maxZoom: 19';
+    html += '  }).addTo(map);';
+    // Status color function
+    html += '  function statusColor(s) {';
+    html += '    s = s.toLowerCase();';
+    html += '    if (s.includes("completed")) return "#00ff66";';
+    html += '    if (s.includes("acknowledged")) return "#a855f7";';
+    html += '    if (s.includes("assigned")) return "#00d4ff";';
+    html += '    if (s.includes("started") || s.includes("arrived")) return "#ff9f43";';
+    html += '    if (s.includes("failed") || s.includes("cancel")) return "#ff4757";';
+    html += '    return "#c0c0c0";';
+    html += '  }';
+    // Custom circle marker function
+    html += '  function addPin(lat, lng, data, isToday) {';
+    html += '    var color = statusColor(data.status);';
+    html += '    var radius = isToday ? 10 : 6;';
+    html += '    var marker = L.circleMarker([lat, lng], {';
+    html += '      radius: radius, fillColor: color, color: "#fff", weight: isToday ? 2 : 1,';
+    html += '      opacity: isToday ? 1 : 0.6, fillOpacity: isToday ? 0.9 : 0.5';
+    html += '    }).addTo(map);';
+    html += '    marker.bindPopup(';
+    html += '      "<div style=\\"font-family:sans-serif;font-size:13px;\\">" +';
+    html += '      "<b style=\\"color:" + color + "\\">" + data.status + "</b><br>" +';
+    html += '      "<b>" + data.customer + "</b><br>" +';
+    html += '      (data.tech ? "Tech: " + data.tech + "<br>" : "") +';
+    html += '      (data.address ? data.address + "<br>" : "") +';
+    html += '      "Job #" + data.jobId +';
+    html += '      "</div>"';
+    html += '    );';
+    html += '  }';
+
+    // Plot all historical tasks (smaller dots)
+    html += '  var allTasks = ' + JSON.stringify(mapTasks) + ';';
+    html += '  allTasks.forEach(function(t) { if (t.lat && t.lng) addPin(t.lat, t.lng, t, false); });';
+
+    // Plot today's tasks (bigger, brighter)
+    html += '  var todayTasks = ' + JSON.stringify(todayMapTasks) + ';';
+    html += '  todayTasks.forEach(function(t) { if (t.lat && t.lng) addPin(t.lat, t.lng, t, true); });';
+
+    // Auto-fit bounds if we have markers
+    html += '  var allPts = todayTasks.concat(allTasks).filter(function(t) { return t.lat && t.lng; });';
+    html += '  if (allPts.length > 0) {';
+    html += '    var bounds = L.latLngBounds(allPts.map(function(t) { return [t.lat, t.lng]; }));';
+    html += '    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });';
+    html += '  }';
+
+    // Legend
+    html += '  var legend = L.control({ position: "bottomright" });';
+    html += '  legend.onAdd = function() {';
+    html += '    var div = L.DomUtil.create("div", "");';
+    html += '    div.style.cssText = "background:rgba(5,13,24,0.9);padding:10px 14px;border:1px solid #00d4ff30;font-size:12px;line-height:1.8;";';
+    html += '    div.innerHTML = "<div style=\\"font-family:Orbitron;font-size:9px;letter-spacing:2px;color:#4a6a8a;margin-bottom:4px;\\">STATUS</div>"';
+    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#00d4ff;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Assigned</span></div>"';
+    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Acknowledged</span></div>"';
+    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff9f43;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">In Progress</span></div>"';
+    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#00ff66;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Completed</span></div>"';
+    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff4757;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Failed</span></div>";';
+    html += '    return div;';
+    html += '  };';
+    html += '  legend.addTo(map);';
+    html += '});';
+    html += '<\/script>';
+
+    // Today's jobs
+    html += '<div class="section">';
+    html += '<div class="section-title" style="color:#ffd700;"><span class="dot" style="background:#ffd700;box-shadow:0 0 8px #ffd700;"></span>TODAY\'S JOBS (' + tk.todayTasks.length + ')</div>';
+    if (tk.todayTasks.length > 0) {
+      tk.todayTasks.forEach(function(t) {
+        var badgeClass = t.status.toLowerCase().includes('completed') ? 'b-completed' : t.status.toLowerCase().includes('assigned') ? 'b-assigned' : t.status.toLowerCase().includes('acknowledged') ? 'b-acknowledged' : t.status.toLowerCase().includes('started') ? 'b-started' : 'b-unassigned';
+        html += '<div class="row">';
+        html += '<div style="min-width:60px;font-family:Orbitron;font-size:0.7em;color:#4a6a8a;">#' + t.jobId + '</div>';
+        html += '<div style="flex:1;color:#c0d8f0;font-weight:600;">' + t.customer + '</div>';
+        html += '<div style="flex:1;color:#4a6a8a;font-size:0.85em;">' + t.address + '</div>';
+        html += '<div style="min-width:100px;color:#a855f7;">' + (t.tech || 'Unassigned') + '</div>';
+        html += '<div class="badge ' + badgeClass + '">' + t.status.toUpperCase() + '</div>';
+        html += '</div>';
+      });
+    } else {
+      html += '<div style="color:#4a6a8a;padding:20px;text-align:center;">No tasks scheduled for today</div>';
+    }
+    html += '</div>';
+
+    // Tech performance
+    var techEntries = Object.entries(tk.tasksByTech).sort(function(a, b) { return b[1].completed - a[1].completed; });
+    html += '<div class="section">';
+    html += '<div class="section-title" style="color:#00ff66;"><span class="dot" style="background:#00ff66;box-shadow:0 0 8px #00ff66;"></span>TECH PERFORMANCE (90 DAYS)</div>';
+    if (techEntries.length > 0) {
+      var maxComp = techEntries[0][1].completed;
+      techEntries.forEach(function(t, idx) {
+        var barPct = maxComp > 0 ? Math.round(t[1].completed / maxComp * 100) : 0;
+        var compRate = t[1].total > 0 ? Math.round(t[1].completed / t[1].total * 100) : 0;
+        html += '<div class="row">';
+        html += '<div style="min-width:30px;font-family:Orbitron;font-size:0.9em;color:' + (idx === 0 ? '#ffd700' : idx === 1 ? '#c0c0c0' : idx === 2 ? '#cd7f32' : '#4a6a8a') + ';">#' + (idx + 1) + '</div>';
+        html += '<div style="min-width:180px;color:#c0d8f0;font-weight:700;">' + t[0] + '</div>';
+        html += '<div style="flex:1;height:20px;background:#0a1520;position:relative;min-width:200px;">';
+        html += '<div style="height:100%;width:' + barPct + '%;background:linear-gradient(90deg,#00ff66,#55f7d8);"></div>';
+        html += '<div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:0.75em;color:#c0d8f0;">' + t[1].completed + ' done / ' + t[1].total + ' total</div>';
+        html += '</div>';
+        html += '<div style="min-width:60px;text-align:center;font-family:Orbitron;font-size:0.7em;color:' + (compRate >= 70 ? '#00ff66' : compRate >= 40 ? '#ff9f43' : '#ff4757') + ';">' + compRate + '%</div>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+
+    // Active agents
+    if (tk.agents.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-title" style="color:#a855f7;"><span class="dot" style="background:#a855f7;box-shadow:0 0 8px #a855f7;"></span>FIELD AGENTS (' + tk.agents.length + ')</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px;">';
+      tk.agents.forEach(function(a) {
+        var statusColor = a.status === 'Available' ? '#00ff66' : '#ff4757';
+        html += '<div class="row" style="justify-content:space-between;">';
+        html += '<div><div style="color:#c0d8f0;font-weight:600;">' + a.name + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + (a.phone || 'No phone') + '</div></div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;"><span class="dot" style="background:' + statusColor + ';box-shadow:0 0 6px ' + statusColor + ';"></span><span style="font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:' + statusColor + ';">' + a.status.toUpperCase() + '</span></div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // Recent completed
+    if (tk.recentCompleted.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-title" style="color:#55f7d8;"><span class="dot" style="background:#55f7d8;box-shadow:0 0 8px #55f7d8;"></span>RECENTLY COMPLETED</div>';
+      tk.recentCompleted.slice(0, 10).forEach(function(c) {
+        html += '<div class="row">';
+        html += '<div style="min-width:60px;font-family:Orbitron;font-size:0.7em;color:#4a6a8a;">#' + c.jobId + '</div>';
+        html += '<div style="flex:1;color:#c0d8f0;">' + c.customer + '</div>';
+        html += '<div style="color:#a855f7;">' + c.tech + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.8em;">' + c.address + '</div>';
+        html += '<div class="badge b-completed">DONE</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Status breakdown
+    var statusEntries = Object.entries(tk.tasksByStatus).sort(function(a, b) { return b[1] - a[1]; });
+    if (statusEntries.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-title" style="color:#00d4ff;"><span class="dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff;"></span>STATUS BREAKDOWN</div>';
+      var maxSt = statusEntries[0][1];
+      statusEntries.forEach(function(s) {
+        var pct = maxSt > 0 ? Math.round(s[1] / maxSt * 100) : 0;
+        html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:3px;">';
+        html += '<div style="min-width:150px;color:#7a9ab0;font-size:0.85em;">' + s[0] + '</div>';
+        html += '<div style="flex:1;height:18px;background:#0a1520;position:relative;">';
+        html += '<div style="height:100%;width:' + pct + '%;background:#00d4ff40;border-left:3px solid #00d4ff;"></div>';
+        html += '<div style="position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#c0d8f0;font-size:0.7em;font-weight:700;">' + s[1] + '</div>';
+        html += '</div></div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<div class="actions">';
+    html += '<a class="holo-btn" href="/business">Business Dashboard</a>';
+    html += '<a class="holo-btn" href="/dashboard">Personal Dashboard</a>';
+    html += '<a class="holo-btn" href="/tookan/json">Raw JSON</a>';
+    html += '</div>';
+
+    html += '</div></body></html>';
+    res.send(html);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Raw JSON endpoint for Tookan data
+app.get('/tookan/json', async function(req, res) {
+  try {
+    var tk = await buildTookanContext();
+    res.json(tk);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Force refresh Tookan cache
+app.get('/tookan/refresh', async function(req, res) {
+  tookanCache = { data: null, time: 0 };
+  try {
+    var tk = await buildTookanContext();
+    res.json({ status: 'refreshed', tasks: tk.totalTasks, completed: tk.completed, agents: tk.agents.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload");
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
+  // Pre-fetch Tookan data on startup
+  buildTookanContext().then(function(d) {
+    console.log("Tookan startup fetch: " + d.totalTasks + " tasks, " + d.completed + " completed, " + d.agents.length + " agents");
+  }).catch(function(e) {
+    console.log("Tookan startup fetch failed: " + e.message);
+  });
 });
