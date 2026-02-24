@@ -3795,6 +3795,13 @@ app.get('/dashboard', async function(req, res) {
     html += '<div class="jarvis-title">J.A.R.V.I.S.</div>';
     html += '<div style="font-family:Rajdhani;font-size:1.1em;letter-spacing:8px;color:#3a5a7a;margin-top:5px;text-transform:uppercase;">LifeOS Command Center</div>';
     html += '<div style="font-family:Rajdhani;font-size:0.95em;letter-spacing:4px;color:#00d4ff80;margin-top:3px;">' + dateStr + '</div>';
+
+    // === TAB NAVIGATION ===
+    html += '<div style="display:flex;justify-content:center;gap:0;margin-top:20px;margin-bottom:15px;">';
+    html += '<a href="/dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#00d4ff;border:1px solid #00d4ff40;text-decoration:none;background:rgba(0,212,255,0.1);box-shadow:0 0 15px rgba(0,212,255,0.1);">JARVIS</a>';
+    html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ATHENA</a>';
+    html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
+    html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
     html += '<div class="status-item"><div class="status-dot blue"></div>AI ACTIVE</div>';
@@ -5792,6 +5799,13 @@ app.get('/business', async function(req, res) {
     html += '<div class="jarvis-title">WILDWOOD CRM</div>';
     html += '<div style="font-family:Rajdhani;font-size:1.1em;letter-spacing:8px;color:#3a5a7a;margin-top:5px;text-transform:uppercase;">Business Command Center</div>';
     html += '<div style="font-family:Rajdhani;font-size:0.95em;letter-spacing:4px;color:#a855f780;margin-top:3px;">' + dateStr + ' // ' + timeStr + '</div>';
+
+    // === TAB NAVIGATION ===
+    html += '<div style="display:flex;justify-content:center;gap:0;margin-top:20px;margin-bottom:15px;">';
+    html += '<a href="/dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">JARVIS</a>';
+    html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#a855f7;border:1px solid #a855f740;text-decoration:none;background:rgba(168,85,247,0.1);box-shadow:0 0 15px rgba(168,85,247,0.1);">ATHENA</a>';
+    html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
+    html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>CRM ONLINE</div>';
     html += '<div class="status-item"><div class="status-dot purple"></div>' + totalLocations + ' LOCATIONS</div>';
@@ -5864,12 +5878,10 @@ app.get('/business', async function(req, res) {
 
     // Actions
     html += '<div class="actions">';
-    html += '<a class="holo-btn" href="/dashboard">Personal Dashboard</a>';
     html += '<a class="holo-btn green" href="/business/tabs" target="_blank">Browse All Data</a>';
-    html += '<a class="holo-btn" href="/tookan" target="_blank">Tookan Live</a>';
-    html += '<a class="holo-btn" href="/tabs" target="_blank">Personal Tabs</a>';
     html += '<a class="holo-btn" href="/search?q=booked" target="_blank">Search Bookings</a>';
     html += '<a class="holo-btn" href="/briefing" target="_blank">AI Briefing</a>';
+    html += '<a class="holo-btn" href="/tabs" target="_blank">Personal Tabs</a>';
     html += '</div>';
 
     // ====================================================================
@@ -5937,7 +5949,6 @@ app.get('/business', async function(req, res) {
         html += '</div>';
       }
 
-      html += '<div style="margin-top:10px;"><a href="/tookan" style="font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#00d4ff;text-decoration:none;padding:8px 16px;border:1px solid #00d4ff30;">VIEW FULL TOOKAN DASHBOARD →</a></div>';
       html += '</div>';
     }
 
@@ -6352,7 +6363,7 @@ app.get('/business', async function(req, res) {
     html += '<div class="clock" id="clock"></div>';
 
     // Footer
-    html += '<div class="footer">ATHENA v4.0 // WILDWOOD BUSINESS INTELLIGENCE // Powered by Claude AI // ' + sheetsRead + ' sheets connected</div>';
+    html += '<div class="footer">JARVIS • ATHENA • TOOKAN // Wildwood Small Engine Repair // v4.3</div>';
 
     html += '</div></body></html>';
     res.send(html);
@@ -7329,6 +7340,13 @@ app.get('/tookan', async function(req, res) {
     html += '<div class="title">TOOKAN DISPATCH CENTER</div>';
     html += '<div class="sub">REAL-TIME JOB TRACKING • ' + tk.totalTasks + ' TASKS (90 DAYS) • ' + tk.agents.length + ' AGENTS</div>';
 
+    // === TAB NAVIGATION ===
+    html += '<div style="display:flex;gap:0;margin-bottom:25px;">';
+    html += '<a href="/dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">JARVIS</a>';
+    html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ATHENA</a>';
+    html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#00d4ff;border:1px solid #00d4ff40;text-decoration:none;background:rgba(0,212,255,0.1);box-shadow:0 0 15px rgba(0,212,255,0.1);">TOOKAN</a>';
+    html += '</div>';
+
     // Status overview cards
     html += '<div class="grid">';
     html += '<div class="card"><div class="label">TOTAL TASKS</div><div class="val" style="color:#00d4ff;">' + tk.totalTasks + '</div><div class="sub2">Last 90 days</div></div>';
@@ -7660,9 +7678,8 @@ app.get('/tookan', async function(req, res) {
     }
 
     html += '<div class="actions">';
-    html += '<a class="holo-btn" href="/business">Business Dashboard</a>';
-    html += '<a class="holo-btn" href="/dashboard">Personal Dashboard</a>';
-    html += '<a class="holo-btn" href="/tookan/json">Raw JSON</a>';
+    html += '<a class="holo-btn" href="/tookan/json" target="_blank">Raw JSON</a>';
+    html += '<a class="holo-btn" href="/tookan/refresh">Force Refresh</a>';
     html += '</div>';
 
     html += '</div></body></html>';
