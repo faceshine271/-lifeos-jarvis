@@ -526,7 +526,7 @@ async function buildTookanContext() {
     totalTasks: 0, completed: 0, assigned: 0, acknowledged: 0, started: 0,
     failed: 0, unassigned: 0, cancelled: 0, deleted: 0,
     tasksByLocation: {}, tasksByTech: {}, tasksByStatus: {},
-    todayTasks: [], recentCompleted: [], agents: [], mapTasks: [],
+    todayTasks: [], recentCompleted: [], agents: [], mapTasks: [], upcomingTasks: [],
     // Analytics
     todayTotal: 0, todayCompleted: 0, todayAssigned: 0, todayAcknowledged: 0,
     yesterdayTotal: 0, yesterdayCompleted: 0,
@@ -537,16 +537,81 @@ async function buildTookanContext() {
 
   var completionTimes = [];
   try {
-    // Get tasks for last 90 days
     var endDate = new Date();
     var startDate = new Date();
     startDate.setDate(startDate.getDate() - 90);
-    var startStr = startDate.toISOString().split('T')[0];
-    var endStr = endDate.toISOString().split('T')[0];
 
-    var allTasks = await fetchTookanTasks(startStr, endStr);
+    // ====== Strategy 1: Get job IDs from CRM data, then batch fetch details ======
+    var allTasks = [];
+    var crmJobIds = [];
+
+    // Collect Tookan Job IDs from CRM (already loaded by buildBusinessContext)
+    if (global.bizMetrics && global.bizMetrics.allJobRows) {
+      global.bizMetrics.allJobRows.forEach(function(job) {
+        var jid = (job.tookanJobId || '').toString().trim();
+        if (jid && jid.length > 3 && /^\d+$/.test(jid)) {
+          crmJobIds.push(parseInt(jid));
+        }
+      });
+    }
+
+    // Deduplicate job IDs
+    crmJobIds = Array.from(new Set(crmJobIds));
+    console.log("Tookan: Found " + crmJobIds.length + " job IDs from CRM");
+
+    if (crmJobIds.length > 0) {
+      // Batch fetch in groups of 50 (same as your Tookan script)
+      for (var bi = 0; bi < crmJobIds.length; bi += 50) {
+        var batch = crmJobIds.slice(bi, bi + 50);
+        try {
+          var batchResults = await fetchTookanJobDetails(batch);
+          allTasks = allTasks.concat(batchResults);
+          // Small delay between batches to avoid rate limiting
+          if (bi + 50 < crmJobIds.length) {
+            await new Promise(function(r) { setTimeout(r, 300); });
+          }
+        } catch (be) {
+          console.log("Tookan batch error at offset " + bi + ": " + be.message);
+        }
+      }
+      console.log("Tookan: " + allTasks.length + " tasks fetched via get_job_details");
+    }
+
+    // ====== Strategy 2 (fallback): Try get_all_tasks if no CRM data ======
+    if (allTasks.length === 0) {
+      console.log("Tookan: No CRM job IDs, trying get_all_tasks in 30-day chunks...");
+      // Tookan API only allows 31-day max range, so fetch in 30-day chunks
+      // Include future dates (upcoming scheduled jobs) + past 90 days
+      var chunks = [
+        { label: 'future', daysBack: 0, daysForward: 30 },   // Today → 30 days ahead
+        { label: 'recent', daysBack: 30, daysForward: 0 },    // 30 days ago → today
+        { label: 'mid', daysBack: 60, daysForward: -30 },     // 60 → 30 days ago
+        { label: 'old', daysBack: 90, daysForward: -60 },     // 90 → 60 days ago
+      ];
+      for (var chunk = 0; chunk < chunks.length; chunk++) {
+        var ch = chunks[chunk];
+        var chunkStart = new Date();
+        chunkStart.setDate(chunkStart.getDate() - ch.daysBack);
+        var chunkEnd = new Date();
+        chunkEnd.setDate(chunkEnd.getDate() + (ch.daysForward || 0));
+        // Ensure start < end
+        if (chunkStart > chunkEnd) { var tmp = chunkStart; chunkStart = chunkEnd; chunkEnd = tmp; }
+        var cStartStr = chunkStart.toISOString().split('T')[0] + ' 00:00:00';
+        var cEndStr = chunkEnd.toISOString().split('T')[0] + ' 23:59:59';
+        try {
+          var chunkTasks = await fetchTookanTasks(cStartStr, cEndStr);
+          console.log("Tookan " + ch.label + " (" + cStartStr.split(' ')[0] + " to " + cEndStr.split(' ')[0] + "): " + chunkTasks.length + " tasks");
+          allTasks = allTasks.concat(chunkTasks);
+          if (chunk < chunks.length - 1) await new Promise(function(r) { setTimeout(r, 500); });
+        } catch (ce) {
+          console.log("Tookan " + ch.label + " error: " + ce.message);
+        }
+      }
+      console.log("Tookan get_all_tasks total: " + allTasks.length + " tasks (past 90d + future 30d)");
+    }
+
     result.totalTasks = allTasks.length;
-    console.log("Tookan: " + allTasks.length + " tasks fetched");
+    console.log("Tookan total: " + allTasks.length + " tasks");
 
     var todayStr = endDate.toISOString().split('T')[0];
     var yesterdayDate = new Date(endDate);
@@ -619,6 +684,19 @@ async function buildTookanContext() {
           phone: task.customer_phone || '',
           lat: parseFloat(task.job_latitude || task.latitude || 0),
           lng: parseFloat(task.job_longitude || task.longitude || 0),
+          pickupTime: (task.job_pickup_datetime || '').toString(),
+        });
+      }
+
+      // Upcoming tasks (future dates)
+      if (taskDate > todayStr && result.upcomingTasks.length < 50) {
+        result.upcomingTasks.push({
+          jobId: task.job_id, customer: task.customer_username || task.customer_name || 'Unknown',
+          address: address.substring(0, 80), status: status, tech: agentName,
+          phone: task.customer_phone || '', date: taskDate,
+          lat: parseFloat(task.job_latitude || task.latitude || 0),
+          lng: parseFloat(task.job_longitude || task.longitude || 0),
+          pickupTime: (task.job_pickup_datetime || '').toString(),
         });
       }
 
@@ -822,6 +900,7 @@ async function buildBusinessContext() {
               status: headerLookup.status !== undefined ? (jRow[headerLookup.status] || '').toString().toLowerCase().trim() : '',
               tech: headerLookup.tech !== undefined ? (jRow[headerLookup.tech] || '').toString().trim() : '',
               tookanStatus: headerLookup.tookanStatus !== undefined ? (jRow[headerLookup.tookanStatus] || '').toString().toLowerCase().trim() : '',
+              tookanJobId: headerLookup.tookanJobId !== undefined ? (jRow[headerLookup.tookanJobId] || '').toString().trim() : '',
               locationTab: tabNameFromRange,
             };
             allJobRows.push(job);
@@ -1252,6 +1331,7 @@ async function buildBusinessContext() {
     thisMonthCalls: thisMonthCalls, lastMonthCalls: lastMonthCalls,
     monthGrowth: monthGrowth, techList: techList, newLocationsThisMonth: Object.keys(newLocationsThisMonth).length,
     seasonalData: seasonalData, sheetsRead: sheetsRead, tabsRead: tabsRead, totalJobRows: allJobRows.length,
+    allJobRows: allJobRows,
   };
   global.bizOpsData = allOtherSections;
   global.sheetMetadata = sheetMetadata;
@@ -7663,6 +7743,7 @@ app.get('/tookan', async function(req, res) {
     // Map initialization script (runs after page load)
     var mapTasks = tk.mapTasks || [];
     var todayMapTasks = (tk.todayTasks || []).filter(function(t) { return t.lat && t.lng && t.lat !== 0; });
+    var upcomingMapTasks = (tk.upcomingTasks || []).filter(function(t) { return t.lat && t.lng && t.lat !== 0; });
     html += '<script>';
     html += 'document.addEventListener("DOMContentLoaded", function() {';
     html += '  var map = L.map("dispatch-map", { zoomControl: true }).setView([37.5, -96], 4);';
@@ -7707,8 +7788,20 @@ app.get('/tookan', async function(req, res) {
     html += '  var todayTasks = ' + JSON.stringify(todayMapTasks) + ';';
     html += '  todayTasks.forEach(function(t) { if (t.lat && t.lng) addPin(t.lat, t.lng, t, true); });';
 
+    // Plot upcoming tasks (purple dashed outline)
+    html += '  var upcomingTasks = ' + JSON.stringify(upcomingMapTasks) + ';';
+    html += '  upcomingTasks.forEach(function(t) {';
+    html += '    if (t.lat && t.lng) {';
+    html += '      var m = L.circleMarker([t.lat, t.lng], {';
+    html += '        radius: 8, fillColor: "#a855f7", color: "#a855f7", weight: 2,';
+    html += '        opacity: 0.8, fillOpacity: 0.3, dashArray: "4 4"';
+    html += '      }).addTo(map);';
+    html += '      m.bindPopup("<div style=\\"font-family:sans-serif;font-size:13px;\\"><b style=\\"color:#a855f7\\">UPCOMING " + t.date + "</b><br><b>" + t.customer + "</b><br>" + (t.tech ? "Tech: " + t.tech + "<br>" : "") + t.address + "</div>");';
+    html += '    }';
+    html += '  });';
+
     // Auto-fit bounds if we have markers
-    html += '  var allPts = todayTasks.concat(allTasks).filter(function(t) { return t.lat && t.lng; });';
+    html += '  var allPts = todayTasks.concat(allTasks).concat(upcomingTasks).filter(function(t) { return t.lat && t.lng; });';
     html += '  if (allPts.length > 0) {';
     html += '    var bounds = L.latLngBounds(allPts.map(function(t) { return [t.lat, t.lng]; }));';
     html += '    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });';
@@ -7724,7 +7817,8 @@ app.get('/tookan', async function(req, res) {
     html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Acknowledged</span></div>"';
     html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff9f43;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">In Progress</span></div>"';
     html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#00ff66;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Completed</span></div>"';
-    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff4757;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Failed</span></div>";';
+    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff4757;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Failed</span></div>"';
+    html += '      + "<div><span style=\\"display:inline-block;width:10px;height:10px;border-radius:50%;border:2px dashed #a855f7;margin-right:6px;\\"></span><span style=\\"color:#c0d8f0;\\">Upcoming</span></div>";';
     html += '    return div;';
     html += '  };';
     html += '  legend.addTo(map);';
@@ -7749,6 +7843,36 @@ app.get('/tookan', async function(req, res) {
       html += '<div style="color:#4a6a8a;padding:20px;text-align:center;">No tasks scheduled for today</div>';
     }
     html += '</div>';
+
+    // Upcoming jobs (future dates)
+    if (tk.upcomingTasks && tk.upcomingTasks.length > 0) {
+      // Sort by date
+      var upcoming = tk.upcomingTasks.slice().sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+      html += '<div class="section">';
+      html += '<div class="section-title" style="color:#a855f7;"><span class="dot" style="background:#a855f7;box-shadow:0 0 8px #a855f7;"></span>UPCOMING JOBS (' + upcoming.length + ')</div>';
+      // Group by date
+      var byDate = {};
+      upcoming.forEach(function(t) {
+        if (!byDate[t.date]) byDate[t.date] = [];
+        byDate[t.date].push(t);
+      });
+      Object.keys(byDate).sort().forEach(function(dt) {
+        var d = new Date(dt + 'T12:00:00');
+        var dayLabel = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        html += '<div style="font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#a855f7;margin:10px 0 5px;padding:4px 10px;border-left:3px solid #a855f740;">' + dayLabel + ' — ' + byDate[dt].length + ' jobs</div>';
+        byDate[dt].forEach(function(t) {
+          var sColor = t.status.toLowerCase().includes('assigned') ? '#00d4ff' : t.status.toLowerCase().includes('acknowledged') ? '#a855f7' : '#c0c0c0';
+          html += '<div class="row">';
+          html += '<div style="min-width:50px;font-family:Orbitron;font-size:0.65em;color:#4a6a8a;">#' + t.jobId + '</div>';
+          html += '<div style="flex:1;color:#c0d8f0;font-weight:600;">' + t.customer + '</div>';
+          html += '<div style="flex:1;color:#4a6a8a;font-size:0.85em;">' + t.address + '</div>';
+          html += '<div style="min-width:100px;color:#a855f7;">' + (t.tech || 'Unassigned') + '</div>';
+          html += '<div class="badge" style="color:' + sColor + ';border-color:' + sColor + '40;">' + t.status.toUpperCase() + '</div>';
+          html += '</div>';
+        });
+      });
+      html += '</div>';
+    }
 
     // Tech performance
     var techEntries = Object.entries(tk.tasksByTech).sort(function(a, b) { return b[1].completed - a[1].completed; });
