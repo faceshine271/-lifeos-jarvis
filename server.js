@@ -1464,6 +1464,7 @@ async function buildBusinessContext() {
         var monthRevenue = 0, monthProfit = 0;
         var dailyRevenue = [], dailyProfit = [], dailyAds = [];
         var techPayouts = {}, receptionistPayouts = {}, adminPayouts = {};
+        var techPayoutsDaily = {};
         
         for (var pr = 1; pr < profitRows.length; pr++) {
           var pRow = profitRows[pr];
@@ -1504,6 +1505,12 @@ async function buildBusinessContext() {
                      'talon twiford','michael scutti','maxx fritts','corey roberson','robert hummer','ashton hawley',
                      'brandi butler','trent kennedy','keith'].indexOf(pLabel) >= 0) {
             techPayouts[pRow[0]] = rowTotal;
+            // Store daily values for this tech (col 1 = day 1, col 2 = day 2, etc.)
+            var dailyArr = [];
+            for (var td2 = 1; td2 < pRow.length; td2++) {
+              dailyArr.push(parseFloat((pRow[td2] || '0').toString().replace(/[$,]/g, '')) || 0);
+            }
+            techPayoutsDaily[pRow[0]] = dailyArr;
           }
         }
         
@@ -1544,30 +1551,80 @@ async function buildBusinessContext() {
           currentMonth: currentMonthTab, revenue: monthRevenue, expenses: totalExpenses,
           profit: monthProfit, margin: monthRevenue > 0 ? ((monthProfit / monthRevenue) * 100).toFixed(1) : "0",
           expenseBreakdown: monthExpenses, techPayouts: techPayouts,
+          techPayoutsDaily: techPayoutsDaily, currentDay: today2.getDate(),
           adminPayouts: adminPayouts, receptionistPayouts: receptionistPayouts,
           dailyRevenue: dailyRevenue, dailyProfit: dailyProfit, dailyAds: dailyAds,
           avgDailyRev: avgDailyRev, avgDailyAds: avgDailyAds,
         };
       }
       
-      // Yearly totals
-      try {
-        var yearTab = "Total " + today2.getFullYear();
-        var yearRes = await sheets.spreadsheets.values.get({
-          spreadsheetId: PROFIT_SPREADSHEET_ID,
-          range: "'" + yearTab + "'!A1:B20",
-          valueRenderOption: 'FORMATTED_VALUE',
-        });
-        var yearRows = yearRes.data.values || [];
-        if (yearRows.length > 0) {
-          context += "\nYEARLY TOTALS — " + today2.getFullYear() + ":\n";
-          for (var yr2 = 1; yr2 < yearRows.length; yr2++) {
-            var yLabel = (yearRows[yr2][0] || '').toString().trim();
-            var yVal = (yearRows[yr2][1] || '').toString().trim();
-            if (yLabel && yVal) context += "  " + yLabel + ": $" + yVal + "\n";
+      // Yearly totals — read current + all previous years for financial history
+      var yearlyTechPayouts = {};
+      var financialHistory = { years: {}, months: {} };
+      var startYear = 2024;
+      var curYear = today2.getFullYear();
+      var techNameList = ['justin turner','victor romero','alexander fernandez','tony reynolds','kurt nowicki',
+                   'talon twiford','michael scutti','maxx fritts','corey roberson','robert hummer','ashton hawley',
+                   'brandi butler','trent kennedy','keith'];
+      var monthNames4 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+      for (var fy = startYear; fy <= curYear; fy++) {
+        try {
+          var yearTab = "Total " + fy;
+          var yearRes = await sheets.spreadsheets.values.get({
+            spreadsheetId: PROFIT_SPREADSHEET_ID,
+            range: "'" + yearTab + "'!A1:N55",
+            valueRenderOption: 'FORMATTED_VALUE',
+          });
+          var yearRows = yearRes.data.values || [];
+          if (yearRows.length > 1) {
+            var yearData = { revenue: 0, profit: 0, expenses: 0, ads: 0, techLabor: 0, receptionistLabor: 0, adminLabor: 0, refunds: 0, parts: 0, processing: 0, apps: 0, monthlyRevenue: [], monthlyProfit: [], monthlyAds: [] };
+            for (var yr2 = 1; yr2 < yearRows.length; yr2++) {
+              var yLabel = (yearRows[yr2][0] || '').toString().trim();
+              var yLabelLower = yLabel.toLowerCase();
+              var yRowTotal = 0, yMonthVals = [];
+              for (var yc = 1; yc < yearRows[yr2].length; yc++) {
+                var yv = parseFloat((yearRows[yr2][yc] || '0').toString().replace(/[$,]/g, ''));
+                if (isNaN(yv)) yv = 0;
+                yRowTotal += yv; yMonthVals.push(yv);
+              }
+              if (yLabelLower === 'total collected') { yearData.revenue = yRowTotal; yearData.monthlyRevenue = yMonthVals; }
+              else if (yLabelLower === 'profit') { yearData.profit = yRowTotal; yearData.monthlyProfit = yMonthVals; }
+              else if (yLabelLower === 'ads') { yearData.ads = yRowTotal; yearData.monthlyAds = yMonthVals; }
+              else if (yLabelLower === 'tech total') yearData.techLabor = yRowTotal;
+              else if (yLabelLower === 'receptionist total') yearData.receptionistLabor = yRowTotal;
+              else if (yLabelLower === 'admin total') yearData.adminLabor = yRowTotal;
+              else if (yLabelLower === 'manager total') yearData.adminLabor += yRowTotal;
+              else if (yLabelLower === 'refunds by amount') yearData.refunds = yRowTotal;
+              else if (yLabelLower === 'amazon (parts)' || yLabelLower === 'receipts') yearData.parts += yRowTotal;
+              else if (yLabelLower === 'payment processing fees') yearData.processing = yRowTotal;
+              else if (yLabelLower === 'app total') yearData.apps = yRowTotal;
+              if (fy === curYear && techNameList.indexOf(yLabelLower) >= 0 && yRowTotal > 0) yearlyTechPayouts[yLabel] = yRowTotal;
+            }
+            yearData.expenses = yearData.revenue - yearData.profit;
+            yearData.margin = yearData.revenue > 0 ? Math.round((yearData.profit / yearData.revenue) * 1000) / 10 : 0;
+            financialHistory.years[fy] = yearData;
+            context += "\nYEARLY — " + fy + ": Rev $" + yearData.revenue.toFixed(0) + " | Profit $" + yearData.profit.toFixed(0) + " | Margin " + yearData.margin + "%\n";
+            for (var mi2 = 0; mi2 < Math.min(12, yearData.monthlyRevenue.length); mi2++) {
+              var mRev2 = yearData.monthlyRevenue[mi2] || 0, mProf2 = yearData.monthlyProfit[mi2] || 0, mAds2 = yearData.monthlyAds[mi2] || 0;
+              if (mRev2 > 0 || mProf2 !== 0) {
+                financialHistory.months[monthNames4[mi2] + ' ' + fy] = { revenue: mRev2, profit: mProf2, ads: mAds2, expenses: mRev2 - mProf2, margin: mRev2 > 0 ? Math.round((mProf2 / mRev2) * 1000) / 10 : 0 };
+              }
+            }
           }
-        }
-      } catch(ye) {}
+        } catch(ye2) { console.log("Year " + fy + " tab: " + ye2.message); }
+      }
+      // Today / this week from daily data
+      var todayRev = dailyRevenue[today2.getDate() - 1] || 0, todayProf = dailyProfit[today2.getDate() - 1] || 0, todayAd = dailyAds[today2.getDate() - 1] || 0;
+      var weekRev = 0, weekProf = 0, weekAds2 = 0;
+      for (var wd = Math.max(0, today2.getDate() - 7); wd < today2.getDate(); wd++) { weekRev += dailyRevenue[wd] || 0; weekProf += dailyProfit[wd] || 0; weekAds2 += dailyAds[wd] || 0; }
+      financialHistory.today = { revenue: todayRev, profit: todayProf, ads: todayAd, expenses: todayRev - todayProf, margin: todayRev > 0 ? Math.round((todayProf / todayRev) * 1000) / 10 : 0 };
+      financialHistory.thisWeek = { revenue: weekRev, profit: weekProf, ads: weekAds2, expenses: weekRev - weekProf, margin: weekRev > 0 ? Math.round((weekProf / weekRev) * 1000) / 10 : 0 };
+      financialHistory.thisMonth = { revenue: monthRevenue, profit: monthProfit, ads: monthExpenses['Ads'] || 0, expenses: totalExpenses, margin: monthRevenue > 0 ? Math.round((monthProfit / monthRevenue) * 1000) / 10 : 0 };
+      var allTimeRev = 0, allTimeProf = 0, allTimeAds = 0;
+      Object.values(financialHistory.years).forEach(function(y) { allTimeRev += y.revenue; allTimeProf += y.profit; allTimeAds += y.ads; });
+      financialHistory.allTime = { revenue: allTimeRev, profit: allTimeProf, ads: allTimeAds, expenses: allTimeRev - allTimeProf, margin: allTimeRev > 0 ? Math.round((allTimeProf / allTimeRev) * 1000) / 10 : 0, startYear: startYear };
+      if (global.profitMetrics) { global.profitMetrics.yearlyTechPayouts = yearlyTechPayouts; global.profitMetrics.financialHistory = financialHistory; }
       
     } catch (pe) {
       context += "Error loading profit data: " + pe.message + "\n";
@@ -3831,6 +3888,33 @@ app.get('/dashboard', async function(req, res) {
     html += '.particle { position: fixed; width: 2px; height: 2px; background: #00d4ff; border-radius: 50%; pointer-events: none; z-index: 1; opacity: 0; animation: particleFloat 8s linear infinite; }';
     html += '@keyframes particleFloat { 0% { opacity: 0; transform: translateY(100vh); } 10% { opacity: 0.6; } 90% { opacity: 0.6; } 100% { opacity: 0; transform: translateY(-20vh); } }';
 
+    // Mobile responsive
+    html += '@media(max-width:768px){';
+    html += '.grid{grid-template-columns:1fr!important;padding:15px 12px!important;}';
+    html += '[style*="max-width:1400px"]{padding-left:12px!important;padding-right:12px!important;}';
+    html += '[style*="padding:0 40px"]{padding-left:12px!important;padding-right:12px!important;}';
+    html += '[style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr!important;}';
+    html += '[style*="grid-template-columns:repeat(4"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '[style*="minmax(300px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(280px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(200px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '[style*="minmax(180px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '[style*="minmax(170px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '.status-bar,.status-item{font-size:0.55em!important;}';
+    html += '[style*="display:flex"][style*="justify-content:center"][style*="gap"]{flex-wrap:wrap!important;}';
+    html += '[style*="font-size:2.8em"],[style*="font-size:3em"],[style*="font-size:2.5em"]{font-size:1.8em!important;}';
+    html += '[style*="font-size:1.6em"]{font-size:1.2em!important;}';
+    html += '[style*="letter-spacing:8px"],[style*="letter-spacing:6px"]{letter-spacing:3px!important;}';
+    html += 'table{font-size:0.7em!important;}';
+    html += '[style*="overflow-x"]{overflow-x:auto!important;-webkit-overflow-scrolling:touch;}';
+    html += '.tab-switcher,.tab-btn{font-size:0.55em!important;padding:10px 15px!important;}';
+    html += '}';
+    html += '@media(max-width:480px){';
+    html += '[style*="minmax(200px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(180px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(150px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '}';
+
     html += '</style></head><body>';
 
     // ====== TAB SWITCHER ======
@@ -4009,6 +4093,7 @@ app.get('/dashboard', async function(req, res) {
     html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ATHENA</a>';
     html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
+    html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -5384,22 +5469,65 @@ app.get('/dashboard', async function(req, res) {
         html += '</div>';
       }
       
-      // Tech payouts section
+      // Tech payouts section with time period dropdown
       var tPayouts = pm.techPayouts || {};
+      var tpDaily2 = pm.techPayoutsDaily || {};
+      var tpYearly2 = pm.yearlyTechPayouts || {};
+      var curDay2 = pm.currentDay || new Date().getDate();
       var tpSorted = Object.entries(tPayouts).sort(function(a,b){return b[1]-a[1];});
       if (tpSorted.length > 0) {
-        var maxTP = tpSorted[0][1] || 1;
+        var tpPeriods2 = { daily: {}, weekly: {}, monthly: {}, yearly: {} };
+        Object.keys(tPayouts).forEach(function(name) {
+          var days2 = tpDaily2[name] || [];
+          var di2 = curDay2 - 1;
+          tpPeriods2.daily[name] = di2 < days2.length ? days2[di2] : 0;
+          var wk2 = 0;
+          for (var w2 = Math.max(0, di2 - 6); w2 <= di2 && w2 < days2.length; w2++) { wk2 += days2[w2]; }
+          tpPeriods2.weekly[name] = wk2;
+          tpPeriods2.monthly[name] = tPayouts[name] || 0;
+          tpPeriods2.yearly[name] = tpYearly2[name] || tPayouts[name] || 0;
+        });
+
         html += '<div style="margin-bottom:15px;">';
-        html += '<div style="color:#4a6a8a;font-size:0.75em;font-family:Orbitron;letter-spacing:2px;margin-bottom:8px;">TECH PAYOUTS</div>';
+        html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">';
+        html += '<div style="color:#4a6a8a;font-size:0.75em;font-family:Orbitron;letter-spacing:2px;">TECH PAYOUTS</div>';
+        html += '<select id="tp-period2" onchange="updateTP2()" style="font-family:Orbitron;font-size:0.45em;letter-spacing:2px;padding:5px 10px;background:#0a1520;color:#00ff66;border:1px solid #00ff6630;cursor:pointer;outline:none;">';
+        html += '<option value="monthly" selected>MONTHLY</option>';
+        html += '<option value="daily">TODAY</option>';
+        html += '<option value="weekly">THIS WEEK</option>';
+        html += '<option value="yearly">YEARLY</option>';
+        html += '</select></div>';
+        html += '<div id="tp-bars2">';
+        var maxTP = tpSorted[0][1] || 1;
         tpSorted.forEach(function(tp) {
           if (tp[1] <= 0) return;
           var tpPct = Math.round((tp[1] / maxTP) * 100);
-          html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:3px;">';
-          html += '<div style="width:140px;text-align:right;color:#c0d8f0;font-size:0.85em;font-weight:600;">' + tp[0] + '</div>';
-          html += '<div style="flex:1;height:22px;background:#0a1520;"><div style="height:100%;width:' + tpPct + '%;background:linear-gradient(90deg,#00ff6640,#00ff66);display:flex;align-items:center;justify-content:flex-end;padding-right:5px;"></div></div>';
-          html += '<div style="width:80px;text-align:right;color:#00ff66;font-weight:700;">$' + tp[1].toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + '</div>';
+          html += '<div class="tp-row2" style="display:flex;align-items:center;gap:10px;margin-bottom:3px;">';
+          html += '<div style="width:140px;text-align:right;color:#c0d8f0;font-size:0.85em;font-weight:600;" class="tp-name2">' + escapeHtml(tp[0]) + '</div>';
+          html += '<div style="flex:1;height:22px;background:#0a1520;"><div class="tp-bar2" style="height:100%;width:' + tpPct + '%;background:linear-gradient(90deg,#00ff6640,#00ff66);"></div></div>';
+          html += '<div style="width:80px;text-align:right;color:#00ff66;font-weight:700;" class="tp-amt2">$' + tp[1].toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + '</div>';
           html += '</div>';
         });
+        html += '</div>';
+        html += '<script>';
+        html += 'var tpData2=' + JSON.stringify(tpPeriods2) + ';';
+        html += 'function updateTP2(){';
+        html += '  var p=document.getElementById("tp-period2").value;';
+        html += '  var d=tpData2[p]||{};';
+        html += '  var sorted=Object.entries(d).sort(function(a,b){return b[1]-a[1];});';
+        html += '  var cont=document.getElementById("tp-bars2");';
+        html += '  cont.innerHTML="";';
+        html += '  var mx=sorted.length>0?sorted[0][1]:1;if(mx<=0)mx=1;';
+        html += '  sorted.forEach(function(t){';
+        html += '    if(t[1]<=0)return;';
+        html += '    var pct=Math.round((t[1]/mx)*100);';
+        html += '    var row=document.createElement("div");';
+        html += '    row.style.cssText="display:flex;align-items:center;gap:10px;margin-bottom:3px;";';
+        html += '    row.innerHTML=\'<div style="width:140px;text-align:right;color:#c0d8f0;font-size:0.85em;font-weight:600;">\'+t[0]+\'</div><div style="flex:1;height:22px;background:#0a1520;"><div style="height:100%;width:\'+pct+\'%;background:linear-gradient(90deg,#00ff6640,#00ff66);"></div></div><div style="width:80px;text-align:right;color:#00ff66;font-weight:700;">$\'+Math.round(t[1]).toLocaleString()+\'</div>\';';
+        html += '    cont.appendChild(row);';
+        html += '  });';
+        html += '}';
+        html += '<\/script>';
         html += '</div>';
       }
       
@@ -6027,6 +6155,16 @@ app.get('/dashboard', async function(req, res) {
 
     html += '<\/script>';
 
+    // Mobile padding fix
+    html += '<script>';
+    html += 'if(window.innerWidth<=768){document.querySelectorAll("[style]").forEach(function(el){';
+    html += '  var s=el.getAttribute("style")||"";';
+    html += '  if(s.indexOf("0 40px")>-1||s.indexOf("0px 40px")>-1){el.style.paddingLeft="12px";el.style.paddingRight="12px";}';
+    html += '  if(s.indexOf("repeat(3,")>-1||s.indexOf("repeat(3, ")>-1){el.style.gridTemplateColumns="1fr";}';
+    html += '  if(s.indexOf("repeat(4,")>-1||s.indexOf("repeat(4, ")>-1){el.style.gridTemplateColumns="repeat(2,1fr)";}';
+    html += '});}';
+    html += '<\/script>';
+
     html += '</body></html>';
     res.send(html);
   } catch (err) {
@@ -6187,6 +6325,39 @@ app.get('/business', async function(req, res) {
     // Modal
     html += '#tab-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(2,8,16,0.95); z-index:100; overflow-y:auto; }';
 
+    // Mobile responsive
+    html += '@media(max-width:768px){';
+    html += '.grid{grid-template-columns:repeat(2,1fr)!important;padding:15px 12px!important;gap:10px!important;}';
+    html += '.section{padding-left:12px!important;padding-right:12px!important;}';
+    html += '.card{padding:15px!important;}';
+    html += '.card .value{font-size:2em!important;}';
+    html += '[style*="max-width:1400px"]{padding-left:12px!important;padding-right:12px!important;}';
+    html += '[style*="padding:0 40px"]{padding-left:12px!important;padding-right:12px!important;}';
+    html += '[style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr!important;}';
+    html += '[style*="grid-template-columns:repeat(4"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '[style*="minmax(300px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(280px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(200px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '[style*="minmax(180px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '[style*="minmax(170px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '.status-bar{gap:10px!important;} .status-item{font-size:0.6em!important;}';
+    html += '.loc-chip{font-size:0.7em!important;padding:6px 8px!important;}';
+    html += '[style*="display:flex"][style*="justify-content:center"][style*="gap:0"]{flex-wrap:wrap!important;}';
+    html += '[style*="font-size:2.8em"],[style*="font-size:3em"],[style*="font-size:2.5em"]{font-size:1.6em!important;}';
+    html += '[style*="font-size:1.6em"]{font-size:1.1em!important;}';
+    html += '[style*="letter-spacing:8px"],[style*="letter-spacing:6px"],[style*="letter-spacing:5px"]{letter-spacing:2px!important;}';
+    html += 'table{font-size:0.65em!important;} th,td{padding:5px 4px!important;}';
+    html += '[style*="overflow-x"]{overflow-x:auto!important;-webkit-overflow-scrolling:touch;}';
+    html += 'select,input[type="text"]{font-size:0.55em!important;max-width:120px;}';
+    html += '[style*="display:flex"][style*="flex-wrap:wrap"][style*="gap:8px"]{gap:5px!important;}';
+    html += '}';
+    html += '@media(max-width:480px){';
+    html += '.grid{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(200px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(180px"]{grid-template-columns:1fr!important;}';
+    html += '[style*="minmax(150px"]{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '}';
+
     html += '</style></head><body>';
 
     // Background effects
@@ -6218,8 +6389,9 @@ app.get('/business', async function(req, res) {
     html += '<a href="/dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">JARVIS</a>';
     html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#a855f7;border:1px solid #a855f740;text-decoration:none;background:rgba(168,85,247,0.1);box-shadow:0 0 15px rgba(168,85,247,0.1);">ATHENA</a>';
     html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
+    html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
+    html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '</div>';
-    // Compute best tech count from all sources
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
     techs.forEach(function(t) { allTechNames[t.split(':')[0].trim().toLowerCase()] = true; });
@@ -6449,6 +6621,63 @@ app.get('/business', async function(req, res) {
     Object.keys(tk.tasksByTech || {}).forEach(function(t) { allKnownTechs[t.toLowerCase()] = t; });
     (bm.techList || []).forEach(function(t) { if (t.name) allKnownTechs[t.name.toLowerCase()] = t.name; });
     var bestTechCount = Object.keys(allKnownTechs).length;
+
+    // Debug: log tech detection sources
+    var staffedCount = Object.keys(techByLocation).filter(function(k) { return techByLocation[k].length > 0; }).length;
+    console.log('Tech-Location mapping: ' + staffedCount + ' locations staffed out of ' + Object.keys(locStats).length + ' total. Sources: CRM techStats=' + Object.keys(techPerf2).length + ', Tookan agents=' + (tk.agents||[]).length + ', techList=' + (bm.techList||[]).length + ', allKnownTechs=' + bestTechCount);
+
+    // Source 5: Active Locations & HR sheet (opsData tabs = location names with tech data)
+    Object.entries(opsData).forEach(function(section) {
+      var sKey = section[0];
+      // Match sections from Active Locations & HR sheet
+      if (sKey.toLowerCase().includes('active location') || sKey.toLowerCase().includes('locations & hr')) {
+        var tabName = sKey.includes(' / ') ? sKey.split(' / ').slice(1).join(' / ').trim() : '';
+        if (tabName && tabName.length > 2) {
+          // This tab name is likely a location name — match to locStats
+          var tabLower = tabName.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+          Object.keys(locStats).forEach(function(loc) {
+            var locCity = loc.split(',')[0].toLowerCase().trim();
+            if (tabLower.indexOf(locCity) !== -1 || locCity.indexOf(tabLower) !== -1 ||
+                (tabLower.length > 4 && locCity.indexOf(tabLower.substring(0,5)) !== -1)) {
+              if (!techByLocation[loc]) techByLocation[loc] = [];
+              // Try to extract tech name from first few rows
+              var rows = section[1].rows || [];
+              rows.slice(0, 10).forEach(function(row) {
+                var rowLower = (row || '').toLowerCase();
+                if (rowLower.includes('tech') || rowLower.includes('assigned') || rowLower.includes('agent')) {
+                  var parts = row.split('|').map(function(p) { return p.trim(); });
+                  parts.forEach(function(p) {
+                    if (p.length > 2 && p.length < 40 && !p.toLowerCase().includes('tech') && !p.toLowerCase().includes('assign') && !p.toLowerCase().includes('agent') && !p.toLowerCase().includes('name') && /^[A-Z]/.test(p)) {
+                      if (techByLocation[loc].indexOf(p) === -1) techByLocation[loc].push(p);
+                    }
+                  });
+                }
+              });
+              if (techByLocation[loc].length === 0) techByLocation[loc] = ['(Assigned)'];
+            }
+          });
+        }
+        // Also scan row content for city names that match locStats
+        var rows2 = section[1].rows || [];
+        rows2.forEach(function(row) {
+          Object.keys(locStats).forEach(function(loc) {
+            var locCity = loc.split(',')[0].trim();
+            if (locCity.length > 3 && row.indexOf(locCity) !== -1 && !techByLocation[loc]) {
+              techByLocation[loc] = ['(Assigned)'];
+            }
+          });
+        });
+      }
+    });
+
+    // Source 6: If a location has many total jobs, it almost certainly has a tech
+    // (Locations don't accumulate jobs without a tech to service them)
+    // Mark any location with 10+ total jobs as likely staffed if no other source found it
+    Object.entries(locStats).forEach(function(ls) {
+      if (!techByLocation[ls[0]] && ls[1].total >= 10) {
+        techByLocation[ls[0]] = ['(Active)'];
+      }
+    });
     var locEntries = Object.entries(locStats).sort(function(a,b){return b[1].total-a[1].total;});
     locEntries.forEach(function(loc) {
       var techs2 = techByLocation[loc[0]] || [];
@@ -6566,18 +6795,64 @@ app.get('/business', async function(req, res) {
         html += '</div>';
       }
 
-      // Tech payouts
-      var techPay = Object.entries(pm.techPayouts || {}).sort(function(a,b){return b[1]-a[1];});
-      if (techPay.length > 0) {
-        html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:3px;margin-bottom:10px;">TECH PAYOUTS</div>';
-        html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:15px;">';
-        techPay.forEach(function(t) {
-          html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:10px;display:flex;justify-content:space-between;align-items:center;">';
-          html += '<span style="color:#c0d8f0;font-weight:600;">' + t[0] + '</span>';
-          html += '<span style="font-family:Orbitron;font-size:0.85em;color:#00ff66;">$' + Math.round(t[1]).toLocaleString() + '</span>';
+      // Tech payouts with time period dropdown
+      var techPayDaily = pm.techPayoutsDaily || {};
+      var techPayYearly = pm.yearlyTechPayouts || {};
+      var curDay = pm.currentDay || new Date().getDate();
+      var techNames = Object.keys(pm.techPayouts || {});
+      if (techNames.length > 0) {
+        // Compute daily, weekly, monthly for each tech
+        var techPeriods = { daily: {}, weekly: {}, monthly: {}, yearly: {} };
+        techNames.forEach(function(name) {
+          var days = techPayDaily[name] || [];
+          var dayIdx = curDay - 1; // 0-indexed
+          techPeriods.daily[name] = dayIdx < days.length ? days[dayIdx] : 0;
+          var weekTotal = 0;
+          for (var w = Math.max(0, dayIdx - 6); w <= dayIdx && w < days.length; w++) { weekTotal += days[w]; }
+          techPeriods.weekly[name] = weekTotal;
+          techPeriods.monthly[name] = pm.techPayouts[name] || 0;
+          techPeriods.yearly[name] = techPayYearly[name] || pm.techPayouts[name] || 0;
+        });
+
+        html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">';
+        html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:3px;">TECH PAYOUTS</div>';
+        html += '<select id="tp-period" onchange="updateTechPayouts()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:2px;padding:6px 12px;background:#0a1520;color:#00ff66;border:1px solid #00ff6630;cursor:pointer;outline:none;">';
+        html += '<option value="monthly" selected>MONTHLY</option>';
+        html += '<option value="daily">TODAY</option>';
+        html += '<option value="weekly">THIS WEEK</option>';
+        html += '<option value="yearly">YEARLY</option>';
+        html += '</select>';
+        html += '</div>';
+
+        html += '<div id="tp-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:15px;">';
+        // Render monthly by default (JS will swap)
+        var monthSorted = Object.entries(techPeriods.monthly).sort(function(a,b){return b[1]-a[1];});
+        monthSorted.forEach(function(t) {
+          html += '<div class="tp-card" style="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:10px;display:flex;justify-content:space-between;align-items:center;">';
+          html += '<span style="color:#c0d8f0;font-weight:600;">' + escapeHtml(t[0]) + '</span>';
+          html += '<span class="tp-val" style="font-family:Orbitron;font-size:0.85em;color:#00ff66;">$' + Math.round(t[1]).toLocaleString() + '</span>';
           html += '</div>';
         });
         html += '</div>';
+
+        // Inject period data as JSON for client-side switching
+        html += '<script>';
+        html += 'var tpData=' + JSON.stringify(techPeriods) + ';';
+        html += 'function updateTechPayouts(){';
+        html += '  var p=document.getElementById("tp-period").value;';
+        html += '  var d=tpData[p]||{};';
+        html += '  var sorted=Object.entries(d).sort(function(a,b){return b[1]-a[1];});';
+        html += '  var grid=document.getElementById("tp-grid");';
+        html += '  grid.innerHTML="";';
+        html += '  sorted.forEach(function(t){';
+        html += '    var card=document.createElement("div");';
+        html += '    card.className="tp-card";';
+        html += '    card.style.cssText="background:rgba(10,20,35,0.6);border:1px solid #00ff6610;padding:10px;display:flex;justify-content:space-between;align-items:center;";';
+        html += '    card.innerHTML=\'<span style="color:#c0d8f0;font-weight:600;">\'+t[0]+\'</span><span class="tp-val" style="font-family:Orbitron;font-size:0.85em;color:#00ff66;">$\'+Math.round(t[1]).toLocaleString()+\'</span>\';';
+        html += '    grid.appendChild(card);';
+        html += '  });';
+        html += '}';
+        html += '<\/script>';
       }
 
       // Ad ROI
@@ -6591,6 +6866,147 @@ app.get('/business', async function(req, res) {
         html += '</div>';
       }
       html += '</div>';
+    }
+
+    // ====== 3.5 FINANCIAL HISTORY — ALL TIME ======
+    var fh = (pm || {}).financialHistory || {};
+    if (fh.allTime && fh.allTime.revenue > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:15px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.9em;letter-spacing:5px;color:#ffd700;text-transform:uppercase;display:flex;align-items:center;gap:10px;"><span style="width:10px;height:10px;background:#ffd700;border-radius:50%;box-shadow:0 0 12px #ffd700;display:inline-block;"></span>FINANCIAL HISTORY</div>';
+      html += '<select id="fh-period" onchange="updateFH()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:2px;padding:6px 14px;background:#0a1520;color:#ffd700;border:1px solid #ffd70040;cursor:pointer;outline:none;">';
+      html += '<option value="allTime">ALL TIME (Since ' + (fh.allTime.startYear || 2024) + ')</option>';
+      html += '<option value="thisYear">THIS YEAR (' + new Date().getFullYear() + ')</option>';
+      var fhYears = Object.keys(fh.years || {}).sort().reverse();
+      fhYears.forEach(function(y) { if (parseInt(y) < new Date().getFullYear()) html += '<option value="year-' + y + '">' + y + '</option>'; });
+      html += '<option value="thisMonth" selected>THIS MONTH</option>';
+      html += '<option value="thisWeek">THIS WEEK</option>';
+      html += '<option value="today">TODAY</option>';
+      // Add individual months
+      var fhMonths = Object.keys(fh.months || {}).reverse();
+      fhMonths.forEach(function(m) { html += '<option value="month-' + m.replace(/ /g,'_') + '">' + m.toUpperCase() + '</option>'; });
+      html += '</select>';
+      html += '</div>';
+
+      // Build all period data for client-side switching
+      var fhPeriods = {};
+      fhPeriods.allTime = fh.allTime;
+      fhPeriods.today = fh.today || {};
+      fhPeriods.thisWeek = fh.thisWeek || {};
+      fhPeriods.thisMonth = fh.thisMonth || {};
+      fhPeriods.thisYear = (fh.years || {})[new Date().getFullYear()] || {};
+      fhYears.forEach(function(y) { fhPeriods['year-' + y] = fh.years[y] || {}; });
+      fhMonths.forEach(function(m) { fhPeriods['month-' + m.replace(/ /g,'_')] = fh.months[m]; });
+
+      // Default display = this month
+      var fhDefault = fhPeriods.thisMonth || fhPeriods.allTime || {};
+
+      html += '<div id="fh-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:15px;">';
+      var fhMetrics = [
+        { label: 'REVENUE', key: 'revenue', color: '#00ff66', prefix: '$' },
+        { label: 'PROFIT', key: 'profit', color: '#ffd700', prefix: '$' },
+        { label: 'EXPENSES', key: 'expenses', color: '#ff4757', prefix: '$' },
+        { label: 'MARGIN', key: 'margin', color: '#a855f7', suffix: '%' },
+        { label: 'AD SPEND', key: 'ads', color: '#00d4ff', prefix: '$' },
+        { label: 'TECH LABOR', key: 'techLabor', color: '#55f7d8', prefix: '$' },
+      ];
+      fhMetrics.forEach(function(m) {
+        var val = fhDefault[m.key] || 0;
+        var display = (m.prefix || '') + (Math.abs(val) >= 1000 ? Math.round(val).toLocaleString() : (typeof val === 'number' ? val.toFixed(val < 100 ? 1 : 0) : val)) + (m.suffix || '');
+        html += '<div class="fh-card" style="background:rgba(10,20,35,0.8);border:1px solid ' + m.color + '15;padding:16px;">';
+        html += '<div style="color:#4a6a8a;font-size:0.55em;font-family:Orbitron;letter-spacing:2px;">' + m.label + '</div>';
+        html += '<div class="fh-val" data-key="' + m.key + '" style="color:' + m.color + ';font-size:1.6em;font-weight:900;font-family:Orbitron;">' + display + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+
+      // Monthly trend chart (revenue + profit bars)
+      var trendMonths = Object.keys(fh.months || {});
+      if (trendMonths.length > 1) {
+        var lastN = trendMonths.slice(-12);
+        var maxTrendRev = 1;
+        lastN.forEach(function(m) { var r = (fh.months[m] || {}).revenue || 0; if (r > maxTrendRev) maxTrendRev = r; });
+        html += '<div style="margin-bottom:10px;color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:3px;">MONTHLY TREND</div>';
+        html += '<div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-bottom:5px;">';
+        lastN.forEach(function(m) {
+          var md = fh.months[m] || {};
+          var rH = maxTrendRev > 0 ? Math.max(3, Math.round((md.revenue / maxTrendRev) * 100)) : 3;
+          var pH = maxTrendRev > 0 ? Math.max(1, Math.round((Math.max(0, md.profit) / maxTrendRev) * 100)) : 1;
+          html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;">';
+          html += '<div style="color:#4a6a8a;font-size:0.5em;">$' + Math.round((md.revenue || 0) / 1000) + 'k</div>';
+          html += '<div style="width:100%;display:flex;gap:2px;align-items:flex-end;justify-content:center;flex:1;">';
+          html += '<div style="width:45%;height:' + rH + '%;background:linear-gradient(180deg,#00ff6680,#00ff6620);min-height:2px;"></div>';
+          html += '<div style="width:45%;height:' + pH + '%;background:linear-gradient(180deg,#ffd70080,#ffd70020);min-height:2px;"></div>';
+          html += '</div>';
+          html += '<div style="color:#4a6a8a;font-size:0.4em;font-family:Orbitron;white-space:nowrap;">' + m.split(' ')[0] + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+        html += '<div style="display:flex;gap:15px;justify-content:center;margin-bottom:15px;">';
+        html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:4px;background:#00ff66;"></div><span style="color:#4a6a8a;font-size:0.7em;">Revenue</span></div>';
+        html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:4px;background:#ffd700;"></div><span style="color:#4a6a8a;font-size:0.7em;">Profit</span></div>';
+        html += '</div>';
+      }
+
+      // Year-over-year comparison
+      var fhYearKeys = Object.keys(fh.years || {}).sort();
+      if (fhYearKeys.length >= 2) {
+        html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.55em;letter-spacing:3px;margin-bottom:10px;">YEAR OVER YEAR</div>';
+        html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.8em;">';
+        html += '<thead><tr style="border-bottom:2px solid #ffd70020;">';
+        html += '<th style="padding:8px;text-align:left;color:#ffd700;font-family:Orbitron;font-size:0.65em;letter-spacing:2px;">METRIC</th>';
+        fhYearKeys.forEach(function(y) { html += '<th style="padding:8px;text-align:right;color:#ffd700;font-family:Orbitron;font-size:0.65em;">' + y + '</th>'; });
+        if (fhYearKeys.length >= 2) html += '<th style="padding:8px;text-align:right;color:#ffd700;font-family:Orbitron;font-size:0.65em;">YoY CHANGE</th>';
+        html += '</tr></thead><tbody>';
+        var yoyMetrics = [
+          { label: 'Revenue', key: 'revenue', color: '#00ff66' },
+          { label: 'Profit', key: 'profit', color: '#ffd700' },
+          { label: 'Expenses', key: 'expenses', color: '#ff4757' },
+          { label: 'Margin', key: 'margin', color: '#a855f7', suffix: '%' },
+          { label: 'Ad Spend', key: 'ads', color: '#00d4ff' },
+          { label: 'Tech Labor', key: 'techLabor', color: '#55f7d8' },
+          { label: 'Receptionist', key: 'receptionistLabor', color: '#ff9f43' },
+        ];
+        yoyMetrics.forEach(function(m, mi3) {
+          var bg = mi3 % 2 === 0 ? 'rgba(10,20,35,0.4)' : 'transparent';
+          html += '<tr style="background:' + bg + ';border-bottom:1px solid #1a2a3a10;">';
+          html += '<td style="padding:6px 8px;color:' + m.color + ';font-weight:600;">' + m.label + '</td>';
+          var prevVal = 0;
+          fhYearKeys.forEach(function(y) {
+            var v = (fh.years[y] || {})[m.key] || 0;
+            var fmt = m.suffix === '%' ? v + '%' : '$' + Math.round(v).toLocaleString();
+            html += '<td style="padding:6px 8px;text-align:right;color:#c0d8f0;">' + fmt + '</td>';
+            prevVal = v;
+          });
+          if (fhYearKeys.length >= 2) {
+            var last = (fh.years[fhYearKeys[fhYearKeys.length - 1]] || {})[m.key] || 0;
+            var prev2 = (fh.years[fhYearKeys[fhYearKeys.length - 2]] || {})[m.key] || 0;
+            var chg = prev2 > 0 ? Math.round(((last - prev2) / Math.abs(prev2)) * 100) : 0;
+            var chgColor = m.key === 'expenses' || m.key === 'ads' ? (chg > 0 ? '#ff4757' : '#00ff66') : (chg > 0 ? '#00ff66' : '#ff4757');
+            html += '<td style="padding:6px 8px;text-align:right;color:' + chgColor + ';font-weight:700;">' + (chg >= 0 ? '+' : '') + chg + '%</td>';
+          }
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+
+      html += '</div>';
+
+      // Client-side period switcher
+      html += '<script>';
+      html += 'var fhAll=' + JSON.stringify(fhPeriods) + ';';
+      html += 'function updateFH(){';
+      html += '  var p=document.getElementById("fh-period").value;';
+      html += '  var d=fhAll[p]||{};';
+      html += '  var cards=document.querySelectorAll(".fh-val");';
+      html += '  cards.forEach(function(el){';
+      html += '    var k=el.getAttribute("data-key");';
+      html += '    var v=d[k]||0;';
+      html += '    if(k==="margin") el.textContent=v+"%";';
+      html += '    else el.textContent="$"+(Math.abs(v)>=1000?Math.round(v).toLocaleString():v.toFixed(v<100?1:0));';
+      html += '  });';
+      html += '}';
+      html += '<\/script>';
     }
 
     // ====== 4. EXPANSION OPPORTUNITY MAP ======
@@ -6907,55 +7323,108 @@ app.get('/business', async function(req, res) {
 
     html += '</div>';
 
-    // ====== LOCATION TABLE ======
-    html += '<div style="background:rgba(10,20,35,0.9);border:1px solid #1a2a3a;overflow-x:auto;margin-bottom:20px;">';
-    html += '<table style="width:100%;border-collapse:collapse;font-size:0.78em;">';
+    // ====== LOCATION TABLE (filterable) ======
+    // Embed data as JSON for client-side filtering
+    var mktJSON = mktPerf.map(function(loc) {
+      var state = '';
+      if (loc.name.includes(',')) state = loc.name.split(',').pop().trim();
+      else if (loc.matched && loc.matched.includes(',')) state = loc.matched.split(',').pop().trim();
+      var act2 = '';
+      if (loc.share < 3 && loc.vol > 50) act2 = 'SCALE ADS';
+      else if (loc.share < 5 && loc.vol > 30) act2 = 'GROW SEO';
+      else if (loc.share > 10) act2 = 'OPTIMIZE';
+      else if (loc.vol === 0) act2 = 'UNMATCHED';
+      else act2 = 'MAINTAIN';
+      return { n: loc.name, c: loc.calls, a: loc.avg, g: loc.growth, r: loc.rev, s: loc.share, v: loc.vol, kd: loc.kd, cpc: loc.cpc, roi: loc.cpcROI, p: loc.potential, cap: loc.capture, m: loc.matched, st: state, act: act2 };
+    });
+
+    // Extract unique states
+    var stateSet = {};
+    mktJSON.forEach(function(l) { if (l.st && l.st.length === 2) stateSet[l.st] = true; });
+    var stateList = Object.keys(stateSet).sort();
+
+    html += '<div style="background:rgba(10,20,35,0.9);border:1px solid #1a2a3a;margin-bottom:20px;padding:12px;">';
+
+    // Filter bar
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center;">';
+    html += '<input id="mkt-search" type="text" placeholder="Search city..." oninput="filterMkt()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:1px;padding:7px 12px;background:#0a1520;color:#c0d8f0;border:1px solid #1a2a3a;outline:none;width:160px;">';
+    html += '<select id="mkt-state" onchange="filterMkt()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:1px;padding:7px 10px;background:#0a1520;color:#ffd700;border:1px solid #ffd70030;cursor:pointer;outline:none;">';
+    html += '<option value="">ALL STATES</option>';
+    stateList.forEach(function(s) { html += '<option value="' + s + '">' + s + '</option>'; });
+    html += '</select>';
+    html += '<select id="mkt-action" onchange="filterMkt()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:1px;padding:7px 10px;background:#0a1520;color:#ff9f43;border:1px solid #ff9f4330;cursor:pointer;outline:none;">';
+    html += '<option value="">ALL ACTIONS</option><option value="SCALE ADS">⚡ SCALE ADS</option><option value="GROW SEO">📈 GROW SEO</option><option value="OPTIMIZE">✅ OPTIMIZE</option><option value="UNMATCHED">❓ UNMATCHED</option><option value="MAINTAIN">🔄 MAINTAIN</option>';
+    html += '</select>';
+    html += '<select id="mkt-sort" onchange="filterMkt()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:1px;padding:7px 10px;background:#0a1520;color:#00d4ff;border:1px solid #00d4ff30;cursor:pointer;outline:none;">';
+    html += '<option value="rev">SORT: REVENUE</option><option value="calls">CALLS</option><option value="growth">GROWTH</option><option value="share">MARKET SHARE</option><option value="vol">SEO VOLUME</option><option value="potential">POTENTIAL</option><option value="kd">KEYWORD DIFF</option><option value="cpc">CPC</option>';
+    html += '</select>';
+    html += '<select id="mkt-min" onchange="filterMkt()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:1px;padding:7px 10px;background:#0a1520;color:#a855f7;border:1px solid #a855f730;cursor:pointer;outline:none;">';
+    html += '<option value="0">MIN: ALL</option><option value="5" selected>5+ CALLS</option><option value="10">10+ CALLS</option><option value="25">25+ CALLS</option><option value="50">50+ CALLS</option><option value="100">100+ CALLS</option>';
+    html += '</select>';
+    html += '<select id="mkt-show" onchange="filterMkt()" style="font-family:Orbitron;font-size:0.5em;letter-spacing:1px;padding:7px 10px;background:#0a1520;color:#00ff66;border:1px solid #00ff6630;cursor:pointer;outline:none;">';
+    html += '<option value="25" selected>SHOW 25</option><option value="50">SHOW 50</option><option value="100">SHOW 100</option><option value="9999">SHOW ALL</option>';
+    html += '</select>';
+    html += '<span id="mkt-count" style="color:#4a6a8a;font-size:0.75em;margin-left:auto;"></span>';
+    html += '</div>';
+
+    // Table container
+    html += '<div style="overflow-x:auto;"><table id="mkt-table" style="width:100%;border-collapse:collapse;font-size:0.78em;">';
     html += '<thead><tr style="border-bottom:2px solid #ffd70020;">';
     ['Location','Calls','Mo Avg','Growth','Est Rev','Share','Vol/Mo','KD','CPC','CPC ROI','Potential','Capture','Action'].forEach(function(h){
       html += '<th style="padding:10px 7px;text-align:left;color:#ffd700;font-family:Orbitron;font-size:0.6em;letter-spacing:1px;white-space:nowrap;">' + h + '</th>';
     });
-    html += '</tr></thead><tbody>';
+    html += '</tr></thead><tbody id="mkt-body"></tbody>';
+    html += '</table></div></div>';
 
-    mktPerf.forEach(function(loc, idx) {
-      var bg = idx % 2 === 0 ? 'rgba(10,20,35,0.4)' : 'transparent';
-      var sColor = loc.share > 10 ? '#00ff66' : loc.share > 5 ? '#ffd700' : loc.share > 0 ? '#ff9f43' : '#ff4757';
-      var gColor = loc.growth > 0 ? '#00ff66' : loc.growth < 0 ? '#ff4757' : '#4a6a8a';
-      var kdColor = loc.kd > 0 ? (loc.kd < 20 ? '#00ff66' : loc.kd < 30 ? '#ffd700' : '#ff9f43') : '#4a6a8a';
-      var act = '';
-      if (loc.share < 3 && loc.vol > 50) act = '\u26a1 SCALE ADS';
-      else if (loc.share < 5 && loc.vol > 30) act = '\ud83d\udcc8 GROW SEO';
-      else if (loc.share > 10) act = '\u2705 OPTIMIZE';
-      else if (loc.vol === 0) act = '\u2753 UNMATCHED';
-      else act = '\ud83d\udd04 MAINTAIN';
-
-      html += '<tr style="background:' + bg + ';border-bottom:1px solid #1a2a3a10;">';
-      html += '<td style="padding:8px 7px;"><div style="color:#c0d8f0;font-weight:600;white-space:nowrap;">' + loc.name + '</div>';
-      if (loc.matched) html += '<div style="color:#4a6a8a;font-size:0.8em;">' + loc.matched + '</div>';
-      html += '</td>';
-      html += '<td style="padding:8px 7px;color:#00d4ff;font-weight:700;">' + loc.calls + '</td>';
-      html += '<td style="padding:8px 7px;color:#c0d8f0;">' + loc.avg + '</td>';
-      html += '<td style="padding:8px 7px;color:' + gColor + ';font-weight:700;">' + (loc.growth >= 0 ? '+' : '') + loc.growth + '%</td>';
-      html += '<td style="padding:8px 7px;color:#00ff66;font-weight:700;">$' + loc.rev.toLocaleString() + '</td>';
-
-      // Share with bar
-      html += '<td style="padding:8px 7px;"><div style="display:flex;align-items:center;gap:5px;"><div style="width:40px;height:5px;background:#1a2a3a;border-radius:3px;"><div style="width:' + Math.min(loc.share, 100) + '%;height:100%;background:' + sColor + ';border-radius:3px;"></div></div><span style="color:' + sColor + ';font-weight:700;font-size:0.9em;">' + loc.share + '%</span></div></td>';
-
-      html += '<td style="padding:8px 7px;color:' + (loc.vol > 0 ? '#a855f7' : '#4a6a8a') + ';">' + (loc.vol > 0 ? loc.vol : '\u2014') + '</td>';
-      html += '<td style="padding:8px 7px;color:' + kdColor + ';">' + (loc.kd > 0 ? loc.kd : '\u2014') + '</td>';
-      html += '<td style="padding:8px 7px;color:' + (loc.cpc > 0 ? '#00d4ff' : '#4a6a8a') + ';font-weight:700;">' + (loc.cpc > 0 ? '$' + loc.cpc.toFixed(2) : '\u2014') + '</td>';
-
-      // CPC ROI (revenue per ad dollar)
-      html += '<td style="padding:8px 7px;color:' + (loc.cpcROI > 50 ? '#00ff66' : loc.cpcROI > 20 ? '#ffd700' : loc.cpcROI > 0 ? '#ff9f43' : '#4a6a8a') + ';">' + (loc.cpcROI > 0 ? loc.cpcROI + 'x' : '\u2014') + '</td>';
-
-      html += '<td style="padding:8px 7px;color:#ff9f43;">$' + (loc.potential > 999 ? Math.round(loc.potential/1000)+'K' : loc.potential) + '</td>';
-
-      // Capture bar
-      html += '<td style="padding:8px 7px;"><div style="display:flex;align-items:center;gap:5px;"><div style="width:35px;height:5px;background:#1a2a3a;border-radius:3px;"><div style="width:' + Math.min(loc.capture, 100) + '%;height:100%;background:#a855f7;border-radius:3px;"></div></div><span style="color:#a855f7;font-size:0.9em;">' + loc.capture + '%</span></div></td>';
-
-      html += '<td style="padding:8px 7px;font-size:0.85em;white-space:nowrap;">' + act + '</td>';
-      html += '</tr>';
-    });
-    html += '</tbody></table></div>';
+    // Client-side filter/sort logic
+    html += '<script>';
+    html += 'var mktData=' + JSON.stringify(mktJSON) + ';';
+    html += 'function filterMkt(){';
+    html += '  var q=(document.getElementById("mkt-search").value||"").toLowerCase();';
+    html += '  var st=document.getElementById("mkt-state").value;';
+    html += '  var act=document.getElementById("mkt-action").value;';
+    html += '  var sort=document.getElementById("mkt-sort").value;';
+    html += '  var min=parseInt(document.getElementById("mkt-min").value)||0;';
+    html += '  var show=parseInt(document.getElementById("mkt-show").value)||25;';
+    html += '  var filtered=mktData.filter(function(l){';
+    html += '    if(q&&l.n.toLowerCase().indexOf(q)===-1&&(!l.m||l.m.toLowerCase().indexOf(q)===-1))return false;';
+    html += '    if(st&&l.st!==st)return false;';
+    html += '    if(act&&l.act!==act)return false;';
+    html += '    if(l.c<min)return false;';
+    html += '    return true;';
+    html += '  });';
+    html += '  var sk={rev:"r",calls:"c",growth:"g",share:"s",vol:"v",potential:"p",kd:"kd",cpc:"cpc"};';
+    html += '  var sf=sk[sort]||"r";';
+    html += '  filtered.sort(function(a,b){return(b[sf]||0)-(a[sf]||0);});';
+    html += '  document.getElementById("mkt-count").textContent="Showing "+Math.min(show,filtered.length)+" of "+filtered.length+" markets";';
+    html += '  var tb=document.getElementById("mkt-body");tb.innerHTML="";';
+    html += '  filtered.slice(0,show).forEach(function(l,i){';
+    html += '    var bg=i%2===0?"rgba(10,20,35,0.4)":"transparent";';
+    html += '    var sc=l.s>10?"#00ff66":l.s>5?"#ffd700":l.s>0?"#ff9f43":"#ff4757";';
+    html += '    var gc=l.g>0?"#00ff66":l.g<0?"#ff4757":"#4a6a8a";';
+    html += '    var kc=l.kd>0?(l.kd<20?"#00ff66":l.kd<30?"#ffd700":"#ff9f43"):"#4a6a8a";';
+    html += '    var ai={\"SCALE ADS\":\"\\u26a1 SCALE ADS\",\"GROW SEO\":\"\\ud83d\\udcc8 GROW SEO\",\"OPTIMIZE\":\"\\u2705 OPTIMIZE\",\"UNMATCHED\":\"\\u2753 UNMATCHED\",\"MAINTAIN\":\"\\ud83d\\udd04 MAINTAIN\"};';
+    html += '    var tr=document.createElement("tr");tr.style.cssText="background:"+bg+";border-bottom:1px solid #1a2a3a10;";';
+    html += '    var h="<td style=\\"padding:8px 7px;\\"><div style=\\"color:#c0d8f0;font-weight:600;white-space:nowrap;\\">"+l.n+"</div>";';
+    html += '    if(l.m)h+="<div style=\\"color:#4a6a8a;font-size:0.8em;\\">"+l.m+"</div>";';
+    html += '    h+="</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:#00d4ff;font-weight:700;\\">"+l.c+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:#c0d8f0;\\">"+l.a+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:"+gc+";font-weight:700;\\">"+(l.g>=0?"+":"")+l.g+"%</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:#00ff66;font-weight:700;\\">$"+l.r.toLocaleString()+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;\\"><div style=\\"display:flex;align-items:center;gap:5px;\\"><div style=\\"width:40px;height:5px;background:#1a2a3a;border-radius:3px;\\"><div style=\\"width:"+Math.min(l.s,100)+"%;height:100%;background:"+sc+";border-radius:3px;\\"></div></div><span style=\\"color:"+sc+";font-weight:700;font-size:0.9em;\\">"+l.s+"%</span></div></td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:"+(l.v>0?"#a855f7":"#4a6a8a")+"\\">"+(l.v>0?l.v:"\\u2014")+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:"+kc+"\\">"+(l.kd>0?l.kd:"\\u2014")+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:"+(l.cpc>0?"#00d4ff":"#4a6a8a")+";font-weight:700;\\">"+(l.cpc>0?"$"+l.cpc.toFixed(2):"\\u2014")+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:"+(l.roi>50?"#00ff66":l.roi>20?"#ffd700":l.roi>0?"#ff9f43":"#4a6a8a")+"\\">"+(l.roi>0?l.roi+"x":"\\u2014")+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;color:#ff9f43;\\">$"+(l.p>999?Math.round(l.p/1000)+"K":l.p)+"</td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;\\"><div style=\\"display:flex;align-items:center;gap:5px;\\"><div style=\\"width:35px;height:5px;background:#1a2a3a;border-radius:3px;\\"><div style=\\"width:"+Math.min(l.cap,100)+"%;height:100%;background:#a855f7;border-radius:3px;\\"></div></div><span style=\\"color:#a855f7;font-size:0.9em;\\">"+l.cap+"%</span></div></td>";';
+    html += '    h+="<td style=\\"padding:8px 7px;font-size:0.85em;white-space:nowrap;\\">"+(ai[l.act]||l.act)+"</td>";';
+    html += '    tr.innerHTML=h;tb.appendChild(tr);';
+    html += '  });';
+    html += '}';
+    html += 'filterMkt();';
+    html += '<\/script>';
 
     // ====== KEYWORD MIX BY LOCATION ======
     html += '<div style="margin-bottom:20px;">';
@@ -7143,6 +7612,16 @@ app.get('/business', async function(req, res) {
 
     // Footer
     html += '<div class="footer">JARVIS • ATHENA • TOOKAN // Wildwood Small Engine Repair // v4.4</div>';
+
+    // Mobile padding fix
+    html += '<script>';
+    html += 'if(window.innerWidth<=768){document.querySelectorAll("[style]").forEach(function(el){';
+    html += '  var s=el.getAttribute("style")||"";';
+    html += '  if(s.indexOf("0 40px")>-1||s.indexOf("0px 40px")>-1){el.style.paddingLeft="12px";el.style.paddingRight="12px";}';
+    html += '  if(s.indexOf("repeat(3,")>-1||s.indexOf("repeat(3, ")>-1){el.style.gridTemplateColumns="1fr";}';
+    html += '  if(s.indexOf("repeat(4,")>-1||s.indexOf("repeat(4, ")>-1){el.style.gridTemplateColumns="repeat(2,1fr)";}';
+    html += '});}';
+    html += '<\/script>';
 
     html += '</div></body></html>';
     res.send(html);
@@ -8116,6 +8595,20 @@ app.get('/tookan', async function(req, res) {
     html += '.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;}';
     html += '.holo-btn{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;padding:10px 20px;color:#00d4ff;border:1px solid #00d4ff30;background:transparent;text-decoration:none;transition:all 0.3s;}';
     html += '.holo-btn:hover{background:rgba(0,212,255,0.1);}';
+    // Mobile responsive
+    html += '@media(max-width:768px){';
+    html += '.wrap{padding:10px 12px!important;}';
+    html += '.grid{grid-template-columns:repeat(2,1fr)!important;gap:8px!important;}';
+    html += '.kpi-grid{grid-template-columns:repeat(2,1fr)!important;}';
+    html += '.analytics-grid{grid-template-columns:1fr!important;}';
+    html += '.title{font-size:1em!important;letter-spacing:3px!important;}';
+    html += '.card,.val{font-size:0.9em!important;}';
+    html += 'table{font-size:0.65em!important;} th,td{padding:4px 3px!important;}';
+    html += '[style*="overflow-x"]{overflow-x:auto!important;-webkit-overflow-scrolling:touch;}';
+    html += '#map{height:250px!important;}';
+    html += '[style*="display:flex"][style*="gap:0"]{flex-wrap:wrap!important;}';
+    html += '}';
+    html += '@media(max-width:480px){.grid{grid-template-columns:1fr!important;}}';
     html += '</style></head><body><div class="wrap">';
 
     html += '<div class="title">TOOKAN DISPATCH CENTER</div>';
@@ -8126,6 +8619,8 @@ app.get('/tookan', async function(req, res) {
     html += '<a href="/dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">JARVIS</a>';
     html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ATHENA</a>';
     html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#00d4ff;border:1px solid #00d4ff40;text-decoration:none;background:rgba(0,212,255,0.1);box-shadow:0 0 15px rgba(0,212,255,0.1);">TOOKAN</a>';
+    html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
+    html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '</div>';
 
     // Status overview cards
@@ -8560,6 +9055,17 @@ app.get('/business/chart', async function(req, res) {
     html += '.legend{display:flex;gap:15px;flex-wrap:wrap;padding:8px 10px;font-size:0.75em;}';
     html += '.legend-item{display:flex;align-items:center;gap:5px;color:#4a6a8a;}';
     html += '.legend-dot{width:10px;height:3px;display:inline-block;}';
+    // Mobile responsive
+    html += '@media(max-width:768px){';
+    html += '.wrap{padding:10px 12px!important;}';
+    html += '.toolbar{flex-wrap:wrap!important;gap:6px!important;padding:8px!important;}';
+    html += '.toolbar select,.toolbar button{font-size:0.5em!important;padding:6px 8px!important;}';
+    html += '.tab-nav{flex-wrap:wrap!important;}';
+    html += '.tab-nav a{padding:8px 15px!important;font-size:0.55em!important;}';
+    html += '#main-chart{height:300px!important;}';
+    html += '#rsi-chart{height:80px!important;}';
+    html += '#macd-chart{height:80px!important;}';
+    html += '}';
     html += '</style></head><body><div class="wrap">';
 
     // Tab nav
@@ -8568,6 +9074,7 @@ app.get('/business/chart', async function(req, res) {
     html += '<a href="/business">ATHENA</a>';
     html += '<a href="/tookan">TOOKAN</a>';
     html += '<a href="/business/chart" class="active">CHARTS</a>';
+    html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
@@ -8833,6 +9340,1140 @@ app.get('/business/chart', async function(req, res) {
     html += '</div></body></html>';
     res.send(html);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ===========================
+// PREDICTIVE ANALYTICS ENGINE v2.0 — /analytics
+// Revenue forecasting, equipment Fibonacci, seasonal demand prediction,
+// growth trajectories, city-level forecasting, tech productivity,
+// cancellation analysis, market penetration, profitability projections,
+// interactive LightweightCharts, correlation analysis, AI strategy engine
+// ===========================
+
+app.get('/analytics', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var bm = global.bizMetrics || {};
+    var pm = global.profitMetrics || {};
+    var fh = (pm || {}).financialHistory || {};
+    var monthlyCalls = bm.monthlyCalls || {};
+    var callsByCity = bm.monthlyCallsByCity || {};
+    var callsByTab = bm.monthlyCallsByTab || {};
+    var seasonalData = bm.seasonalData || {};
+    var locationStats = bm.locationStats || {};
+    var equipStats = bm.equipStats || {};
+    var brandStats = bm.brandStats || {};
+    var techStats = bm.techStats || {};
+    var dailyRevenue = pm.dailyRevenue || [];
+    var dailyProfit = pm.dailyProfit || [];
+    var dailyAds = pm.dailyAds || [];
+
+    // ========== ANALYTICS ENGINE: Compute all predictions ==========
+    var monthKeys = Object.keys(monthlyCalls).sort();
+    var monthVals = monthKeys.map(function(k) { return monthlyCalls[k] || 0; });
+    var today = new Date();
+    var curMonth = today.getMonth();
+    var curYear = today.getFullYear();
+    var monthLabels3 = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // --- Helper: Linear Regression ---
+    function linearRegression(values) {
+      var n = values.length;
+      if (n < 2) return { slope: 0, intercept: values[0] || 0, r2: 0 };
+      var sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+      for (var i = 0; i < n; i++) { sumX += i; sumY += values[i]; sumXY += i * values[i]; sumXX += i * i; }
+      var denom = (n * sumXX - sumX * sumX);
+      var slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+      var intercept = (sumY - slope * sumX) / n;
+      var ssRes = 0, ssTot = 0, mean = sumY / n;
+      for (var j = 0; j < n; j++) { var pred = intercept + slope * j; ssRes += (values[j] - pred) * (values[j] - pred); ssTot += (values[j] - mean) * (values[j] - mean); }
+      var r2 = ssTot > 0 ? Math.round((1 - ssRes / ssTot) * 1000) / 1000 : 0;
+      return { slope: Math.round(slope * 100) / 100, intercept: Math.round(intercept * 100) / 100, r2: r2 };
+    }
+
+    // --- Helper: Exponential Moving Average ---
+    function emaCalc(values, period) {
+      if (values.length === 0) return [];
+      var k = 2 / (period + 1); var result = [values[0]];
+      for (var i = 1; i < values.length; i++) { result.push(values[i] * k + result[i - 1] * (1 - k)); }
+      return result;
+    }
+
+    // --- Helper: Fibonacci levels ---
+    function calcFib(values) {
+      var recent = values.slice(-12);
+      var high = Math.max.apply(null, recent.length > 0 ? recent : [0]);
+      var low = Math.min.apply(null, recent.length > 0 ? recent : [0]);
+      var range = high - low;
+      return {
+        high: high, low: low, range: range,
+        '23.6': Math.round(low + range * 0.236), '38.2': Math.round(low + range * 0.382),
+        '50.0': Math.round(low + range * 0.5), '61.8': Math.round(low + range * 0.618),
+        '78.6': Math.round(low + range * 0.786), current: recent.length > 0 ? recent[recent.length - 1] : 0,
+      };
+    }
+
+    // --- Helper: Fibonacci with extensions ---
+    function calcFibExtended(values) {
+      var fib = calcFib(values);
+      fib['127.2'] = Math.round(fib.low + fib.range * 1.272);
+      fib['161.8'] = Math.round(fib.low + fib.range * 1.618);
+      fib['200.0'] = Math.round(fib.low + fib.range * 2.0);
+      fib['261.8'] = Math.round(fib.low + fib.range * 2.618);
+      return fib;
+    }
+
+    // --- Helper: Growth metrics ---
+    function growthMetrics(values) {
+      if (values.length < 2) return { mom: 0, qoq: 0, yoy: 0, cagr: 0, trend: 'flat', last: 0, prev: 0 };
+      var last = values[values.length - 1], prev = values[values.length - 2];
+      var mom = prev > 0 ? Math.round(((last - prev) / prev) * 1000) / 10 : 0;
+      var q1 = 0, q2 = 0;
+      if (values.length >= 6) { for (var i = values.length - 3; i < values.length; i++) q1 += values[i]; for (var j = values.length - 6; j < values.length - 3; j++) q2 += values[j]; }
+      var qoq = q2 > 0 ? Math.round(((q1 - q2) / q2) * 1000) / 10 : 0;
+      var yoy = 0;
+      if (values.length >= 12) { var thisY = values.slice(-6).reduce(function(a,b){return a+b;},0); var lastY = values.slice(-12,-6).reduce(function(a,b){return a+b;},0); yoy = lastY > 0 ? Math.round(((thisY-lastY)/lastY)*1000)/10 : 0; }
+      var first = values[0] > 0 ? values[0] : 1; var periods = values.length - 1;
+      var cagr = periods > 0 ? Math.round((Math.pow(last / first, 1 / periods) - 1) * 1000) / 10 : 0;
+      var trend = mom > 5 ? 'growing' : mom < -5 ? 'declining' : 'stable';
+      return { mom: mom, qoq: qoq, yoy: yoy, cagr: cagr, trend: trend, last: last, prev: prev };
+    }
+
+    // --- Helper: Forecast ---
+    function forecast(values, months) {
+      var lr = linearRegression(values); var n = values.length;
+      var emaVals = emaCalc(values, 6); var lastEma = emaVals.length > 0 ? emaVals[emaVals.length - 1] : 0;
+      var preds = [];
+      for (var i = 0; i < months; i++) {
+        var lrPred = Math.round(lr.intercept + lr.slope * (n + i));
+        var emaPred = Math.round(lastEma + lr.slope * (i + 1));
+        var avg = Math.round((lrPred + emaPred) / 2);
+        var confidence = Math.max(0.3, 1 - (i * 0.1));
+        var stdDev = values.length > 3 ? Math.sqrt(values.slice(-6).reduce(function(s, v) { var m = lastEma; return s + (v-m)*(v-m); }, 0) / Math.min(6, values.length)) : avg * 0.15;
+        preds.push({ month: i + 1, linear: Math.max(0, lrPred), ema: Math.max(0, emaPred), blended: Math.max(0, avg), confidence: confidence, upper: Math.max(0, Math.round(avg + stdDev * 1.5)), lower: Math.max(0, Math.round(avg - stdDev * 1.5)) });
+      }
+      return preds;
+    }
+
+    // --- Helper: Bollinger Bands ---
+    function bollingerBands(values, period, stdMult) {
+      var upper = [], lower = [], middle = [], width = [];
+      for (var i = 0; i < values.length; i++) {
+        if (i < period - 1) continue;
+        var sum = 0; for (var j = 0; j < period; j++) sum += values[i - j];
+        var avg = sum / period;
+        var sqSum = 0; for (var j2 = 0; j2 < period; j2++) sqSum += Math.pow(values[i - j2] - avg, 2);
+        var std = Math.sqrt(sqSum / period);
+        upper.push(Math.round(avg + stdMult * std));
+        lower.push(Math.round(Math.max(0, avg - stdMult * std)));
+        middle.push(Math.round(avg));
+        width.push(avg > 0 ? Math.round((2 * stdMult * std) / avg * 10000) / 100 : 0);
+      }
+      return { upper: upper, lower: lower, middle: middle, width: width };
+    }
+
+    // --- Helper: RSI ---
+    function calcRSI(values, period) {
+      var result = []; var gains = 0, losses = 0;
+      for (var i = 1; i < values.length; i++) {
+        var diff = values[i] - values[i-1];
+        if (i <= period) { if (diff > 0) gains += diff; else losses -= diff; }
+        if (i === period) { gains /= period; losses /= period; }
+        if (i > period) { if (diff > 0) { gains = (gains*(period-1)+diff)/period; losses = (losses*(period-1))/period; } else { gains = (gains*(period-1))/period; losses = (losses*(period-1)-diff)/period; } }
+        if (i >= period) { var rs = losses === 0 ? 100 : gains / losses; result.push(Math.round((100 - 100/(1+rs))*100)/100); }
+      }
+      return result;
+    }
+
+    // --- Helper: MACD ---
+    function calcMACD(values) {
+      var ema12 = emaCalc(values, 12), ema26 = emaCalc(values, 26);
+      var macdLine = []; for (var i = 0; i < ema26.length; i++) macdLine.push(Math.round((ema12[i] - ema26[i])*100)/100);
+      var signal = emaCalc(macdLine, 9);
+      var histogram = signal.map(function(s, i) { return Math.round((macdLine[i] - s)*100)/100; });
+      return { macdLine: macdLine, signal: signal, histogram: histogram };
+    }
+
+    // --- Helper: Volatility ---
+    function calcVolatility(values) {
+      if (values.length < 3) return 0;
+      var returns = [];
+      for (var i = 1; i < values.length; i++) { if (values[i-1] > 0) returns.push((values[i] - values[i-1]) / values[i-1]); }
+      if (returns.length === 0) return 0;
+      var mean = returns.reduce(function(a,b){return a+b;},0) / returns.length;
+      var variance = returns.reduce(function(s,r) { return s + (r-mean)*(r-mean); }, 0) / returns.length;
+      return Math.round(Math.sqrt(variance) * 10000) / 100;
+    }
+
+    // --- Helper: Trend Strength (ADX-like) ---
+    function trendStrength(values) {
+      if (values.length < 5) return { strength: 0, direction: 'flat' };
+      var ups = 0, downs = 0;
+      for (var i = 1; i < values.length; i++) { if (values[i] > values[i-1]) ups++; else if (values[i] < values[i-1]) downs++; }
+      var total = values.length - 1;
+      var dirStrength = Math.abs(ups - downs) / total;
+      var lr = linearRegression(values);
+      var combined = Math.round((dirStrength * 50 + Math.min(lr.r2, 1) * 50) * 10) / 10;
+      var direction = lr.slope > 0 ? 'bullish' : lr.slope < 0 ? 'bearish' : 'flat';
+      return { strength: combined, direction: direction, consistency: Math.round(Math.max(ups, downs) / total * 100) };
+    }
+
+    // ========== COMPUTE ALL ANALYTICS ==========
+
+    // 1. Call Volume
+    var callFib = calcFibExtended(monthVals);
+    var callGrowth = growthMetrics(monthVals);
+    var callLR = linearRegression(monthVals);
+    var callForecast = forecast(monthVals, 6);
+    var callBB = bollingerBands(monthVals, Math.min(6, monthVals.length), 2);
+    var callRSI = calcRSI(monthVals, Math.min(6, monthVals.length));
+    var callMACD = calcMACD(monthVals);
+    var callVol = calcVolatility(monthVals);
+    var callTrend = trendStrength(monthVals);
+
+    var daysInMonth = new Date(curYear, curMonth + 1, 0).getDate();
+    var dayOfMonth = today.getDate();
+    var curMonthKey = curYear + '-' + String(curMonth + 1).padStart(2, '0');
+    var curMonthCalls = monthlyCalls[curMonthKey] || 0;
+    var runRate = dayOfMonth > 0 ? Math.round(curMonthCalls / dayOfMonth * daysInMonth) : 0;
+    var annualRunRate = runRate * 12;
+
+    // 2. Revenue/Profit
+    var revMonths = Object.keys(fh.months || {}).sort();
+    var revVals = revMonths.map(function(m) { return (fh.months[m] || {}).revenue || 0; });
+    var profVals = revMonths.map(function(m) { return (fh.months[m] || {}).profit || 0; });
+    var expVals = revMonths.map(function(m) { return (fh.months[m] || {}).expenses || 0; });
+    var adsVals = revMonths.map(function(m) { return (fh.months[m] || {}).ads || 0; });
+    var marginVals = revMonths.map(function(m) { return (fh.months[m] || {}).margin || 0; });
+    var revFib = calcFibExtended(revVals);
+    var revGrowth = growthMetrics(revVals);
+    var revForecast = forecast(revVals, 6);
+    var profFib = calcFibExtended(profVals);
+    var profGrowth = growthMetrics(profVals);
+    var profForecast = forecast(profVals, 6);
+    var expFib = calcFibExtended(expVals);
+    var adsFib = calcFibExtended(adsVals);
+    var marginFib = calcFib(marginVals);
+    var revBB = bollingerBands(revVals, Math.min(6, revVals.length), 2);
+    var revRSI = calcRSI(revVals, Math.min(6, revVals.length));
+    var revMACD = calcMACD(revVals);
+    var revVol = calcVolatility(revVals);
+    var revTrend = trendStrength(revVals);
+
+    var revenuePerCall = bm.totalLeads > 0 && fh.allTime ? Math.round(fh.allTime.revenue / bm.totalLeads) : 321;
+
+    // 3. Seasonal Demand
+    var seasonKeys = Object.keys(seasonalData).sort();
+    var seasonByMonth = {};
+    seasonKeys.forEach(function(k) {
+      var mo = parseInt(k.split('-')[1]);
+      if (!seasonByMonth[mo]) seasonByMonth[mo] = { snow: 0, mower: 0, generator: 0, other: 0, count: 0 };
+      seasonByMonth[mo].snow += seasonalData[k].snow; seasonByMonth[mo].mower += seasonalData[k].mower;
+      seasonByMonth[mo].generator += seasonalData[k].generator; seasonByMonth[mo].other += seasonalData[k].other; seasonByMonth[mo].count++;
+    });
+    var seasonAvg = {};
+    for (var m = 1; m <= 12; m++) {
+      var sd = seasonByMonth[m] || { snow: 0, mower: 0, generator: 0, other: 0, count: 1 };
+      var c = Math.max(sd.count, 1);
+      seasonAvg[m] = { snow: Math.round(sd.snow / c), mower: Math.round(sd.mower / c), generator: Math.round(sd.generator / c), other: Math.round(sd.other / c) };
+    }
+
+    // Equipment Fibonacci
+    var equipMonthly = { mower: [], snow: [], generator: [], other: [] };
+    seasonKeys.forEach(function(k) { var sd2 = seasonalData[k]; equipMonthly.mower.push(sd2.mower); equipMonthly.snow.push(sd2.snow); equipMonthly.generator.push(sd2.generator); equipMonthly.other.push(sd2.other); });
+    var mowerFib = calcFibExtended(equipMonthly.mower); var snowFib = calcFibExtended(equipMonthly.snow); var genFib = calcFibExtended(equipMonthly.generator);
+    var mowerGrowth = growthMetrics(equipMonthly.mower); var snowGrowth = growthMetrics(equipMonthly.snow); var genGrowth = growthMetrics(equipMonthly.generator);
+
+    // 4. City Forecasting (enhanced)
+    var cityForecasts = [];
+    Object.keys(callsByCity).forEach(function(city) {
+      var cm = callsByCity[city]; var ck = Object.keys(cm).sort();
+      if (ck.length < 3) return;
+      var cv = ck.map(function(k) { return cm[k] || 0; });
+      var cFib = calcFibExtended(cv); var cGrowth = growthMetrics(cv); var cLR = linearRegression(cv);
+      var total = cv.reduce(function(a,b){return a+b;},0);
+      var cForecast = forecast(cv, 3);
+      var cBB = bollingerBands(cv, Math.min(4, cv.length), 2);
+      var cRSI = calcRSI(cv, Math.min(4, cv.length));
+      var cVol = calcVolatility(cv);
+      var cTrend = trendStrength(cv);
+      cityForecasts.push({
+        city: city, total: total, months: ck.length, current: cv[cv.length - 1],
+        predicted: Math.max(0, cForecast.length > 0 ? cForecast[0].blended : 0),
+        growth: cGrowth, fib: cFib, r2: cLR.r2, slope: cLR.slope, forecast: cForecast,
+        bb: cBB, rsi: cRSI.length > 0 ? cRSI[cRSI.length - 1] : 50,
+        volatility: cVol, trend: cTrend,
+        labels: ck.slice(-12).map(function(k2) { var p = k2.split('-'); return monthLabels3[parseInt(p[1])] + "'" + p[0].substring(2); }),
+        values: cv.slice(-12), allValues: cv,
+      });
+    });
+    cityForecasts.sort(function(a, b) { return b.total - a.total; });
+
+    // 5. Tech Productivity (enhanced)
+    var techProd = [];
+    Object.entries(techStats).forEach(function(t) {
+      var ts = t[1]; if (ts.total < 3) return;
+      var completionRate = ts.total > 0 ? Math.round(ts.completed / ts.total * 1000) / 10 : 0;
+      var estRevenue = ts.total * revenuePerCall;
+      var daysSeen = 1;
+      if (ts.firstSeen && ts.lastSeen) daysSeen = Math.max(1, Math.round((ts.lastSeen - ts.firstSeen) / 86400000));
+      var jobsPerDay = Math.round(ts.total / daysSeen * 100) / 100;
+      techProd.push({
+        name: t[0], total: ts.total, completed: ts.completed, rate: completionRate,
+        revenue: estRevenue, jobsPerDay: jobsPerDay, locations: Object.keys(ts.locations || {}).length,
+        cancelRate: ts.total > 0 ? Math.round(ts.cancelled / ts.total * 1000) / 10 : 0,
+        returnRate: ts.total > 0 ? Math.round(ts.returnCustomers / ts.total * 1000) / 10 : 0,
+        efficiency: completionRate * jobsPerDay,
+      });
+    });
+    techProd.sort(function(a, b) { return b.total - a.total; });
+
+    // 6. Ad Spend Efficiency
+    var adROI = [];
+    for (var ai = 0; ai < revVals.length; ai++) {
+      if (adsVals[ai] > 0) adROI.push(Math.round(revVals[ai] / adsVals[ai] * 100) / 100);
+      else adROI.push(0);
+    }
+    var adROIFib = calcFib(adROI.filter(function(v){return v > 0;}));
+    var costPerLead = [];
+    for (var ci = 0; ci < monthKeys.length; ci++) {
+      var callCount = monthVals[ci];
+      var adSpend = ci < adsVals.length ? adsVals[ci] : 0;
+      if (callCount > 0 && adSpend > 0) costPerLead.push(Math.round(adSpend / callCount * 100) / 100);
+      else costPerLead.push(0);
+    }
+    var cplFib = calcFib(costPerLead.filter(function(v){return v > 0;}));
+
+    // 7. Correlation: calls vs revenue
+    var callRevCorrelation = 0;
+    if (revVals.length >= 3 && monthVals.length >= 3) {
+      var minLen = Math.min(revVals.length, monthVals.length);
+      var callsSub = monthVals.slice(-minLen), revSub = revVals.slice(-minLen);
+      var avgC = callsSub.reduce(function(a,b){return a+b;},0)/minLen;
+      var avgR = revSub.reduce(function(a,b){return a+b;},0)/minLen;
+      var cov = 0, stdC = 0, stdR = 0;
+      for (var ci2 = 0; ci2 < minLen; ci2++) {
+        cov += (callsSub[ci2]-avgC)*(revSub[ci2]-avgR);
+        stdC += (callsSub[ci2]-avgC)*(callsSub[ci2]-avgC);
+        stdR += (revSub[ci2]-avgR)*(revSub[ci2]-avgR);
+      }
+      callRevCorrelation = (stdC > 0 && stdR > 0) ? Math.round(cov / (Math.sqrt(stdC) * Math.sqrt(stdR)) * 1000) / 1000 : 0;
+    }
+
+    // 8. Day-of-week patterns from recent bookings
+    var dowCounts = [0,0,0,0,0,0,0]; var dowLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var recentBk = bm.recentBookings || [];
+    recentBk.forEach(function(b) { if (b.date) { var d = new Date(b.date); if (!isNaN(d)) dowCounts[d.getDay()]++; } });
+    var dowTotal = dowCounts.reduce(function(a,b){return a+b;},0);
+
+    // 9. Cancellation analysis
+    var cancelByCity = {}; var overallCancelRate = bm.totalLeads > 0 ? Math.round(bm.totalCancelled / bm.totalLeads * 1000) / 10 : 0;
+    Object.entries(locationStats).forEach(function(l) { if (l[1].total >= 5) cancelByCity[l[0]] = { total: l[1].total, cancelled: l[1].cancelled, rate: l[1].total > 0 ? Math.round(l[1].cancelled / l[1].total * 1000) / 10 : 0 }; });
+    var cancelByCitySorted = Object.entries(cancelByCity).sort(function(a,b) { return b[1].rate - a[1].rate; });
+
+    // 10. Brand analysis
+    var brandSorted = Object.entries(brandStats).sort(function(a,b) { return b[1] - a[1]; });
+    var brandTotal = brandSorted.reduce(function(s, b) { return s + b[1]; }, 0);
+
+    // ========== BUILD HTML ==========
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>WILDWOOD — Predictive Analytics Engine</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
+    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.1/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<style>';
+    html += '*{margin:0;padding:0;box-sizing:border-box;}';
+    html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
+    html += '.wrap{max-width:1500px;margin:0 auto;padding:20px 30px;}';
+    html += '.nav{display:flex;gap:0;margin-bottom:20px;flex-wrap:wrap;}';
+    html += '.nav a{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);transition:all 0.3s;}';
+    html += '.nav a.active{color:#ff9f43;border-color:#ff9f4340;background:rgba(255,159,67,0.1);}';
+    html += '.nav a:hover{border-color:#ff9f4340;}';
+    html += '.title{font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#ff9f43;margin-bottom:5px;}';
+    html += '.sub{font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#4a6a8a;margin-bottom:25px;}';
+    html += '.section{margin-bottom:35px;}';
+    html += '.section-head{font-family:Orbitron;font-size:0.85em;letter-spacing:5px;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;cursor:pointer;}';
+    html += '.section-head .dot{width:10px;height:10px;border-radius:50%;display:inline-block;animation:glow 2s ease-in-out infinite alternate;}';
+    html += '@keyframes glow{0%{box-shadow:0 0 5px var(--gc,#ff9f43);}100%{box-shadow:0 0 20px var(--gc,#ff9f43);}}';
+    html += '.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:15px;}';
+    html += '.kpi{background:rgba(10,20,35,0.8);border:1px solid rgba(255,255,255,0.05);padding:16px;position:relative;overflow:hidden;transition:all 0.3s;}';
+    html += '.kpi:hover{border-color:var(--c,#ff9f43);transform:translateY(-2px);}';
+    html += '.kpi::before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:var(--c,#ff9f43);opacity:0.4;}';
+    html += '.kpi-label{color:#4a6a8a;font-family:Orbitron;font-size:0.5em;letter-spacing:2px;margin-bottom:4px;}';
+    html += '.kpi-val{font-family:Orbitron;font-size:1.5em;font-weight:900;color:var(--c,#ff9f43);}';
+    html += '.kpi-sub{color:#4a6a8a;font-size:0.8em;margin-top:2px;}';
+    html += '.fib-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:15px;margin-bottom:15px;}';
+    html += '.fib-card{background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;padding:18px;transition:border-color 0.3s;}';
+    html += '.fib-card:hover{border-color:#ffffff10;}';
+    html += '.fib-title{font-family:Orbitron;font-size:0.65em;letter-spacing:3px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;}';
+    html += '.fib-level{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #0a1520;}';
+    html += '.fib-level .pct{font-family:Orbitron;font-size:0.55em;color:#4a6a8a;width:55px;}';
+    html += '.fib-level .bar{flex:1;height:6px;background:#0a1520;margin:0 8px;position:relative;}';
+    html += '.fib-level .fill{height:100%;position:absolute;top:0;left:0;transition:width 0.5s;}';
+    html += '.fib-level .val{font-family:Orbitron;font-size:0.7em;width:60px;text-align:right;}';
+    html += '.pill{display:inline-block;font-family:Orbitron;font-size:0.5em;letter-spacing:1px;padding:3px 10px;border-radius:2px;}';
+    html += '.pill-green{background:rgba(0,255,102,0.1);color:#00ff66;border:1px solid #00ff6630;}';
+    html += '.pill-red{background:rgba(255,71,87,0.1);color:#ff4757;border:1px solid #ff475730;}';
+    html += '.pill-orange{background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4330;}';
+    html += '.pill-blue{background:rgba(0,212,255,0.1);color:#00d4ff;border:1px solid #00d4ff30;}';
+    html += '.pill-purple{background:rgba(168,85,247,0.1);color:#a855f7;border:1px solid #a855f730;}';
+    html += '.data-table{width:100%;border-collapse:collapse;font-size:0.8em;}';
+    html += '.data-table th{padding:8px;text-align:left;color:#ff9f43;font-family:Orbitron;font-size:0.55em;letter-spacing:1px;border-bottom:2px solid #ff9f4315;}';
+    html += '.data-table td{padding:6px 8px;border-bottom:1px solid #0a1520;}';
+    html += '.data-table tr:nth-child(even){background:rgba(10,20,35,0.3);}';
+    html += '.data-table tr:hover{background:rgba(0,212,255,0.03);}';
+    html += '.chart-box{background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;padding:18px;margin-bottom:15px;}';
+    html += '.chart-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}';
+    html += '.chart-title{font-family:Orbitron;font-size:0.65em;letter-spacing:3px;}';
+    html += '.metric-badge{font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:4px 12px;border:1px solid;margin-left:6px;}';
+    html += '.signal-box{padding:14px;border:1px solid;margin-top:12px;font-size:0.85em;line-height:1.5;}';
+    html += '.sparkline{display:inline-flex;align-items:flex-end;gap:1px;height:20px;vertical-align:middle;}';
+    html += '.sparkline .sp{width:3px;min-height:1px;display:inline-block;}';
+
+    // Mobile responsive
+    html += '@media(max-width:768px){';
+    html += '.wrap{padding:10px 12px;} .title{font-size:1em;letter-spacing:3px;}';
+    html += '.kpi-row{grid-template-columns:repeat(2,1fr);gap:8px;}';
+    html += '.fib-grid{grid-template-columns:1fr;}';
+    html += '.nav a{padding:8px 12px;font-size:0.5em;letter-spacing:2px;}';
+    html += '.kpi-val{font-size:1.1em;} .kpi{padding:10px;}';
+    html += 'table{font-size:0.65em;} th,td{padding:4px 3px;}';
+    html += '.chart-box{padding:10px;} [style*="overflow-x"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}';
+    html += '.sub{font-size:0.4em;letter-spacing:1px;}';
+    html += '}';
+    html += '@media(max-width:480px){.kpi-row{grid-template-columns:1fr;}}';
+    html += '</style></head><body><div class="wrap">';
+
+    // Nav
+    html += '<div class="nav">';
+    html += '<a href="/dashboard">JARVIS</a>';
+    html += '<a href="/business">ATHENA</a>';
+    html += '<a href="/tookan">TOOKAN</a>';
+    html += '<a href="/business/chart">CHARTS</a>';
+    html += '<a href="/analytics" class="active">ANALYTICS</a>';
+    html += '</div>';
+
+    html += '<div class="title">PREDICTIVE ANALYTICS ENGINE</div>';
+    html += '<div class="sub">FIBONACCI RETRACEMENT &bull; EXTENSIONS &bull; BOLLINGER BANDS &bull; RSI &bull; MACD &bull; REVENUE FORECASTING &bull; SEASONAL AI &bull; ' + monthKeys.length + ' MONTHS DATA</div>';
+
+    // ====================================================================
+    // SECTION 1: BUSINESS PULSE — MASTER DASHBOARD
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ff9f43;--gc:#ff9f43;"><span class="dot" style="background:#ff9f43;"></span>BUSINESS PULSE — MASTER INDICATORS</div>';
+    html += '<div class="kpi-row">';
+
+    var pulseKPIs = [
+      { label: 'MONTHLY RUN RATE', val: runRate.toLocaleString() + ' calls', sub: dayOfMonth + '/' + daysInMonth + ' days (' + curMonthCalls + ' actual)', c: '#00d4ff' },
+      { label: 'ANNUAL RUN RATE', val: '$' + (annualRunRate * revenuePerCall).toLocaleString(), sub: annualRunRate.toLocaleString() + ' calls projected', c: '#00ff66' },
+      { label: 'MoM MOMENTUM', val: (callGrowth.mom >= 0 ? '+' : '') + callGrowth.mom + '%', sub: callGrowth.prev + ' → ' + callGrowth.last, c: callGrowth.mom >= 0 ? '#00ff66' : '#ff4757' },
+      { label: 'QoQ GROWTH', val: (callGrowth.qoq >= 0 ? '+' : '') + callGrowth.qoq + '%', sub: 'Quarter over quarter', c: callGrowth.qoq >= 0 ? '#00ff66' : '#ff4757' },
+      { label: 'TREND STRENGTH', val: callTrend.strength + '%', sub: callTrend.direction.toUpperCase() + ' (' + callTrend.consistency + '% consistent)', c: callTrend.direction === 'bullish' ? '#00ff66' : callTrend.direction === 'bearish' ? '#ff4757' : '#ff9f43' },
+      { label: 'VOLATILITY', val: callVol + '%', sub: callVol > 30 ? 'HIGH — unstable' : callVol > 15 ? 'MODERATE' : 'LOW — stable', c: callVol > 30 ? '#ff4757' : callVol > 15 ? '#ff9f43' : '#00ff66' },
+      { label: 'RSI (6)', val: callRSI.length > 0 ? callRSI[callRSI.length-1] : 'N/A', sub: (callRSI.length > 0 && callRSI[callRSI.length-1] > 70) ? 'OVERBOUGHT' : (callRSI.length > 0 && callRSI[callRSI.length-1] < 30) ? 'OVERSOLD' : 'NEUTRAL', c: '#a855f7' },
+      { label: 'CALL↔REVENUE R', val: callRevCorrelation, sub: callRevCorrelation > 0.7 ? 'Strong link' : callRevCorrelation > 0.4 ? 'Moderate link' : 'Weak link', c: '#ffd700' },
+    ];
+    pulseKPIs.forEach(function(k) {
+      html += '<div class="kpi" style="--c:' + k.c + ';"><div class="kpi-label">' + k.label + '</div><div class="kpi-val">' + k.val + '</div><div class="kpi-sub">' + k.sub + '</div></div>';
+    });
+    html += '</div>';
+
+    // Strategy signal box
+    var masterSignal = '', sigColor = '#00d4ff';
+    if (callGrowth.mom > 15 && callTrend.direction === 'bullish') { masterSignal = '🚀 STRONG GROWTH — All indicators bullish. Scale aggressively: hire techs, increase ad spend, expand to new cities. Next month forecast: ~' + callForecast[0].blended + ' calls ($' + (callForecast[0].blended * revenuePerCall).toLocaleString() + ' revenue).'; sigColor = '#00ff66'; }
+    else if (callGrowth.mom > 0) { masterSignal = '📈 MODERATE GROWTH — Positive momentum. Maintain current strategy, consider incremental ad increases. Watch for Fib resistance at ' + callFib['61.8'] + ' calls. Forecast: ~' + callForecast[0].blended + ' calls.'; sigColor = '#00ff66'; }
+    else if (callGrowth.mom > -10) { masterSignal = '⚡ CONSOLIDATION — Volume stabilizing. Focus on conversion optimization and customer retention. Fib support at ' + callFib['38.2'] + '. Reduce discretionary spending until breakout confirmed.'; sigColor = '#ff9f43'; }
+    else { masterSignal = '⚠️ PULLBACK — Volume declining ' + callGrowth.mom + '%. Defend Fib support at ' + callFib['38.2'] + '. Cut ad waste, rebook cancellations, activate retention campaigns. Next support: ' + callFib['23.6'] + '.'; sigColor = '#ff4757'; }
+    if (callRSI.length > 0 && callRSI[callRSI.length-1] > 70) masterSignal += ' ⚡ RSI OVERBOUGHT — Potential pullback incoming.';
+    if (callRSI.length > 0 && callRSI[callRSI.length-1] < 30) masterSignal += ' 💎 RSI OVERSOLD — Potential bounce opportunity.';
+    if (callBB.width.length > 0 && callBB.width[callBB.width.length-1] < 15) masterSignal += ' 🔥 BB SQUEEZE — Breakout imminent!';
+
+    html += '<div class="signal-box" style="border-color:' + sigColor + '30;background:' + sigColor + '05;color:' + sigColor + ';">' + masterSignal + '</div>';
+    html += '</div>';
+
+    // ====================================================================
+    // SECTION 2: INTERACTIVE CALL VOLUME CHART (LightweightCharts)
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#00d4ff;--gc:#00d4ff;"><span class="dot" style="background:#00d4ff;"></span>CALL VOLUME — INTERACTIVE TECHNICAL ANALYSIS</div>';
+
+    // Build chart data for LightweightCharts
+    var lcCallData = monthKeys.map(function(k) { return { time: k + '-01', value: monthlyCalls[k] || 0 }; });
+    var lcForecastData = [];
+    for (var fi = 0; fi < 6; fi++) {
+      var fMonth = (curMonth + fi + 1) % 12 + 1;
+      var fYear = curYear + Math.floor((curMonth + fi + 1) / 12);
+      lcForecastData.push({ time: fYear + '-' + String(fMonth).padStart(2, '0') + '-01', value: callForecast[fi].blended, upper: callForecast[fi].upper, lower: callForecast[fi].lower });
+    }
+
+    html += '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">';
+    html += '<button onclick="toggleOverlay(\'bb\')" id="btn-bb2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">BB</button>';
+    html += '<button onclick="toggleOverlay(\'sma\')" id="btn-sma2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">SMA</button>';
+    html += '<button onclick="toggleOverlay(\'ema\')" id="btn-ema2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">EMA</button>';
+    html += '<button onclick="toggleOverlay(\'fib\')" id="btn-fib2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(0,255,102,0.1);color:#00ff66;border:1px solid #00ff6640;cursor:pointer;">FIB</button>';
+    html += '<button onclick="toggleOverlay(\'ext\')" id="btn-ext2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">FIB EXT</button>';
+    html += '<button onclick="toggleOverlay(\'forecast\')" id="btn-fore2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4340;cursor:pointer;">FORECAST</button>';
+    html += '</div>';
+
+    html += '<div id="call-chart" style="border:1px solid #1a2a3a;"></div>';
+    html += '<div style="font-family:Orbitron;font-size:0.45em;color:#4a6a8a;padding:4px 0;">RSI (6)</div>';
+    html += '<div id="call-rsi" style="border:1px solid #1a2a3a;"></div>';
+    html += '<div style="font-family:Orbitron;font-size:0.45em;color:#4a6a8a;padding:4px 0;">MACD (12, 26, 9)</div>';
+    html += '<div id="call-macd" style="border:1px solid #1a2a3a;"></div>';
+
+    // Fib level summary strip
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;margin-top:12px;">';
+    [
+      { label: '261.8% EXT', val: callFib['261.8'], c: '#a855f7' },
+      { label: '161.8% EXT', val: callFib['161.8'], c: '#a855f7' },
+      { label: '127.2% EXT', val: callFib['127.2'], c: '#00d4ff' },
+      { label: '100% HIGH', val: callFib.high, c: '#00ff66' },
+      { label: '78.6%', val: callFib['78.6'], c: '#00ff66' },
+      { label: '61.8% RESIST', val: callFib['61.8'], c: '#00ff66' },
+      { label: '50% MID', val: callFib['50.0'], c: '#ffd700' },
+      { label: '38.2% SUPPORT', val: callFib['38.2'], c: '#ff4757' },
+      { label: '23.6%', val: callFib['23.6'], c: '#ff4757' },
+      { label: '0% LOW', val: callFib.low, c: '#ff4757' },
+      { label: 'CURRENT', val: callFib.current, c: '#00d4ff' },
+    ].forEach(function(f) {
+      html += '<div style="background:rgba(10,20,35,0.6);padding:6px;text-align:center;border:1px solid ' + f.c + '15;">';
+      html += '<div style="color:#4a6a8a;font-family:Orbitron;font-size:0.4em;">' + f.label + '</div>';
+      html += '<div style="color:' + f.c + ';font-family:Orbitron;font-size:0.85em;font-weight:900;">' + f.val + '</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+
+    // ====================================================================
+    // SECTION 3: REVENUE & PROFIT FIBONACCI — INTERACTIVE CHARTS
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#00ff66;--gc:#00ff66;"><span class="dot" style="background:#00ff66;"></span>REVENUE & PROFIT — FIBONACCI + FORECASTING</div>';
+
+    // Revenue chart
+    var lcRevData = revMonths.map(function(m, i) { return { time: (function() { var parts = m.split(' '); var mi = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(parts[0])+1; return parts[1] + '-' + String(mi).padStart(2,'0') + '-01'; })(), value: revVals[i] }; });
+    var lcProfData = revMonths.map(function(m, i) { return { time: lcRevData[i] ? lcRevData[i].time : '2024-01-01', value: profVals[i] }; });
+
+    html += '<div id="rev-chart" style="border:1px solid #1a2a3a;margin-bottom:5px;"></div>';
+    html += '<div style="display:flex;gap:15px;padding:6px;font-size:0.75em;">';
+    html += '<span style="color:#00ff66;">● Revenue</span>';
+    html += '<span style="color:#ffd700;">● Profit</span>';
+    html += '<span style="color:#ff9f4380;">▪ Forecast</span>';
+    html += '</div>';
+
+    // Revenue & Profit Fib cards side by side
+    html += '<div class="fib-grid">';
+
+    var revProfFibs = [
+      { name: 'REVENUE', fib: revFib, growth: revGrowth, forecast: revForecast, color: '#00ff66', prefix: '$', trend: revTrend },
+      { name: 'PROFIT', fib: profFib, growth: profGrowth, forecast: profForecast, color: '#ffd700', prefix: '$', trend: trendStrength(profVals) },
+      { name: 'EXPENSES', fib: expFib, growth: growthMetrics(expVals), forecast: forecast(expVals, 6), color: '#ff4757', prefix: '$', trend: trendStrength(expVals) },
+      { name: 'AD SPEND', fib: adsFib, growth: growthMetrics(adsVals), forecast: forecast(adsVals, 6), color: '#a855f7', prefix: '$', trend: trendStrength(adsVals) },
+    ];
+
+    revProfFibs.forEach(function(rpf) {
+      html += '<div class="fib-card">';
+      html += '<div class="fib-title"><span style="color:' + rpf.color + ';">' + rpf.name + ' FIBONACCI</span>';
+      var rpfTrend = rpf.growth.mom > 5 ? '▲' : rpf.growth.mom < -5 ? '▼' : '►';
+      html += '<span style="color:' + (rpf.growth.mom > 0 ? '#00ff66' : '#ff4757') + ';">' + rpfTrend + ' ' + (rpf.growth.mom >= 0 ? '+' : '') + rpf.growth.mom + '%</span></div>';
+
+      [
+        { label: '161.8% EXT', val: rpf.fib['161.8'], c: '#a855f7' },
+        { label: '127.2% EXT', val: rpf.fib['127.2'], c: '#00d4ff' },
+        { label: '100% HIGH', val: rpf.fib.high, c: '#00ff66' },
+        { label: '61.8% RESIST', val: rpf.fib['61.8'], c: '#00ff66' },
+        { label: '50% MID', val: rpf.fib['50.0'], c: '#ffd700' },
+        { label: '38.2% SUPPORT', val: rpf.fib['38.2'], c: '#ff4757' },
+        { label: '0% LOW', val: rpf.fib.low, c: '#ff4757' },
+      ].forEach(function(lv) {
+        var pct2 = rpf.fib.high > 0 ? Math.round(lv.val / rpf.fib.high * 100) : 0;
+        html += '<div class="fib-level"><span class="pct">' + lv.label.split(' ')[0] + '</span>';
+        html += '<div class="bar"><div class="fill" style="width:' + Math.min(100, pct2) + '%;background:' + lv.c + '40;"></div></div>';
+        html += '<span class="val" style="color:' + lv.c + ';">' + rpf.prefix + Math.round(lv.val).toLocaleString() + '</span></div>';
+      });
+
+      html += '<div style="margin-top:10px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;margin-bottom:4px;">6-MONTH FORECAST (confidence band)</div>';
+      html += '<div style="display:flex;gap:4px;">';
+      rpf.forecast.forEach(function(f) {
+        html += '<div style="flex:1;text-align:center;background:rgba(10,20,35,0.5);padding:4px;border:1px dashed ' + rpf.color + '30;">';
+        html += '<div style="color:' + rpf.color + ';font-family:Orbitron;font-size:0.6em;">' + rpf.prefix + Math.round(f.blended).toLocaleString() + '</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.55em;">' + rpf.prefix + f.lower.toLocaleString() + '–' + rpf.prefix + f.upper.toLocaleString() + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<div style="display:flex;justify-content:space-between;margin-top:6px;">';
+      html += '<span style="font-size:0.7em;color:#4a6a8a;">Trend: <strong style="color:' + (rpf.trend.direction === 'bullish' ? '#00ff66' : rpf.trend.direction === 'bearish' ? '#ff4757' : '#ff9f43') + ';">' + rpf.trend.direction.toUpperCase() + '</strong> (' + rpf.trend.strength + '%)</span>';
+      html += '<span style="font-size:0.7em;color:#4a6a8a;">R²: ' + linearRegression(rpf.name === 'REVENUE' ? revVals : rpf.name === 'PROFIT' ? profVals : rpf.name === 'EXPENSES' ? expVals : adsVals).r2 + '</span>';
+      html += '</div></div></div>';
+    });
+    html += '</div>';
+
+    // Margin Fibonacci
+    html += '<div class="chart-box">';
+    html += '<div class="chart-header"><div class="chart-title" style="color:#55f7d8;">PROFIT MARGIN FIBONACCI</div>';
+    html += '<span class="metric-badge" style="border-color:' + (marginFib.current > marginFib['61.8'] ? '#00ff6640' : marginFib.current > marginFib['38.2'] ? '#ffd70040' : '#ff475740') + ';color:' + (marginFib.current > marginFib['61.8'] ? '#00ff66' : marginFib.current > marginFib['38.2'] ? '#ffd700' : '#ff4757') + ';">CURRENT: ' + marginFib.current + '%</span></div>';
+    html += '<div style="position:relative;height:30px;background:#0a1520;margin-bottom:8px;">';
+    var markerPos = marginFib.high > 0 ? Math.min(100, Math.round((marginFib.current - marginFib.low) / (marginFib.high - marginFib.low || 1) * 100)) : 50;
+    html += '<div style="position:absolute;top:0;bottom:0;left:' + markerPos + '%;width:3px;background:#55f7d8;box-shadow:0 0 10px #55f7d8;z-index:2;"></div>';
+    [0, 23.6, 38.2, 50, 61.8, 78.6, 100].forEach(function(pct) {
+      html += '<div style="position:absolute;top:0;bottom:0;left:' + pct + '%;width:1px;background:#ffffff10;"></div>';
+    });
+    html += '</div>';
+    html += '<div style="display:flex;justify-content:space-between;font-family:Orbitron;font-size:0.45em;color:#4a6a8a;">';
+    html += '<span>Low: ' + marginFib.low + '%</span><span>38.2%: ' + marginFib['38.2'] + '%</span><span>50%: ' + marginFib['50.0'] + '%</span><span>61.8%: ' + marginFib['61.8'] + '%</span><span>High: ' + marginFib.high + '%</span>';
+    html += '</div></div>';
+    html += '</div>';
+
+    // ====================================================================
+    // SECTION 4: AD SPEND ROI FIBONACCI
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>AD SPEND EFFICIENCY — ROI FIBONACCI</div>';
+
+    html += '<div class="kpi-row">';
+    var adKPIs = [
+      { label: 'CURRENT ROAS', val: adROI.length > 0 ? adROI[adROI.length-1] + 'x' : 'N/A', sub: 'Revenue per $1 ad spend', c: adROI.length > 0 && adROI[adROI.length-1] > 5 ? '#00ff66' : '#ff9f43' },
+      { label: 'ROAS HIGH (Fib)', val: adROIFib.high + 'x', sub: '100% retracement level', c: '#00ff66' },
+      { label: 'ROAS SUPPORT', val: adROIFib['38.2'] + 'x', sub: '38.2% Fibonacci', c: '#ff4757' },
+      { label: 'COST PER LEAD', val: '$' + (costPerLead.length > 0 ? costPerLead[costPerLead.length-1] : 0), sub: 'Current month CPL', c: '#a855f7' },
+      { label: 'CPL LOW (Fib)', val: '$' + cplFib.low, sub: 'Best efficiency', c: '#00ff66' },
+      { label: 'CPL RESIST', val: '$' + cplFib['61.8'], sub: '61.8% — expensive zone', c: '#ff4757' },
+    ];
+    adKPIs.forEach(function(k) {
+      html += '<div class="kpi" style="--c:' + k.c + ';"><div class="kpi-label">' + k.label + '</div><div class="kpi-val">' + k.val + '</div><div class="kpi-sub">' + k.sub + '</div></div>';
+    });
+    html += '</div>';
+
+    // ROAS trend mini chart
+    if (adROI.length > 3) {
+      var maxROI = Math.max.apply(null, adROI);
+      html += '<div class="chart-box"><div class="chart-title" style="color:#a855f7;margin-bottom:10px;">ROAS TREND — Return On Ad Spend</div>';
+      html += '<div style="display:flex;align-items:flex-end;gap:4px;height:100px;">';
+      adROI.slice(-12).forEach(function(v, i) {
+        var h = maxROI > 0 ? Math.max(2, Math.round(v / maxROI * 100)) : 2;
+        var col = v >= adROIFib['61.8'] ? '#00ff66' : v >= adROIFib['38.2'] ? '#ff9f43' : '#ff4757';
+        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
+        html += '<div style="color:#4a6a8a;font-size:0.5em;margin-bottom:2px;">' + v + 'x</div>';
+        html += '<div style="width:80%;height:' + h + '%;background:' + col + '40;border-top:2px solid ' + col + ';"></div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    // Ad strategy signal
+    var adSignal = '';
+    if (adROI.length > 0) {
+      var lastROAS = adROI[adROI.length-1];
+      if (lastROAS >= adROIFib['61.8']) adSignal = '🟢 EFFICIENT — ROAS above 61.8% Fib. Ads are performing well. Consider increasing budget by 10-20% to scale.';
+      else if (lastROAS >= adROIFib['38.2']) adSignal = '🟡 NORMAL — ROAS in middle band. Monitor closely. Optimize targeting and creative to push above resistance.';
+      else adSignal = '🔴 INEFFICIENT — ROAS below 38.2% support. Reduce ad spend, audit campaigns, check landing page conversion.';
+    }
+    if (adSignal) html += '<div class="signal-box" style="border-color:#a855f730;background:rgba(168,85,247,0.03);color:#a855f7;">' + adSignal + '</div>';
+    html += '</div>';
+
+    // ====================================================================
+    // SECTION 5: EQUIPMENT FIBONACCI — DEMAND RETRACEMENT
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#00ff66;--gc:#00ff66;"><span class="dot" style="background:#00ff66;"></span>EQUIPMENT FIBONACCI — DEMAND RETRACEMENT</div>';
+    html += '<div class="fib-grid">';
+
+    var equipFibs = [
+      { name: 'MOWERS / ZERO TURN', fib: mowerFib, growth: mowerGrowth, color: '#00ff66', vals: equipMonthly.mower, icon: '🔧' },
+      { name: 'SNOW BLOWERS', fib: snowFib, growth: snowGrowth, color: '#00d4ff', vals: equipMonthly.snow, icon: '❄️' },
+      { name: 'GENERATORS', fib: genFib, growth: genGrowth, color: '#ff9f43', vals: equipMonthly.generator, icon: '⚡' },
+    ];
+
+    equipFibs.forEach(function(eq) {
+      var eqBB = bollingerBands(eq.vals, Math.min(4, eq.vals.length), 2);
+      var eqRSI = calcRSI(eq.vals, Math.min(4, eq.vals.length));
+      var eqForecast = forecast(eq.vals, 3);
+      var eqTrend = trendStrength(eq.vals);
+
+      html += '<div class="fib-card">';
+      html += '<div class="fib-title"><span style="color:' + eq.color + ';">' + eq.icon + ' ' + eq.name + '</span>';
+      var trendClass = eq.growth.mom > 5 ? 'trend-up' : eq.growth.mom < -5 ? 'trend-down' : 'trend-flat';
+      var trendIcon = eq.growth.mom > 5 ? '▲' : eq.growth.mom < -5 ? '▼' : '►';
+      html += '<span class="' + trendClass + '" style="color:' + (eq.growth.mom > 5 ? '#00ff66' : eq.growth.mom < -5 ? '#ff4757' : '#ff9f43') + ';">' + trendIcon + ' ' + (eq.growth.mom >= 0 ? '+' : '') + eq.growth.mom + '%</span></div>';
+
+      // Mini sparkline
+      var eqLast = eq.vals.slice(-12);
+      var eqMax = Math.max.apply(null, eqLast.length > 0 ? eqLast : [1]);
+      html += '<div style="display:flex;align-items:flex-end;gap:2px;height:60px;margin-bottom:10px;">';
+      eqLast.forEach(function(v, i) {
+        var h = eqMax > 0 ? Math.max(2, Math.round(v / eqMax * 100)) : 2;
+        html += '<div style="flex:1;height:' + h + '%;background:' + (i >= eqLast.length - 3 ? eq.color + '80' : eq.color + '25') + ';min-height:2px;transition:height 0.3s;"></div>';
+      });
+      // Forecast bars
+      eqForecast.forEach(function(f) {
+        var h2 = eqMax > 0 ? Math.max(2, Math.round(f.blended / eqMax * 100)) : 2;
+        html += '<div style="flex:1;height:' + h2 + '%;background:repeating-linear-gradient(180deg,' + eq.color + '30 0px,' + eq.color + '30 3px,transparent 3px,transparent 6px);min-height:2px;border-top:1px dashed ' + eq.color + '60;"></div>';
+      });
+      html += '</div>';
+
+      // Fib levels with extensions
+      [
+        { label: '161.8% EXT', val: eq.fib['161.8'], c: '#a855f7' },
+        { label: '100% HIGH', val: eq.fib.high, c: '#00ff66' },
+        { label: '61.8% RESIST', val: eq.fib['61.8'], c: '#00ff66' },
+        { label: '50% MID', val: eq.fib['50.0'], c: '#ffd700' },
+        { label: '38.2% SUPPORT', val: eq.fib['38.2'], c: '#ff4757' },
+        { label: '0% LOW', val: eq.fib.low, c: '#ff4757' },
+      ].forEach(function(fl3) {
+        var pct = eq.fib.high > 0 ? Math.min(100, Math.round(fl3.val / eq.fib.high * 100)) : 0;
+        html += '<div class="fib-level"><span class="pct">' + fl3.label.split(' ')[0] + '</span>';
+        html += '<div class="bar"><div class="fill" style="width:' + pct + '%;background:' + fl3.c + '40;"></div></div>';
+        html += '<span class="val" style="color:' + fl3.c + ';">' + fl3.val + '</span></div>';
+      });
+
+      // Indicators row
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:10px;">';
+      var curPos = eq.fib.range > 0 ? Math.round((eq.fib.current - eq.fib.low) / eq.fib.range * 100) : 50;
+      var lastRSI = eqRSI.length > 0 ? Math.round(eqRSI[eqRSI.length-1]) : 50;
+      html += '<div style="background:#0a1520;padding:5px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CURRENT</div><div style="color:' + eq.color + ';font-family:Orbitron;font-size:0.75em;">' + eq.fib.current + '</div></div>';
+      html += '<div style="background:#0a1520;padding:5px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">RETRACEMENT</div><div style="color:' + (curPos > 61.8 ? '#00ff66' : curPos > 38.2 ? '#ffd700' : '#ff4757') + ';font-family:Orbitron;font-size:0.75em;">' + curPos + '%</div></div>';
+      html += '<div style="background:#0a1520;padding:5px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">RSI</div><div style="color:' + (lastRSI > 70 ? '#ff4757' : lastRSI < 30 ? '#00ff66' : '#ff9f43') + ';font-family:Orbitron;font-size:0.75em;">' + lastRSI + '</div></div>';
+      html += '<div style="background:#0a1520;padding:5px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">FORECAST</div><div style="color:#ff9f43;font-family:Orbitron;font-size:0.75em;">~' + (eqForecast.length > 0 ? eqForecast[0].blended : '?') + '</div></div>';
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+
+    // ====================================================================
+    // SECTION 6: SEASONAL DEMAND PREDICTION
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#55f7d8;--gc:#55f7d8;"><span class="dot" style="background:#55f7d8;"></span>SEASONAL DEMAND PREDICTION ENGINE</div>';
+
+    html += '<div class="chart-box">';
+    html += '<div class="chart-title" style="color:#55f7d8;margin-bottom:12px;">PREDICTED MONTHLY DEMAND BY EQUIPMENT TYPE (Historical Avg)</div>';
+    var seasonMax = 0;
+    for (var sm = 1; sm <= 12; sm++) { var sa = seasonAvg[sm] || {}; var stotal = (sa.mower||0)+(sa.snow||0)+(sa.generator||0)+(sa.other||0); if (stotal > seasonMax) seasonMax = stotal; }
+    html += '<div style="display:flex;align-items:flex-end;gap:6px;height:200px;margin-bottom:8px;">';
+    for (var sm2 = 1; sm2 <= 12; sm2++) {
+      var sa2 = seasonAvg[sm2] || {}; var stot = (sa2.mower||0)+(sa2.snow||0)+(sa2.generator||0)+(sa2.other||0);
+      var mH = seasonMax > 0 ? Math.round((sa2.mower||0) / seasonMax * 100) : 0;
+      var sH = seasonMax > 0 ? Math.round((sa2.snow||0) / seasonMax * 100) : 0;
+      var gH = seasonMax > 0 ? Math.round((sa2.generator||0) / seasonMax * 100) : 0;
+      var oH = seasonMax > 0 ? Math.round((sa2.other||0) / seasonMax * 100) : 0;
+      var isNow = sm2 === curMonth + 1;
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;' + (isNow ? 'background:rgba(85,247,216,0.08);border:1px solid #55f7d820;' : '') + '">';
+      html += '<div style="color:#c0d8f0;font-size:0.5em;margin-bottom:2px;">' + stot + '</div>';
+      html += '<div style="width:70%;display:flex;flex-direction:column;">';
+      if (oH > 0) html += '<div style="height:' + oH + 'px;background:#4a6a8a40;min-height:1px;"></div>';
+      if (gH > 0) html += '<div style="height:' + gH + 'px;background:#ff9f4380;min-height:1px;"></div>';
+      if (sH > 0) html += '<div style="height:' + sH + 'px;background:#00d4ff80;min-height:1px;"></div>';
+      if (mH > 0) html += '<div style="height:' + mH + 'px;background:#00ff6680;min-height:1px;"></div>';
+      html += '</div>';
+      html += '<div style="font-family:Orbitron;font-size:0.4em;color:' + (isNow ? '#55f7d8' : '#4a6a8a') + ';margin-top:4px;' + (isNow ? 'font-weight:900;' : '') + '">' + monthLabels3[sm2] + '</div></div>';
+    }
+    html += '</div>';
+    html += '<div style="display:flex;gap:15px;justify-content:center;flex-wrap:wrap;">';
+    html += '<span style="color:#00ff66;font-size:0.75em;">● Mowers</span><span style="color:#00d4ff;font-size:0.75em;">● Snow Blowers</span><span style="color:#ff9f43;font-size:0.75em;">● Generators</span><span style="color:#4a6a8a;font-size:0.75em;">● Other</span>';
+    html += '</div>';
+
+    // Next 3 month prediction cards
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:15px;">';
+    for (var nm = 1; nm <= 3; nm++) {
+      var nextMo = (curMonth + nm) % 12 + 1;
+      var nsa = seasonAvg[nextMo] || {};
+      var nTotal = (nsa.mower||0)+(nsa.snow||0)+(nsa.generator||0)+(nsa.other||0);
+      var dColor = nm === 1 ? '#55f7d8' : nm === 2 ? '#00d4ff' : '#a855f7';
+      html += '<div style="background:' + dColor + '05;border:1px solid ' + dColor + '20;padding:14px;text-align:center;">';
+      html += '<div style="font-family:Orbitron;font-size:0.55em;color:' + dColor + ';letter-spacing:2px;">' + monthLabels3[nextMo].toUpperCase() + ' PREDICTION</div>';
+      html += '<div style="font-family:Orbitron;font-size:1.6em;color:' + dColor + ';font-weight:900;margin:5px 0;">~' + nTotal + '</div>';
+      html += '<div style="font-size:0.75em;color:#4a6a8a;">🔧 ' + (nsa.mower||0) + ' &bull; ❄️ ' + (nsa.snow||0) + ' &bull; ⚡ ' + (nsa.generator||0) + '</div>';
+      html += '</div>';
+    }
+    html += '</div></div>';
+
+    // Day of Week pattern
+    html += '<div class="chart-box">';
+    html += '<div class="chart-title" style="color:#55f7d8;margin-bottom:10px;">DEMAND BY DAY OF WEEK (from recent bookings)</div>';
+    var dowMax = Math.max.apply(null, dowCounts);
+    html += '<div style="display:flex;align-items:flex-end;gap:8px;height:80px;">';
+    dowCounts.forEach(function(v, i) {
+      var h = dowMax > 0 ? Math.max(3, Math.round(v / dowMax * 100)) : 3;
+      var pct = dowTotal > 0 ? Math.round(v / dowTotal * 100) : 0;
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
+      html += '<div style="color:#c0d8f0;font-size:0.6em;">' + v + ' (' + pct + '%)</div>';
+      html += '<div style="width:80%;height:' + h + '%;background:#55f7d840;border-top:2px solid #55f7d8;"></div>';
+      html += '<div style="font-family:Orbitron;font-size:0.45em;color:#4a6a8a;margin-top:4px;">' + dowLabels[i] + '</div></div>';
+    });
+    html += '</div></div></div>';
+
+    // ====================================================================
+    // SECTION 7: CITY GROWTH FORECASTING — MINI FIBONACCI CHARTS
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>CITY GROWTH FORECASTING — ' + cityForecasts.length + ' MARKETS</div>';
+
+    // Top city mini-fib cards (show top 12)
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-bottom:15px;">';
+    cityForecasts.slice(0, 12).forEach(function(cf) {
+      var cfColor = cf.growth.mom > 10 ? '#00ff66' : cf.growth.mom > 0 ? '#00d4ff' : cf.growth.mom > -10 ? '#ff9f43' : '#ff4757';
+      html += '<div class="fib-card" style="padding:14px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+      html += '<div><span style="color:#c0d8f0;font-weight:700;font-size:0.95em;">' + cf.city + '</span>';
+      html += '<span style="color:#4a6a8a;font-size:0.75em;margin-left:8px;">' + cf.total + ' total</span></div>';
+      html += '<span style="color:' + cfColor + ';font-family:Orbitron;font-size:0.65em;">' + (cf.growth.mom >= 0 ? '+' : '') + cf.growth.mom + '%</span></div>';
+
+      // Mini sparkline with forecast
+      var cfMax = Math.max.apply(null, cf.values.length > 0 ? cf.values : [1]);
+      if (cf.forecast.length > 0) cfMax = Math.max(cfMax, cf.forecast[0].upper || cf.forecast[0].blended);
+      html += '<div style="display:flex;align-items:flex-end;gap:1px;height:40px;margin-bottom:6px;">';
+      cf.values.forEach(function(v) {
+        var h = cfMax > 0 ? Math.max(1, Math.round(v / cfMax * 100)) : 1;
+        html += '<div style="flex:1;height:' + h + '%;background:' + cfColor + '50;min-height:1px;"></div>';
+      });
+      cf.forecast.slice(0, 3).forEach(function(f) {
+        var h2 = cfMax > 0 ? Math.max(1, Math.round(f.blended / cfMax * 100)) : 1;
+        html += '<div style="flex:1;height:' + h2 + '%;border-top:1px dashed #ff9f4380;min-height:1px;"></div>';
+      });
+      html += '</div>';
+
+      // Fib meter
+      var cfPos = cf.fib.range > 0 ? Math.min(100, Math.round((cf.current - cf.fib.low) / cf.fib.range * 100)) : 50;
+      html += '<div style="height:4px;background:#0a1520;position:relative;margin-bottom:6px;">';
+      html += '<div style="height:100%;width:' + cfPos + '%;background:linear-gradient(90deg,' + cfColor + '80,' + cfColor + ');"></div>';
+      html += '</div>';
+
+      // Stats row
+      html += '<div style="display:flex;justify-content:space-between;font-size:0.7em;">';
+      html += '<span style="color:#4a6a8a;">Now: <strong style="color:#c0d8f0;">' + cf.current + '</strong></span>';
+      html += '<span style="color:#4a6a8a;">Pred: <strong style="color:#ff9f43;">~' + cf.predicted + '</strong></span>';
+      html += '<span style="color:#4a6a8a;">RSI: <strong style="color:' + (cf.rsi > 70 ? '#ff4757' : cf.rsi < 30 ? '#00ff66' : '#ff9f43') + ';">' + Math.round(cf.rsi) + '</strong></span>';
+      html += '<span style="color:#4a6a8a;">Fib: <strong style="color:' + (cfPos > 61.8 ? '#00ff66' : cfPos > 38.2 ? '#ffd700' : '#ff4757') + ';">' + cfPos + '%</strong></span>';
+      html += '</div>';
+
+      // Signal
+      var cSignal = '';
+      if (cf.growth.mom > 20 && cf.rsi < 70) cSignal = '<span class="pill pill-green">🚀 BREAKOUT</span>';
+      else if (cf.growth.mom > 5) cSignal = '<span class="pill pill-green">▲ GROW</span>';
+      else if (cf.growth.mom > -5) cSignal = '<span class="pill pill-orange">► STABLE</span>';
+      else if (cf.rsi < 30) cSignal = '<span class="pill pill-blue">💎 OVERSOLD</span>';
+      else cSignal = '<span class="pill pill-red">▼ DECLINE</span>';
+      if (cf.volatility > 40) cSignal += ' <span class="pill pill-purple">⚡ VOLATILE</span>';
+      html += '<div style="margin-top:4px;">' + cSignal + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // Full data table
+    html += '<div style="overflow-x:auto;"><table class="data-table">';
+    html += '<thead><tr><th>City</th><th>Total</th><th>Current</th><th>Predicted</th><th>MoM</th><th>RSI</th><th>Volatility</th><th>Fib Pos</th><th>R²</th><th>Signal</th></tr></thead><tbody>';
+    cityForecasts.slice(0, 30).forEach(function(cf2) {
+      var cfPos2 = cf2.fib.range > 0 ? Math.round((cf2.current - cf2.fib.low) / cf2.fib.range * 100) : 50;
+      var signal2 = cf2.growth.mom > 20 ? '<span class="pill pill-green">🚀 BREAKOUT</span>' : cf2.growth.mom > 5 ? '<span class="pill pill-green">▲ GROW</span>' : cf2.growth.mom > -5 ? '<span class="pill pill-orange">► STABLE</span>' : '<span class="pill pill-red">▼ DECLINE</span>';
+      html += '<tr><td style="color:#c0d8f0;font-weight:700;white-space:nowrap;">' + cf2.city + '</td><td style="color:#00d4ff;">' + cf2.total + '</td><td>' + cf2.current + '</td><td style="color:#ff9f43;font-weight:700;">~' + cf2.predicted + '</td><td style="color:' + (cf2.growth.mom >= 0 ? '#00ff66' : '#ff4757') + ';">' + (cf2.growth.mom >= 0 ? '+' : '') + cf2.growth.mom + '%</td><td style="color:' + (cf2.rsi > 70 ? '#ff4757' : cf2.rsi < 30 ? '#00ff66' : '#4a6a8a') + ';">' + Math.round(cf2.rsi) + '</td><td>' + cf2.volatility + '%</td><td style="color:' + (cfPos2 > 61.8 ? '#00ff66' : cfPos2 > 38.2 ? '#ffd700' : '#ff4757') + ';">' + cfPos2 + '%</td><td style="color:' + (cf2.r2 > 0.5 ? '#00ff66' : '#4a6a8a') + ';">' + cf2.r2 + '</td><td>' + signal2 + '</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+
+    // ====================================================================
+    // SECTION 8: TECH PRODUCTIVITY + WORKFORCE FIBONACCI
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#00d4ff;--gc:#00d4ff;"><span class="dot" style="background:#00d4ff;"></span>TECH PRODUCTIVITY & WORKFORCE FIBONACCI</div>';
+
+    // Workforce KPIs
+    var totalTechJobs = techProd.reduce(function(s, t) { return s + t.total; }, 0);
+    var avgJobsPerTech = techProd.length > 0 ? Math.round(totalTechJobs / techProd.length) : 0;
+    var avgCompletion = techProd.length > 0 ? Math.round(techProd.reduce(function(s,t){return s+t.rate;},0) / techProd.length * 10) / 10 : 0;
+    var techRevVals = techProd.map(function(t){return t.revenue;});
+    var techRevFib = calcFib(techRevVals);
+    var techRateVals = techProd.map(function(t){return t.rate;});
+    var techRateFib = calcFib(techRateVals);
+    var revenuePerTech = techProd.length > 0 ? Math.round(techRevVals.reduce(function(a,b){return a+b;},0) / techProd.length) : 0;
+
+    html += '<div class="kpi-row">';
+    html += '<div class="kpi" style="--c:#00d4ff;"><div class="kpi-label">ACTIVE TECHS</div><div class="kpi-val">' + techProd.length + '</div><div class="kpi-sub">' + totalTechJobs + ' total jobs</div></div>';
+    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">AVG JOBS/TECH</div><div class="kpi-val">' + avgJobsPerTech + '</div><div class="kpi-sub">Fib high: ' + techRevFib.high + '</div></div>';
+    html += '<div class="kpi" style="--c:#ffd700;"><div class="kpi-label">AVG COMPLETION</div><div class="kpi-val">' + avgCompletion + '%</div><div class="kpi-sub">Fib range: ' + techRateFib['38.2'] + '-' + techRateFib['61.8'] + '%</div></div>';
+    html += '<div class="kpi" style="--c:#a855f7;"><div class="kpi-label">REV / TECH</div><div class="kpi-val">$' + revenuePerTech.toLocaleString() + '</div><div class="kpi-sub">Est. avg tech revenue</div></div>';
+    html += '</div>';
+
+    if (techProd.length > 0) {
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Tech</th><th>Total</th><th>Done</th><th>Rate</th><th>Cancel%</th><th>Return%</th><th>Jobs/Day</th><th>Est Rev</th><th>Markets</th><th>Efficiency</th></tr></thead><tbody>';
+      techProd.forEach(function(tp) {
+        var rateColor = tp.rate > 50 ? '#00ff66' : tp.rate > 20 ? '#ff9f43' : '#ff4757';
+        var effScore = Math.round(tp.efficiency * 10) / 10;
+        var effColor = effScore > techProd[0].efficiency * 0.7 ? '#00ff66' : effScore > techProd[0].efficiency * 0.3 ? '#ff9f43' : '#ff4757';
+        html += '<tr><td style="color:#c0d8f0;font-weight:700;">' + tp.name + '</td><td style="color:#00d4ff;">' + tp.total + '</td><td>' + tp.completed + '</td><td style="color:' + rateColor + ';font-weight:700;">' + tp.rate + '%</td><td style="color:' + (tp.cancelRate > 20 ? '#ff4757' : '#4a6a8a') + ';">' + tp.cancelRate + '%</td><td style="color:' + (tp.returnRate > 5 ? '#00ff66' : '#4a6a8a') + ';">' + tp.returnRate + '%</td><td>' + tp.jobsPerDay + '</td><td style="color:#00ff66;">$' + tp.revenue.toLocaleString() + '</td><td>' + tp.locations + '</td><td style="color:' + effColor + ';">' + effScore + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+
+    // ====================================================================
+    // SECTION 9: CANCELLATION & CHURN FIBONACCI
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ff4757;--gc:#ff4757;"><span class="dot" style="background:#ff4757;"></span>CANCELLATION RISK & CHURN FIBONACCI</div>';
+
+    html += '<div class="kpi-row">';
+    html += '<div class="kpi" style="--c:#ff4757;"><div class="kpi-label">OVERALL CANCEL RATE</div><div class="kpi-val">' + overallCancelRate + '%</div><div class="kpi-sub">' + (bm.totalCancelled || 0) + ' of ' + (bm.totalLeads || 0) + '</div></div>';
+    html += '<div class="kpi" style="--c:#ff9f43;"><div class="kpi-label">REVENUE AT RISK</div><div class="kpi-val">$' + ((bm.totalCancelled || 0) * revenuePerCall).toLocaleString() + '</div><div class="kpi-sub">Lost from cancellations</div></div>';
+    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">RECOVERY TARGET</div><div class="kpi-val">$' + Math.round((bm.totalCancelled || 0) * revenuePerCall * 0.15).toLocaleString() + '</div><div class="kpi-sub">15% rebook potential</div></div>';
+    html += '<div class="kpi" style="--c:#00d4ff;"><div class="kpi-label">CONVERSION RATE</div><div class="kpi-val">' + (bm.conversionRate || 0) + '%</div><div class="kpi-sub">Lead → Completed</div></div>';
+    html += '</div>';
+
+    if (cancelByCitySorted.length > 0) {
+      html += '<div style="font-family:Orbitron;font-size:0.55em;color:#4a6a8a;letter-spacing:3px;margin-bottom:8px;">HIGHEST CANCEL RATES BY CITY (min 5 jobs)</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>City</th><th>Total</th><th>Cancelled</th><th>Rate</th><th>Risk</th><th>$ Lost</th></tr></thead><tbody>';
+      cancelByCitySorted.slice(0, 15).forEach(function(cc) {
+        var risk = cc[1].rate > 30 ? '<span class="pill pill-red">HIGH</span>' : cc[1].rate > 15 ? '<span class="pill pill-orange">MED</span>' : '<span class="pill pill-green">LOW</span>';
+        html += '<tr><td style="color:#c0d8f0;font-weight:700;">' + cc[0] + '</td><td>' + cc[1].total + '</td><td style="color:#ff4757;">' + cc[1].cancelled + '</td><td style="color:' + (cc[1].rate > 25 ? '#ff4757' : '#ff9f43') + ';font-weight:700;">' + cc[1].rate + '%</td><td>' + risk + '</td><td style="color:#ff4757;">$' + (cc[1].cancelled * revenuePerCall).toLocaleString() + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+
+    // ====================================================================
+    // SECTION 10: EQUIPMENT & BRAND INTELLIGENCE
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>EQUIPMENT & BRAND FIBONACCI</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:15px;">';
+
+    // Equipment mix
+    html += '<div class="chart-box">';
+    html += '<div class="chart-title" style="color:#ffd700;">EQUIPMENT MIX</div>';
+    var eqSorted2 = Object.entries(equipStats).sort(function(a,b) { return b[1] - a[1]; });
+    var eqTotal2 = eqSorted2.reduce(function(s,e) { return s + e[1]; }, 0);
+    eqSorted2.slice(0, 10).forEach(function(eq2) {
+      var pct3 = eqTotal2 > 0 ? Math.round(eq2[1] / eqTotal2 * 1000) / 10 : 0;
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">';
+      html += '<div style="width:110px;text-align:right;color:#c0d8f0;font-size:0.8em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + eq2[0] + '</div>';
+      html += '<div style="flex:1;height:16px;background:#0a1520;"><div style="height:100%;width:' + pct3 + '%;background:linear-gradient(90deg,#ffd70040,#ffd70020);border-left:3px solid #ffd700;"></div></div>';
+      html += '<div style="width:70px;text-align:right;color:#ffd700;font-size:0.75em;">' + eq2[1] + ' (' + pct3 + '%)</div></div>';
+    });
+    html += '</div>';
+
+    // Brand mix
+    html += '<div class="chart-box">';
+    html += '<div class="chart-title" style="color:#a855f7;">BRAND MIX</div>';
+    brandSorted.slice(0, 10).forEach(function(br) {
+      var pct4 = brandTotal > 0 ? Math.round(br[1] / brandTotal * 1000) / 10 : 0;
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">';
+      html += '<div style="width:110px;text-align:right;color:#c0d8f0;font-size:0.8em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + br[0] + '</div>';
+      html += '<div style="flex:1;height:16px;background:#0a1520;"><div style="height:100%;width:' + pct4 + '%;background:linear-gradient(90deg,#a855f740,#a855f720);border-left:3px solid #a855f7;"></div></div>';
+      html += '<div style="width:70px;text-align:right;color:#a855f7;font-size:0.75em;">' + br[1] + ' (' + pct4 + '%)</div></div>';
+    });
+    html += '</div></div></div>';
+
+    // ====================================================================
+    // SECTION 11: GROWTH MILESTONES & PROJECTIONS
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#55f7d8;--gc:#55f7d8;"><span class="dot" style="background:#55f7d8;"></span>GROWTH MILESTONES & PROJECTIONS</div>';
+
+    var totalCallsEver = monthVals.reduce(function(a,b){return a+b;}, 0);
+    var avgMonthCalls = monthKeys.length > 0 ? Math.round(totalCallsEver / monthKeys.length) : 0;
+    var recentAvg = monthVals.length >= 3 ? Math.round(monthVals.slice(-3).reduce(function(a,b){return a+b;},0) / 3) : avgMonthCalls;
+    var milestones = [5000, 10000, 15000, 20000, 25000, 50000, 75000, 100000];
+    html += '<div class="kpi-row">';
+    milestones.forEach(function(ms) {
+      if (ms <= totalCallsEver) {
+        html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">' + ms.toLocaleString() + ' CALLS</div><div class="kpi-val">✅</div><div class="kpi-sub">Achieved</div></div>';
+      } else {
+        var remaining = ms - totalCallsEver;
+        var monthsToGo = recentAvg > 0 ? Math.ceil(remaining / recentAvg) : 99;
+        var estDate = new Date(curYear, curMonth + monthsToGo, 1);
+        var estStr = monthLabels3[estDate.getMonth() + 1] + ' ' + estDate.getFullYear();
+        html += '<div class="kpi" style="--c:#4a6a8a;"><div class="kpi-label">' + ms.toLocaleString() + ' CALLS</div><div class="kpi-val">~' + monthsToGo + 'mo</div><div class="kpi-sub">Est. ' + estStr + '</div></div>';
+      }
+    });
+    html += '</div>';
+
+    // Revenue milestones
+    var totalRevEver = (fh.allTime || {}).revenue || 0;
+    var avgMonthRev = revVals.length > 0 ? revVals.reduce(function(a,b){return a+b;},0) / revVals.length : 0;
+    var recentRevAvg = revVals.length >= 3 ? revVals.slice(-3).reduce(function(a,b){return a+b;},0) / 3 : avgMonthRev;
+    var revMilestones = [250000, 500000, 1000000, 2000000, 5000000, 10000000];
+    html += '<div style="font-family:Orbitron;font-size:0.6em;color:#00ff66;letter-spacing:3px;margin:15px 0 8px;">REVENUE MILESTONES</div>';
+    html += '<div class="kpi-row">';
+    revMilestones.forEach(function(rm) {
+      if (rm <= totalRevEver) {
+        html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">$' + (rm >= 1000000 ? (rm/1000000) + 'M' : (rm/1000) + 'K') + '</div><div class="kpi-val">✅</div><div class="kpi-sub">Achieved</div></div>';
+      } else {
+        var revRemaining = rm - totalRevEver;
+        var mToGo = recentRevAvg > 0 ? Math.ceil(revRemaining / recentRevAvg) : 99;
+        html += '<div class="kpi" style="--c:#4a6a8a;"><div class="kpi-label">$' + (rm >= 1000000 ? (rm/1000000) + 'M' : (rm/1000) + 'K') + '</div><div class="kpi-val">~' + mToGo + 'mo</div><div class="kpi-sub">Need $' + Math.round(revRemaining / 1000).toLocaleString() + 'K more</div></div>';
+      }
+    });
+    html += '</div></div>';
+
+    // ====================================================================
+    // SECTION 12: WHAT-IF SCENARIO CALCULATOR
+    // ====================================================================
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>WHAT-IF SCENARIO CALCULATOR</div>';
+    html += '<div class="chart-box">';
+    html += '<div class="chart-title" style="color:#ffd700;margin-bottom:12px;">GROWTH SCENARIO MODELING</div>';
+
+    var baseRev = recentRevAvg || avgMonthRev || 50000;
+    var baseCalls = recentAvg || avgMonthCalls || 300;
+    var scenarios = [
+      { name: 'CONSERVATIVE', callGrowth: 3, revGrowth: 3, color: '#4a6a8a', icon: '🐢' },
+      { name: 'MODERATE', callGrowth: 8, revGrowth: 8, color: '#ff9f43', icon: '📊' },
+      { name: 'AGGRESSIVE', callGrowth: 15, revGrowth: 15, color: '#00ff66', icon: '🚀' },
+      { name: 'HYPERGROWTH', callGrowth: 25, revGrowth: 25, color: '#a855f7', icon: '⚡' },
+    ];
+
+    html += '<div style="overflow-x:auto;"><table class="data-table">';
+    html += '<thead><tr><th>Scenario</th><th>Mo Growth</th><th>6-Mo Rev</th><th>12-Mo Rev</th><th>12-Mo Calls</th><th>Annual Rev</th></tr></thead><tbody>';
+    scenarios.forEach(function(sc) {
+      var sixMoRev = 0, twelveMoRev = 0, twelveMoCalls = 0;
+      for (var si = 1; si <= 12; si++) {
+        var mRev = Math.round(baseRev * Math.pow(1 + sc.revGrowth / 100, si));
+        var mCalls = Math.round(baseCalls * Math.pow(1 + sc.callGrowth / 100, si));
+        if (si <= 6) sixMoRev += mRev;
+        twelveMoRev += mRev;
+        if (si === 12) twelveMoCalls = mCalls;
+      }
+      html += '<tr><td style="color:' + sc.color + ';font-weight:700;">' + sc.icon + ' ' + sc.name + '</td>';
+      html += '<td style="color:' + sc.color + ';">+' + sc.callGrowth + '%</td>';
+      html += '<td>$' + Math.round(sixMoRev / 1000).toLocaleString() + 'K</td>';
+      html += '<td style="color:' + sc.color + ';font-weight:700;">$' + Math.round(twelveMoRev / 1000).toLocaleString() + 'K</td>';
+      html += '<td>' + twelveMoCalls.toLocaleString() + '/mo</td>';
+      html += '<td style="font-weight:700;">$' + Math.round(twelveMoRev / 1000).toLocaleString() + 'K</td></tr>';
+    });
+    html += '</tbody></table></div></div></div>';
+
+    // Footer
+    html += '<div style="text-align:center;padding:30px;font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#1a2a3a;border-top:1px solid #0a1520;">WILDWOOD ANALYTICS ENGINE v2.0 // ' + monthKeys.length + ' months &bull; ' + (bm.totalLeads || 0) + ' records &bull; ' + Object.keys(locationStats).length + ' markets &bull; ' + cityForecasts.length + ' forecasts</div>';
+
+    // ====================================================================
+    // LIGHTWEIGHT CHARTS JAVASCRIPT
+    // ====================================================================
+    html += '<script>';
+
+    // Data injection
+    html += 'var callData=' + JSON.stringify(lcCallData) + ';';
+    html += 'var forecastData=' + JSON.stringify(lcForecastData) + ';';
+    html += 'var revChartData=' + JSON.stringify(lcRevData) + ';';
+    html += 'var profChartData=' + JSON.stringify(lcProfData) + ';';
+    html += 'var callFib=' + JSON.stringify(callFib) + ';';
+    html += 'var revFib=' + JSON.stringify(revFib) + ';';
+
+    // Chart creation
+    html += 'var chartOpts={layout:{background:{color:"#050d18"},textColor:"#4a6a8a",fontSize:11},grid:{vertLines:{color:"#0a1520"},horzLines:{color:"#0a1520"}},crosshair:{mode:0},timeScale:{borderColor:"#1a2a3a",timeVisible:false},rightPriceScale:{borderColor:"#1a2a3a"}};';
+
+    // Call Volume Interactive Chart
+    html += 'var cEl=document.getElementById("call-chart");';
+    html += 'var cW=cEl.offsetWidth;';
+    html += 'var mainC=LightweightCharts.createChart(cEl,Object.assign({},chartOpts,{width:cW,height:350}));';
+    html += 'var mainS=mainC.addLineSeries({color:"#00d4ff",lineWidth:2,title:"Calls"});';
+    html += 'mainS.setData(callData);';
+
+    // Forecast line
+    html += 'var foreS=mainC.addLineSeries({color:"#ff9f43",lineWidth:2,lineStyle:2,title:"Forecast"});';
+    html += 'var foreUpperS=mainC.addLineSeries({color:"#ff9f4320",lineWidth:1,lineStyle:1});';
+    html += 'var foreLowerS=mainC.addLineSeries({color:"#ff9f4320",lineWidth:1,lineStyle:1});';
+    html += 'if(callData.length>0){var lastPt=callData[callData.length-1];';
+    html += 'var fd=[{time:lastPt.time,value:lastPt.value}].concat(forecastData.map(function(d){return{time:d.time,value:d.value};}));';
+    html += 'var fu=[{time:lastPt.time,value:lastPt.value}].concat(forecastData.map(function(d){return{time:d.time,value:d.upper};}));';
+    html += 'var fl=[{time:lastPt.time,value:lastPt.value}].concat(forecastData.map(function(d){return{time:d.time,value:d.lower};}));';
+    html += 'foreS.setData(fd);foreUpperS.setData(fu);foreLowerS.setData(fl);}';
+
+    // BB overlays (hidden by default)
+    html += 'var bbUp=mainC.addLineSeries({color:"#ff9f4360",lineWidth:1,lineStyle:2,visible:false});';
+    html += 'var bbLo=mainC.addLineSeries({color:"#ff9f4360",lineWidth:1,lineStyle:2,visible:false});';
+    html += 'var bbMd=mainC.addLineSeries({color:"#ff9f4330",lineWidth:1,lineStyle:1,visible:false});';
+    html += 'var smaS=mainC.addLineSeries({color:"#a855f7",lineWidth:1,visible:false});';
+    html += 'var emaS=mainC.addLineSeries({color:"#ffd700",lineWidth:1,visible:false});';
+
+    // Compute BB/SMA/EMA from callData
+    html += 'function computeSMA(data,p){var r=[];for(var i=0;i<data.length;i++){if(i<p-1)continue;var s=0;for(var j=0;j<p;j++)s+=data[i-j].value;r.push({time:data[i].time,value:Math.round(s/p*100)/100});}return r;}';
+    html += 'function computeEMA(data,p){if(data.length===0)return[];var k=2/(p+1);var r=[{time:data[0].time,value:data[0].value}];for(var i=1;i<data.length;i++){r.push({time:data[i].time,value:Math.round((data[i].value*k+r[i-1].value*(1-k))*100)/100});}return r;}';
+    html += 'function computeBB(data,p,std){var u=[],l=[],m=[];for(var i=0;i<data.length;i++){if(i<p-1)continue;var s=0;for(var j=0;j<p;j++)s+=data[i-j].value;var avg=s/p;var sq=0;for(var j2=0;j2<p;j2++)sq+=(data[i-j2].value-avg)*(data[i-j2].value-avg);var sd=Math.sqrt(sq/p);u.push({time:data[i].time,value:Math.round((avg+std*sd)*100)/100});l.push({time:data[i].time,value:Math.round(Math.max(0,avg-std*sd)*100)/100});m.push({time:data[i].time,value:Math.round(avg*100)/100});}return{upper:u,lower:l,middle:m};}';
+
+    html += 'var bbData=computeBB(callData,Math.min(6,callData.length),2);';
+    html += 'bbUp.setData(bbData.upper);bbLo.setData(bbData.lower);bbMd.setData(bbData.middle);';
+    html += 'smaS.setData(computeSMA(callData,Math.min(6,callData.length)));';
+    html += 'emaS.setData(computeEMA(callData,Math.min(6,callData.length)));';
+
+    // Fibonacci lines
+    html += 'var fibLines=[];var showFib2=true;';
+    html += 'function drawFibLines(){fibLines.forEach(function(fl){try{mainS.removePriceLine(fl);}catch(e){}});fibLines=[];if(!showFib2)return;';
+    html += 'var levels={"0%":callFib.low,"23.6%":callFib["23.6"],"38.2%":callFib["38.2"],"50%":callFib["50.0"],"61.8%":callFib["61.8"],"78.6%":callFib["78.6"],"100%":callFib.high};';
+    html += 'var colors={"0%":"#ff4757","23.6%":"#ff4757","38.2%":"#ff9f43","50%":"#ffd700","61.8%":"#00ff66","78.6%":"#00ff66","100%":"#00ff66"};';
+    html += 'Object.keys(levels).forEach(function(k){var line=mainS.createPriceLine({price:levels[k],color:colors[k]+"60",lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"Fib "+k});fibLines.push(line);});';
+    html += '}drawFibLines();';
+
+    // Extension lines (hidden by default)
+    html += 'var extLines=[];var showExt=false;';
+    html += 'function drawExtLines(){extLines.forEach(function(el){try{mainS.removePriceLine(el);}catch(e){}});extLines=[];if(!showExt)return;';
+    html += '["127.2","161.8","200.0","261.8"].forEach(function(k){if(callFib[k]){var l=mainS.createPriceLine({price:callFib[k],color:"#a855f760",lineWidth:1,lineStyle:1,axisLabelVisible:true,title:"Ext "+k+"%"});extLines.push(l);}});';
+    html += '}';
+
+    // Toggle functions
+    html += 'var overlays={bb:false,sma:false,ema:false,fib:true,ext:false,forecast:true};';
+    html += 'function toggleOverlay(id){overlays[id]=!overlays[id];';
+    html += 'var el=document.getElementById("btn-"+id+"2");';
+    html += 'if(overlays[id]){el.style.background="rgba(0,212,255,0.15)";el.style.color="#00d4ff";el.style.borderColor="#00d4ff40";}';
+    html += 'else{el.style.background="#0a1520";el.style.color="#4a6a8a";el.style.borderColor="#1a2a3a";}';
+    html += 'bbUp.applyOptions({visible:overlays.bb});bbLo.applyOptions({visible:overlays.bb});bbMd.applyOptions({visible:overlays.bb});';
+    html += 'smaS.applyOptions({visible:overlays.sma});emaS.applyOptions({visible:overlays.ema});';
+    html += 'showFib2=overlays.fib;drawFibLines();';
+    html += 'showExt=overlays.ext;drawExtLines();';
+    html += 'foreS.applyOptions({visible:overlays.forecast});foreUpperS.applyOptions({visible:overlays.forecast});foreLowerS.applyOptions({visible:overlays.forecast});';
+    html += '}';
+
+    // RSI chart
+    html += 'var rsiEl=document.getElementById("call-rsi");';
+    html += 'var rsiC=LightweightCharts.createChart(rsiEl,Object.assign({},chartOpts,{width:cW,height:100}));';
+    html += 'var rsiS=rsiC.addLineSeries({color:"#a855f7",lineWidth:1.5});';
+    html += 'var rsiData=callData.slice(' + Math.min(6, monthVals.length) + ').map(function(d,i){return{time:d.time,value:' + JSON.stringify(callRSI) + '[i]||50};});';
+    html += 'rsiS.setData(rsiData);';
+    // RSI levels
+    html += 'rsiS.createPriceLine({price:70,color:"#ff475740",lineWidth:1,lineStyle:2,title:"Overbought"});';
+    html += 'rsiS.createPriceLine({price:30,color:"#00ff6640",lineWidth:1,lineStyle:2,title:"Oversold"});';
+    html += 'rsiS.createPriceLine({price:50,color:"#ffd70020",lineWidth:1,lineStyle:1,title:""});';
+
+    // MACD chart
+    html += 'var macdEl=document.getElementById("call-macd");';
+    html += 'var macdC=LightweightCharts.createChart(macdEl,Object.assign({},chartOpts,{width:cW,height:100}));';
+    html += 'var macdLS=macdC.addLineSeries({color:"#00d4ff",lineWidth:1.5,title:"MACD"});';
+    html += 'var macdSS=macdC.addLineSeries({color:"#ff9f43",lineWidth:1,title:"Signal"});';
+    html += 'var macdHS=macdC.addHistogramSeries({title:"Hist"});';
+    html += 'var macdLine2=' + JSON.stringify(callMACD.macdLine) + ';';
+    html += 'var macdSig2=' + JSON.stringify(callMACD.signal) + ';';
+    html += 'var macdHist2=' + JSON.stringify(callMACD.histogram) + ';';
+    html += 'var macdD=callData.map(function(d,i){return{time:d.time,value:macdLine2[i]||0};});';
+    html += 'var sigD=callData.map(function(d,i){return{time:d.time,value:macdSig2[i]||0};});';
+    html += 'var histD=callData.map(function(d,i){return{time:d.time,value:macdHist2[i]||0,color:(macdHist2[i]||0)>=0?"#26a69a80":"#ef535080"};});';
+    html += 'macdLS.setData(macdD);macdSS.setData(sigD);macdHS.setData(histD);';
+
+    // Revenue chart
+    html += 'if(revChartData.length>1){';
+    html += 'var rEl=document.getElementById("rev-chart");';
+    html += 'var revC=LightweightCharts.createChart(rEl,Object.assign({},chartOpts,{width:rEl.offsetWidth,height:300}));';
+    html += 'var revS=revC.addLineSeries({color:"#00ff66",lineWidth:2,title:"Revenue"});';
+    html += 'var profS=revC.addLineSeries({color:"#ffd700",lineWidth:2,title:"Profit"});';
+    html += 'revS.setData(revChartData);profS.setData(profChartData);';
+    // Rev fib lines
+    html += '["38.2","50.0","61.8"].forEach(function(k){if(revFib[k]){revS.createPriceLine({price:revFib[k],color:k==="38.2"?"#ff475730":k==="50.0"?"#ffd70030":"#00ff6630",lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"Fib "+k+"%"});}});';
+    html += 'revC.timeScale().fitContent();}';
+
+    // Sync crosshairs
+    html += 'mainC.timeScale().fitContent();rsiC.timeScale().fitContent();macdC.timeScale().fitContent();';
+
+    // Resize handler
+    html += 'window.addEventListener("resize",function(){';
+    html += 'var w=document.getElementById("call-chart").offsetWidth;';
+    html += 'mainC.applyOptions({width:w});rsiC.applyOptions({width:w});macdC.applyOptions({width:w});';
+    html += 'if(typeof revC!=="undefined"){revC.applyOptions({width:document.getElementById("rev-chart").offsetWidth});}';
+    html += '});';
+
+    html += '<\/script>';
+    html += '</div></body></html>';
+    res.send(html);
+  } catch (err) {
+    console.error("Analytics error:", err.stack || err.message);
     res.status(500).json({ error: err.message });
   }
 });
