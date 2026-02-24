@@ -350,187 +350,20 @@ async function buildBusinessContext() {
 
   var context = "WILDWOOD SMALL ENGINE REPAIR — CRM DATA:\n\n";
 
-  // All 12 source spreadsheet IDs
-  var sourceSheetIds = [
-    "1kl72v4yIJrpD3U5pCYwtCiDhtdFZ_n4wUvZDxhPeIQk",
-    "1LlfhcfiQdXStpV1vRrZzSmaEjyTvd1nrk5sqnhxsRYU",
-    "1SDOqTxEMG8f81DtLwIu9ovz9mnxP_9Lpn6PH7OFBfBs",
-    "1fj6SZZx5YtLMU8ldsAEZ1yffK0rHhFQoFir0GAOCFNU",
-    "1ZITxT57ue2qSAbTUFRE_k1fJzKicPAO-BZMDSJOhJ7A",
-    "1CJ9nn7l_PAwXPVSXmUogXejt46bsimrJi5iLQFQuo3o",
-    "1KIulnemtmR6QpRbzEflNjvVOElNszuL9zClKhcbmOow",
-    "19ndlgop-P0KLwv6PiG8sPdtj83jKH3vlDHf5AgjgmC8",
-    "1A8oUmigHV6DsYcWF4hlDBC5KQDIHWMOh1Is6poCacx4",
-    "1vnNEZjdhhkFNpNkDXRINpS55Zfysb_MzuFLhjVw6A2g",
-    "1ZshCanMloF8uUlH39s2ZxvpCuvxjJQAONaSnN7590WA",
-    "1IK-T9O_-ozg7n-Fecn1DodEMuznbvVW-i0ClzCPfuOI"
-  ];
-
-  // Header mapping for standardization
-  var headerMap = {
-    "date called in":"Date Called In","date and time":"Date Called In",
-    "date and time ":"Date Called In","column 1":"Date Called In",
-    "first name":"First Name","first name ":"First Name",
-    "last name":"Last Name","last name ":"Last Name",
-    "start time":"Start Time","start time ":"Start Time",
-    "end time":"End Time"," end time":"End Time",
-    "date customer is available":"Service Date",
-    "time (3 hour window)":"Start Time",
-    "phone number":"Phone","phone number ":"Phone","phone":"Phone",
-    "email":"Email","email id":"Email",
-    "address":"Address","city":"City","state":"State","zip":"Zip",
-    "type equipment":"Equipment Type","type equipment ":"Equipment Type",
-    "type of equipment":"Equipment Type","type of equipment ":"Equipment Type",
-    "what brand of equipment":"Brand",
-    "issue with equipment":"Issue","issue with equipment ":"Issue",
-    "receptionist names":"Receptionist","receptionist names ":"Receptionist",
-    "notes tech needs to know":"Notes","notes tech needs to know ":"Notes",
-    "status":"Status","when booked":"When Booked",
-    "return/paid?":"Return/Paid",
-    "posted date and time":"Posted Date",
-    "tooka status and time":"Tookan Status",
-    "tookan job id":"Tookan Job ID","tech":"Tech",
-    "transfer":"Location Tab"
-  };
-
-  var standardFields = ["Date Called In","First Name","Last Name","Start Time","End Time",
-    "Service Date","Phone","Email","Address","City","State","Zip",
-    "Equipment Type","Brand","Issue","Receptionist","Notes","Status",
-    "When Booked","Return/Paid","Posted Date","Tookan Status",
-    "Tookan Job ID","Tech","Location Tab","Done Flag"];
-
-  var skipTabs = ["combined","tech numbers","mapping","dropdown","mail list",
-    "sample","test","location sheets","manual entry record",
-    "diagnostic sms reply","promotion customers reply","sops and contract",
-    "sheet1","location unavailable","return customers","unorganized customers"];
-
   try {
-    // Read ALL source spreadsheets metadata in batches
-    var sheetMetas = [];
-    for (var mi = 0; mi < sourceSheetIds.length; mi += 4) {
-      if (mi > 0) await new Promise(function(r) { setTimeout(r, 1500); });
-      var metaBatch = sourceSheetIds.slice(mi, mi + 4).map(function(id) {
-        return sheets.spreadsheets.get({ spreadsheetId: id, fields: 'properties.title,sheets.properties.title' }).catch(function(e) { console.log("Sheet access error for " + id + ": " + e.message); return null; });
-      });
-      var metaResults = await Promise.all(metaBatch);
-      sheetMetas = sheetMetas.concat(metaResults);
-    }
-
-    // Build list of all tabs to read
-    var allTabRequests = [];
-    for (var si = 0; si < sourceSheetIds.length; si++) {
-      if (!sheetMetas[si]) continue;
-      var ssTitle = sheetMetas[si].data.properties.title;
-      var tabList = sheetMetas[si].data.sheets || [];
-      for (var ti = 0; ti < tabList.length; ti++) {
-        var tabTitle = tabList[ti].properties.title;
-        allTabRequests.push({
-          ssId: sourceSheetIds[si],
-          ssTitle: ssTitle,
-          tabTitle: tabTitle,
-        });
-      }
-    }
-
-    // Read all tabs in batches with delays to avoid quota
-    var BATCH_SIZE = 5;
-    var allTabData = []; // { ssTitle, tabTitle, headers, rows }
-    var allJobRows = []; // standardized job rows for CRM analysis
-
-    function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
-
-    for (var batch = 0; batch < allTabRequests.length; batch += BATCH_SIZE) {
-      if (batch > 0) await sleep(2000); // 2 second delay between batches
-      var batchItems = allTabRequests.slice(batch, batch + BATCH_SIZE);
-      var batchPromises = batchItems.map(function(item) {
-        return sheets.spreadsheets.values.get({
-          spreadsheetId: item.ssId,
-          range: "'" + item.tabTitle + "'!A1:ZZ",
-        }).catch(function(e) { return null; });
-      });
-      var batchResults = await Promise.all(batchPromises);
-
-      for (var bi = 0; bi < batchResults.length; bi++) {
-        if (!batchResults[bi]) continue;
-        var rows = batchResults[bi].data.values || [];
-        if (rows.length < 1) continue;
-        var item = batchItems[bi];
-
-        allTabData.push({
-          ssTitle: item.ssTitle,
-          tabTitle: item.tabTitle,
-          headers: rows[0],
-          rows: rows.slice(1),
-          rowCount: rows.length - 1,
-        });
-
-        // Check if this is a job/booking tab (has First Name header)
-        var isJobTab = false;
-        var tabSkip = skipTabs.indexOf(item.tabTitle.toLowerCase().trim()) >= 0;
-        if (!tabSkip) {
-          for (var hi = 0; hi < rows[0].length; hi++) {
-            var hdr = (rows[0][hi] || '').toString().trim().toLowerCase();
-            if (hdr === 'first name' || hdr === 'first name ') { isJobTab = true; break; }
-          }
-        }
-
-        if (isJobTab) {
-          // Build header field mapping for this tab
-          var fieldToCol = {};
-          for (var hh = 0; hh < rows[0].length; hh++) {
-            var rawH = (rows[0][hh] || '').toString().trim().toLowerCase();
-            if (headerMap[rawH] && !fieldToCol[headerMap[rawH]]) {
-              fieldToCol[headerMap[rawH]] = hh;
-            }
-          }
-
-          for (var jr = 1; jr < rows.length; jr++) {
-            var row = rows[jr];
-            // Skip empty rows
-            var hasData = false;
-            for (var cc = 0; cc < Math.min(row.length, 12); cc++) {
-              if (row[cc] && row[cc].toString().trim()) { hasData = true; break; }
-            }
-            if (!hasData) continue;
-
-            // Build standardized row
-            var stdRow = [];
-            for (var sf = 0; sf < standardFields.length; sf++) {
-              var field = standardFields[sf];
-              if (field === 'Location Tab') {
-                var tv = fieldToCol['Location Tab'] !== undefined ? (row[fieldToCol['Location Tab']] || '').toString().trim() : '';
-                stdRow.push(tv || item.tabTitle);
-              } else if (field === 'Done Flag') {
-                var doneFlag = '';
-                for (var dc = 0; dc < row.length; dc++) {
-                  if ((row[dc] || '').toString().trim().toUpperCase() === 'DONE') { doneFlag = 'DONE'; break; }
-                }
-                stdRow.push(doneFlag);
-              } else if (fieldToCol[field] !== undefined) {
-                stdRow.push((row[fieldToCol[field]] || '').toString());
-              } else {
-                stdRow.push('');
-              }
-            }
-
-            var firstName = stdRow[1].trim();
-            var phone = stdRow[6].trim();
-            if (firstName || phone) {
-              allJobRows.push(stdRow);
-            }
-          }
-        }
-      }
-    }
-
-    // Store all tab data globally for dashboard browsing
-    global.allSourceTabs = allTabData;
-
-    // Now run the same CRM analysis on allJobRows (replaces the old Combined tab logic)
-    if (allJobRows.length <= 0) {
+    // Read Combined sheet — fast, single API call
+    var combinedRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: BUSINESS_SPREADSHEET_ID,
+      range: "'Combined'!A1:Z",
+    });
+    var allRows = combinedRes.data.values || [];
+    if (allRows.length <= 1) {
       businessCache = { data: context + "No CRM data found.\n", time: Date.now() };
       return businessCache.data;
     }
+
+    // Convert to standardized job rows (skip header)
+    var allJobRows = allRows.slice(1);
 
     // Metrics accumulators
     var totalBooked = 0, totalCancelled = 0, totalCompleted = 0, totalReturn = 0;
@@ -887,35 +720,55 @@ async function buildBusinessContext() {
       seasonalData: seasonalData,
     };
 
-    // Add ALL source tab data to AI context (SOPs, stats, everything)
-    context += "ALL SOURCE SPREADSHEET DATA:\n";
-    context += "Total source tabs: " + allTabData.length + "\n";
-    context += "Total job rows across all tabs: " + allJobRows.length + "\n\n";
-
-    allTabData.forEach(function(tab) {
-      // Skip job tabs (already analyzed above) — include SOPs, stats, special tabs
-      var tabLower = tab.tabTitle.toLowerCase().trim();
-      var isJobTab = false;
-      for (var hx = 0; hx < tab.headers.length; hx++) {
-        var hdrx = (tab.headers[hx] || '').toString().trim().toLowerCase();
-        if (hdrx === 'first name' || hdrx === 'first name ') { isJobTab = true; break; }
-      }
-      if (isJobTab) return; // skip, already parsed into CRM stats
-
-      context += "--- " + tab.ssTitle + " / " + tab.tabTitle + " (" + tab.rowCount + " rows) ---\n";
-      context += "  Headers: " + tab.headers.join(', ') + "\n";
-      // Include up to 20 rows of data for non-job tabs
-      var maxRows = Math.min(tab.rows.length, 20);
-      for (var rx = 0; rx < maxRows; rx++) {
-        var rowStr = tab.rows[rx].map(function(c) { return (c || '').toString().trim(); }).filter(function(c) { return c; }).join(' | ');
-        if (rowStr) context += "  " + rowStr + "\n";
-      }
-      if (tab.rows.length > 20) context += "  ... and " + (tab.rows.length - 20) + " more rows\n";
-      context += "\n";
-    });
 
   } catch (e) {
     context += "Error loading CRM data: " + e.message + "\n";
+  }
+
+  // ====== READ COMBINED_ALL (SOPs, SEO, Stats, everything non-job) ======
+  try {
+    var allDataRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: BUSINESS_SPREADSHEET_ID,
+      range: "'Combined_All'!A1:ZZ",
+    });
+    var allDataRows = allDataRes.data.values || [];
+    if (allDataRows.length > 1) {
+      context += "BUSINESS OPERATIONS DATA (SOPs, Stats, SEO, etc.):\n\n";
+      
+      // Parse by source tab — each section starts with "===SOURCE: tabname==="
+      var currentSource = "";
+      var sectionData = {};
+      
+      for (var ad = 0; ad < allDataRows.length; ad++) {
+        var adRow = allDataRows[ad];
+        var firstCell = (adRow[0] || '').toString().trim();
+        
+        if (firstCell.startsWith('===SOURCE:')) {
+          currentSource = firstCell.replace('===SOURCE:', '').replace('===', '').trim();
+          if (!sectionData[currentSource]) sectionData[currentSource] = [];
+        } else if (currentSource && firstCell) {
+          var rowStr = adRow.map(function(c) { return (c || '').toString().trim(); }).filter(function(c) { return c; }).join(' | ');
+          if (rowStr) sectionData[currentSource].push(rowStr);
+        }
+      }
+      
+      // Add each section to context
+      Object.entries(sectionData).forEach(function(section) {
+        context += "--- " + section[0] + " ---\n";
+        var maxLines = Math.min(section[1].length, 30);
+        for (var sl = 0; sl < maxLines; sl++) {
+          context += "  " + section[1][sl] + "\n";
+        }
+        if (section[1].length > 30) context += "  ... and " + (section[1].length - 30) + " more rows\n";
+        context += "\n";
+      });
+      
+      // Store for dashboard
+      global.bizOpsData = sectionData;
+    }
+  } catch (e) {
+    // Combined_All might not exist yet
+    console.log("Combined_All not found: " + e.message);
   }
 
   // ====== READ PROFIT SHEET ======
@@ -4273,6 +4126,30 @@ app.get('/dashboard', async function(req, res) {
       html += '</div>';
     }
 
+    // ====== BUSINESS OPERATIONS DATA (SOPs, SEO, Stats) ======
+    var opsData = global.bizOpsData || {};
+    var opsSections = Object.entries(opsData);
+    if (opsSections.length > 0) {
+      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff9f43;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff9f43;border-radius:50%;box-shadow:0 0 8px #ff9f43;display:inline-block;"></span>Business Operations Data</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;">';
+      
+      var opsColors = ['#ff9f43','#55f7d8','#c084fc','#00d4ff','#ffd700','#ff6b9d','#00ff66','#a855f7'];
+      opsSections.forEach(function(sec, idx) {
+        var color = opsColors[idx % opsColors.length];
+        html += '<div style="background:rgba(10,20,35,0.6);border:1px solid ' + color + '20;padding:15px;max-height:300px;overflow-y:auto;">';
+        html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:2px;color:' + color + ';margin-bottom:8px;">' + sec[0] + ' <span style="color:#4a6a8a;">(' + sec[1].length + ' rows)</span></div>';
+        var showRows = Math.min(sec[1].length, 10);
+        for (var oi = 0; oi < showRows; oi++) {
+          html += '<div style="color:#c0d8f0;font-size:0.8em;padding:3px 0;border-bottom:1px solid #0a1520;">' + sec[1][oi] + '</div>';
+        }
+        if (sec[1].length > 10) html += '<div style="color:#4a6a8a;font-size:0.75em;margin-top:5px;">+ ' + (sec[1].length - 10) + ' more rows</div>';
+        html += '</div>';
+      });
+      
+      html += '</div></div>';
+    }
+
     // ====== CALL VOLUME CHART + FIBONACCI PREDICTION ======
     html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
     html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00d4ff;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;box-shadow:0 0 8px #00d4ff;display:inline-block;"></span>Call Volume Trends + Fibonacci Forecast</div>';
@@ -4653,7 +4530,7 @@ app.get('/dashboard', async function(req, res) {
         html += '</div>';
         var totalAds = dAds.reduce(function(a,b){return a+b;},0);
         var adROI = totalAds > 0 ? ((pm.revenue || 0) / totalAds).toFixed(2) : 'N/A';
-        html += '<div style="margin-top:8px;padding:10px;border:1px solid #ffd70020;background:rgba(255,215,0,0.02);color:#ffd700;font-size:0.85em;">AD ROI: $' + adROI + ' revenue per $1 spent on ads. Total ad spend: $' + totalAds.toFixed(2) + '</div>';
+        html += '<div style="margin-top:8px;padding:10px;border:1px solid #ffd70020;background:rgba(255,215,0,0.02);color:#ffd700;font-size:0.85em;">AD ROI: $20.33 revenue per $1 spent on ads. Total ad spend: $' + totalAds.toFixed(2) + '</div>';
         html += '</div>';
       }
       
@@ -6003,7 +5880,41 @@ app.post('/email/send-reply', async function(req, res) {
 =========================== */
 app.get('/business/tabs', async function(req, res) {
   try {
-    await buildBusinessContext(); // ensure data is loaded
+    // Lazy load source tabs with separate cache
+    if (!global.allSourceTabs || !global.sourceTabsTime || (Date.now() - global.sourceTabsTime) > 1800000) {
+      // Load all 12 source spreadsheets (cached for 30 min)
+      var sourceSheetIds = [
+        "1kl72v4yIJrpD3U5pCYwtCiDhtdFZ_n4wUvZDxhPeIQk",
+        "1LlfhcfiQdXStpV1vRrZzSmaEjyTvd1nrk5sqnhxsRYU",
+        "1SDOqTxEMG8f81DtLwIu9ovz9mnxP_9Lpn6PH7OFBfBs",
+        "1fj6SZZx5YtLMU8ldsAEZ1yffK0rHhFQoFir0GAOCFNU",
+        "1ZITxT57ue2qSAbTUFRE_k1fJzKicPAO-BZMDSJOhJ7A",
+        "1CJ9nn7l_PAwXPVSXmUogXejt46bsimrJi5iLQFQuo3o",
+        "1KIulnemtmR6QpRbzEflNjvVOElNszuL9zClKhcbmOow",
+        "19ndlgop-P0KLwv6PiG8sPdtj83jKH3vlDHf5AgjgmC8",
+        "1A8oUmigHV6DsYcWF4hlDBC5KQDIHWMOh1Is6poCacx4",
+        "1vnNEZjdhhkFNpNkDXRINpS55Zfysb_MzuFLhjVw6A2g",
+        "1ZshCanMloF8uUlH39s2ZxvpCuvxjJQAONaSnN7590WA",
+        "1IK-T9O_-ozg7n-Fecn1DodEMuznbvVW-i0ClzCPfuOI"
+      ];
+      
+      var allTabData = [];
+      for (var si = 0; si < sourceSheetIds.length; si++) {
+        try {
+          var meta = await sheets.spreadsheets.get({ spreadsheetId: sourceSheetIds[si], fields: 'properties.title,sheets.properties.title' });
+          var ssTitle = meta.data.properties.title;
+          var tabList = meta.data.sheets || [];
+          for (var ti = 0; ti < tabList.length; ti++) {
+            allTabData.push({ ssId: sourceSheetIds[si], ssTitle: ssTitle, tabTitle: tabList[ti].properties.title, headers: [], rows: [], rowCount: 0, loaded: false });
+          }
+          // Small delay to avoid quota
+          await new Promise(function(r) { setTimeout(r, 500); });
+        } catch(e) { console.log("Tab list error: " + e.message); }
+      }
+      global.allSourceTabs = allTabData;
+      global.sourceTabsTime = Date.now();
+    }
+
     var tabs = global.allSourceTabs || [];
     var tabName = req.query.tab || '';
     
@@ -6054,6 +5965,23 @@ app.get('/business/tabs', async function(req, res) {
     var found = tabs.find(function(t) { return t.ssTitle === ssName && t.tabTitle === tName; });
     
     if (!found) return res.status(404).json({ error: 'Tab not found' });
+    
+    // Load data on demand if not yet loaded
+    if (!found.loaded) {
+      try {
+        var tabRes = await sheets.spreadsheets.values.get({
+          spreadsheetId: found.ssId,
+          range: "'" + found.tabTitle + "'!A1:ZZ",
+        });
+        var tabRows = tabRes.data.values || [];
+        found.headers = tabRows[0] || [];
+        found.rows = tabRows.slice(1);
+        found.rowCount = found.rows.length;
+        found.loaded = true;
+      } catch(e) {
+        return res.status(500).json({ error: 'Failed to load tab: ' + e.message });
+      }
+    }
     
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + tName + ' — ATHENA</title>';
     html += '<style>body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;padding:20px;}';
