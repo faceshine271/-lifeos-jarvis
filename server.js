@@ -1,4 +1,3 @@
-// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -9541,13 +9540,31 @@ app.get('/analytics', async function(req, res) {
     var runRate = dayOfMonth > 0 ? Math.round(curMonthCalls / dayOfMonth * daysInMonth) : 0;
     var annualRunRate = runRate * 12;
 
-    // 2. Revenue/Profit
-    var revMonths = Object.keys(fh.months || {}).sort();
-    var revVals = revMonths.map(function(m) { return (fh.months[m] || {}).revenue || 0; });
-    var profVals = revMonths.map(function(m) { return (fh.months[m] || {}).profit || 0; });
-    var expVals = revMonths.map(function(m) { return (fh.months[m] || {}).expenses || 0; });
-    var adsVals = revMonths.map(function(m) { return (fh.months[m] || {}).ads || 0; });
-    var marginVals = revMonths.map(function(m) { return (fh.months[m] || {}).margin || 0; });
+    // 2. Revenue/Profit — sort chronologically (keys are "Jan 2024", "Feb 2024" etc.)
+    var monthOrder = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+    var revMonths = Object.keys(fh.months || {}).sort(function(a, b) {
+      var pa = a.split(' '), pb = b.split(' ');
+      var ya = parseInt(pa[1]) || 0, yb = parseInt(pb[1]) || 0;
+      if (ya !== yb) return ya - yb;
+      return (monthOrder[pa[0]] || 0) - (monthOrder[pb[0]] || 0);
+    });
+    var revVals, profVals, expVals, adsVals, marginVals;
+    if (revMonths.length > 0) {
+      revVals = revMonths.map(function(m) { return (fh.months[m] || {}).revenue || 0; });
+      profVals = revMonths.map(function(m) { return (fh.months[m] || {}).profit || 0; });
+      expVals = revMonths.map(function(m) { return (fh.months[m] || {}).expenses || 0; });
+      adsVals = revMonths.map(function(m) { return (fh.months[m] || {}).ads || 0; });
+      marginVals = revMonths.map(function(m) { return (fh.months[m] || {}).margin || 0; });
+    } else {
+      // Fallback: estimate revenue from call volume data * avg ticket
+      var estTicket = (pm.revenue && bm.thisMonthCalls) ? Math.round(pm.revenue / Math.max(1, bm.thisMonthCalls)) : 321;
+      revMonths = monthKeys.slice();
+      revVals = monthVals.map(function(v) { return v * estTicket; });
+      profVals = revVals.map(function(v) { return Math.round(v * 0.25); }); // est 25% margin
+      expVals = revVals.map(function(v, i) { return v - profVals[i]; });
+      adsVals = revVals.map(function(v) { return Math.round(v * 0.08); }); // est 8% ad spend
+      marginVals = revVals.map(function(v) { return v > 0 ? 25 : 0; });
+    }
     var revFib = calcFibExtended(revVals);
     var revGrowth = growthMetrics(revVals);
     var revForecast = forecast(revVals, 6);
@@ -9629,7 +9646,33 @@ app.get('/analytics', async function(req, res) {
         efficiency: completionRate * jobsPerDay,
       });
     });
-    techProd.sort(function(a, b) { return b.total - a.total; });
+    // Fallback: if techStats empty but we have tech payouts from profit sheet
+    if (techProd.length === 0 && pm.techPayouts && Object.keys(pm.techPayouts).length > 0) {
+      Object.entries(pm.techPayouts).forEach(function(tp) {
+        if (tp[1] > 0) {
+          techProd.push({
+            name: tp[0], total: 0, completed: 0, rate: 0,
+            revenue: tp[1], jobsPerDay: 0, locations: 0,
+            cancelRate: 0, returnRate: 0, efficiency: 0,
+            payoutOnly: true,
+          });
+        }
+      });
+    }
+    // Also try yearlyTechPayouts as fallback
+    if (techProd.length === 0 && pm.yearlyTechPayouts && Object.keys(pm.yearlyTechPayouts).length > 0) {
+      Object.entries(pm.yearlyTechPayouts).forEach(function(tp) {
+        if (tp[1] > 0) {
+          techProd.push({
+            name: tp[0], total: 0, completed: 0, rate: 0,
+            revenue: tp[1], jobsPerDay: 0, locations: 0,
+            cancelRate: 0, returnRate: 0, efficiency: 0,
+            payoutOnly: true,
+          });
+        }
+      });
+    }
+    techProd.sort(function(a, b) { return b.revenue - a.revenue; });
 
     // 6. Ad Spend Efficiency
     var adROI = [];
@@ -9753,6 +9796,7 @@ app.get('/analytics', async function(req, res) {
     html += '<a href="/tookan">TOOKAN</a>';
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics" class="active">ANALYTICS</a>';
+    html += '<a href="/ads">GOOGLE ADS</a>';
     html += '</div>';
 
     html += '<div class="title">PREDICTIVE ANALYTICS ENGINE</div>';
@@ -9817,11 +9861,11 @@ app.get('/analytics', async function(req, res) {
     html += '<button onclick="toggleOverlay(\'forecast\')" id="btn-fore2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4340;cursor:pointer;">FORECAST</button>';
     html += '</div>';
 
-    html += '<div id="call-chart" style="border:1px solid #1a2a3a;"></div>';
+    html += '<div id="call-chart" style="border:1px solid #1a2a3a;min-height:350px;width:100%;"></div>';
     html += '<div style="font-family:Orbitron;font-size:0.45em;color:#4a6a8a;padding:4px 0;">RSI (6)</div>';
-    html += '<div id="call-rsi" style="border:1px solid #1a2a3a;"></div>';
+    html += '<div id="call-rsi" style="border:1px solid #1a2a3a;min-height:100px;width:100%;"></div>';
     html += '<div style="font-family:Orbitron;font-size:0.45em;color:#4a6a8a;padding:4px 0;">MACD (12, 26, 9)</div>';
-    html += '<div id="call-macd" style="border:1px solid #1a2a3a;"></div>';
+    html += '<div id="call-macd" style="border:1px solid #1a2a3a;min-height:100px;width:100%;"></div>';
 
     // Fib level summary strip
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;margin-top:12px;">';
@@ -9852,10 +9896,16 @@ app.get('/analytics', async function(req, res) {
     html += '<div class="section-head" style="color:#00ff66;--gc:#00ff66;"><span class="dot" style="background:#00ff66;"></span>REVENUE & PROFIT — FIBONACCI + FORECASTING</div>';
 
     // Revenue chart
-    var lcRevData = revMonths.map(function(m, i) { return { time: (function() { var parts = m.split(' '); var mi = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(parts[0])+1; return parts[1] + '-' + String(mi).padStart(2,'0') + '-01'; })(), value: revVals[i] }; });
-    var lcProfData = revMonths.map(function(m, i) { return { time: lcRevData[i] ? lcRevData[i].time : '2024-01-01', value: profVals[i] }; });
+    var monthAbbrevToNum = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+    var lcRevData = revMonths.map(function(m, i) {
+      var timeStr;
+      if (m.indexOf('-') > 0 && m.length <= 7) { timeStr = m + '-01'; } // "2024-01" format
+      else { var parts = m.split(' '); var mi = monthAbbrevToNum[parts[0]] || 1; timeStr = (parts[1] || '2024') + '-' + String(mi).padStart(2,'0') + '-01'; }
+      return { time: timeStr, value: revVals[i] || 0 };
+    });
+    var lcProfData = revMonths.map(function(m, i) { return { time: lcRevData[i] ? lcRevData[i].time : '2024-01-01', value: profVals[i] || 0 }; });
 
-    html += '<div id="rev-chart" style="border:1px solid #1a2a3a;margin-bottom:5px;"></div>';
+    html += '<div id="rev-chart" style="border:1px solid #1a2a3a;margin-bottom:5px;min-height:300px;width:100%;"></div>';
     html += '<div style="display:flex;gap:15px;padding:6px;font-size:0.75em;">';
     html += '<span style="color:#00ff66;">● Revenue</span>';
     html += '<span style="color:#ffd700;">● Profit</span>';
@@ -10178,30 +10228,41 @@ app.get('/analytics', async function(req, res) {
 
     // Workforce KPIs
     var totalTechJobs = techProd.reduce(function(s, t) { return s + t.total; }, 0);
+    var totalTechRev = techProd.reduce(function(s, t) { return s + t.revenue; }, 0);
     var avgJobsPerTech = techProd.length > 0 ? Math.round(totalTechJobs / techProd.length) : 0;
-    var avgCompletion = techProd.length > 0 ? Math.round(techProd.reduce(function(s,t){return s+t.rate;},0) / techProd.length * 10) / 10 : 0;
+    var hasJobData = techProd.length > 0 && techProd[0].total > 0;
+    var avgCompletion = hasJobData ? Math.round(techProd.reduce(function(s,t){return s+t.rate;},0) / techProd.length * 10) / 10 : 0;
     var techRevVals = techProd.map(function(t){return t.revenue;});
     var techRevFib = calcFib(techRevVals);
-    var techRateVals = techProd.map(function(t){return t.rate;});
-    var techRateFib = calcFib(techRateVals);
-    var revenuePerTech = techProd.length > 0 ? Math.round(techRevVals.reduce(function(a,b){return a+b;},0) / techProd.length) : 0;
+    var revenuePerTech = techProd.length > 0 ? Math.round(totalTechRev / techProd.length) : 0;
 
     html += '<div class="kpi-row">';
-    html += '<div class="kpi" style="--c:#00d4ff;"><div class="kpi-label">ACTIVE TECHS</div><div class="kpi-val">' + techProd.length + '</div><div class="kpi-sub">' + totalTechJobs + ' total jobs</div></div>';
-    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">AVG JOBS/TECH</div><div class="kpi-val">' + avgJobsPerTech + '</div><div class="kpi-sub">Fib high: ' + techRevFib.high + '</div></div>';
-    html += '<div class="kpi" style="--c:#ffd700;"><div class="kpi-label">AVG COMPLETION</div><div class="kpi-val">' + avgCompletion + '%</div><div class="kpi-sub">Fib range: ' + techRateFib['38.2'] + '-' + techRateFib['61.8'] + '%</div></div>';
-    html += '<div class="kpi" style="--c:#a855f7;"><div class="kpi-label">REV / TECH</div><div class="kpi-val">$' + revenuePerTech.toLocaleString() + '</div><div class="kpi-sub">Est. avg tech revenue</div></div>';
+    html += '<div class="kpi" style="--c:#00d4ff;"><div class="kpi-label">ACTIVE TECHS</div><div class="kpi-val">' + techProd.length + '</div><div class="kpi-sub">' + (hasJobData ? totalTechJobs + ' total jobs' : '$' + totalTechRev.toLocaleString() + ' total payouts') + '</div></div>';
+    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">' + (hasJobData ? 'AVG JOBS/TECH' : 'HIGHEST PAYOUT') + '</div><div class="kpi-val">' + (hasJobData ? avgJobsPerTech : '$' + (techProd.length > 0 ? techProd[0].revenue.toLocaleString() : '0')) + '</div><div class="kpi-sub">Fib high: $' + techRevFib.high.toLocaleString() + '</div></div>';
+    html += '<div class="kpi" style="--c:#ffd700;"><div class="kpi-label">' + (hasJobData ? 'AVG COMPLETION' : 'FIB SUPPORT') + '</div><div class="kpi-val">' + (hasJobData ? avgCompletion + '%' : '$' + techRevFib['38.2'].toLocaleString()) + '</div><div class="kpi-sub">Fib 38.2%-61.8%: $' + techRevFib['38.2'].toLocaleString() + '-$' + techRevFib['61.8'].toLocaleString() + '</div></div>';
+    html += '<div class="kpi" style="--c:#a855f7;"><div class="kpi-label">AVG REV / TECH</div><div class="kpi-val">$' + revenuePerTech.toLocaleString() + '</div><div class="kpi-sub">' + (hasJobData ? 'Estimated from jobs' : 'From payout data') + '</div></div>';
     html += '</div>';
 
     if (techProd.length > 0) {
       html += '<div style="overflow-x:auto;"><table class="data-table">';
-      html += '<thead><tr><th>Tech</th><th>Total</th><th>Done</th><th>Rate</th><th>Cancel%</th><th>Return%</th><th>Jobs/Day</th><th>Est Rev</th><th>Markets</th><th>Efficiency</th></tr></thead><tbody>';
-      techProd.forEach(function(tp) {
-        var rateColor = tp.rate > 50 ? '#00ff66' : tp.rate > 20 ? '#ff9f43' : '#ff4757';
-        var effScore = Math.round(tp.efficiency * 10) / 10;
-        var effColor = effScore > techProd[0].efficiency * 0.7 ? '#00ff66' : effScore > techProd[0].efficiency * 0.3 ? '#ff9f43' : '#ff4757';
-        html += '<tr><td style="color:#c0d8f0;font-weight:700;">' + tp.name + '</td><td style="color:#00d4ff;">' + tp.total + '</td><td>' + tp.completed + '</td><td style="color:' + rateColor + ';font-weight:700;">' + tp.rate + '%</td><td style="color:' + (tp.cancelRate > 20 ? '#ff4757' : '#4a6a8a') + ';">' + tp.cancelRate + '%</td><td style="color:' + (tp.returnRate > 5 ? '#00ff66' : '#4a6a8a') + ';">' + tp.returnRate + '%</td><td>' + tp.jobsPerDay + '</td><td style="color:#00ff66;">$' + tp.revenue.toLocaleString() + '</td><td>' + tp.locations + '</td><td style="color:' + effColor + ';">' + effScore + '</td></tr>';
-      });
+      if (hasJobData) {
+        html += '<thead><tr><th>Tech</th><th>Total</th><th>Done</th><th>Rate</th><th>Cancel%</th><th>Return%</th><th>Jobs/Day</th><th>Est Rev</th><th>Markets</th><th>Efficiency</th></tr></thead><tbody>';
+        techProd.forEach(function(tp) {
+          var rateColor = tp.rate > 50 ? '#00ff66' : tp.rate > 20 ? '#ff9f43' : '#ff4757';
+          var effScore = Math.round(tp.efficiency * 10) / 10;
+          var effColor = effScore > techProd[0].efficiency * 0.7 ? '#00ff66' : effScore > techProd[0].efficiency * 0.3 ? '#ff9f43' : '#ff4757';
+          html += '<tr><td style="color:#c0d8f0;font-weight:700;">' + tp.name + '</td><td style="color:#00d4ff;">' + tp.total + '</td><td>' + tp.completed + '</td><td style="color:' + rateColor + ';font-weight:700;">' + tp.rate + '%</td><td style="color:' + (tp.cancelRate > 20 ? '#ff4757' : '#4a6a8a') + ';">' + tp.cancelRate + '%</td><td style="color:' + (tp.returnRate > 5 ? '#00ff66' : '#4a6a8a') + ';">' + tp.returnRate + '%</td><td>' + tp.jobsPerDay + '</td><td style="color:#00ff66;">$' + tp.revenue.toLocaleString() + '</td><td>' + tp.locations + '</td><td style="color:' + effColor + ';">' + effScore + '</td></tr>';
+        });
+      } else {
+        // Payout-only view
+        html += '<thead><tr><th>Tech</th><th>Payout</th><th>% of Total</th><th>Fib Position</th><th>Status</th></tr></thead><tbody>';
+        techProd.forEach(function(tp) {
+          var pctOfTotal = totalTechRev > 0 ? Math.round(tp.revenue / totalTechRev * 1000) / 10 : 0;
+          var fibPos = techRevFib.range > 0 ? Math.round((tp.revenue - techRevFib.low) / techRevFib.range * 100) : 50;
+          var signal = fibPos > 61.8 ? '<span class="pill pill-green">TOP EARNER</span>' : fibPos > 38.2 ? '<span class="pill pill-orange">MID RANGE</span>' : '<span class="pill pill-red">LOW</span>';
+          html += '<tr><td style="color:#c0d8f0;font-weight:700;">' + tp.name + '</td><td style="color:#00ff66;font-weight:700;">$' + tp.revenue.toLocaleString() + '</td><td>' + pctOfTotal + '%</td><td style="color:' + (fibPos > 61.8 ? '#00ff66' : fibPos > 38.2 ? '#ffd700' : '#ff4757') + ';">' + fibPos + '%</td><td>' + signal + '</td></tr>';
+        });
+      }
       html += '</tbody></table></div>';
     }
     html += '</div>';
@@ -10290,6 +10351,9 @@ app.get('/analytics', async function(req, res) {
 
     // Revenue milestones
     var totalRevEver = (fh.allTime || {}).revenue || 0;
+    // Fallback: estimate from total calls * avg ticket
+    if (totalRevEver === 0 && revVals.length > 0) totalRevEver = revVals.reduce(function(a,b){return a+b;},0);
+    if (totalRevEver === 0) totalRevEver = (bm.totalLeads || 0) * revenuePerCall;
     var avgMonthRev = revVals.length > 0 ? revVals.reduce(function(a,b){return a+b;},0) / revVals.length : 0;
     var recentRevAvg = revVals.length >= 3 ? revVals.slice(-3).reduce(function(a,b){return a+b;},0) / 3 : avgMonthRev;
     var revMilestones = [250000, 500000, 1000000, 2000000, 5000000, 10000000];
@@ -10359,7 +10423,8 @@ app.get('/analytics', async function(req, res) {
     html += 'var callFib=' + JSON.stringify(callFib) + ';';
     html += 'var revFib=' + JSON.stringify(revFib) + ';';
 
-    // Chart creation
+    // Chart creation - wrapped in load handler
+    html += 'window.addEventListener("load",function(){';
     html += 'var chartOpts={layout:{background:{color:"#050d18"},textColor:"#4a6a8a",fontSize:11},grid:{vertLines:{color:"#0a1520"},horzLines:{color:"#0a1520"}},crosshair:{mode:0},timeScale:{borderColor:"#1a2a3a",timeVisible:false},rightPriceScale:{borderColor:"#1a2a3a"}};';
 
     // Call Volume Interactive Chart
@@ -10412,7 +10477,7 @@ app.get('/analytics', async function(req, res) {
 
     // Toggle functions
     html += 'var overlays={bb:false,sma:false,ema:false,fib:true,ext:false,forecast:true};';
-    html += 'function toggleOverlay(id){overlays[id]=!overlays[id];';
+    html += 'window.toggleOverlay=function(id){overlays[id]=!overlays[id];';
     html += 'var el=document.getElementById("btn-"+id+"2");';
     html += 'if(overlays[id]){el.style.background="rgba(0,212,255,0.15)";el.style.color="#00d4ff";el.style.borderColor="#00d4ff40";}';
     html += 'else{el.style.background="#0a1520";el.style.color="#4a6a8a";el.style.borderColor="#1a2a3a";}';
@@ -10467,13 +10532,1398 @@ app.get('/analytics', async function(req, res) {
     html += 'var w=document.getElementById("call-chart").offsetWidth;';
     html += 'mainC.applyOptions({width:w});rsiC.applyOptions({width:w});macdC.applyOptions({width:w});';
     html += 'if(typeof revC!=="undefined"){revC.applyOptions({width:document.getElementById("rev-chart").offsetWidth});}';
-    html += '});';
+    html += '});'; // close resize handler
+    html += '});'; // close window load handler
 
     html += '<\/script>';
     html += '</div></body></html>';
     res.send(html);
   } catch (err) {
     console.error("Analytics error:", err.stack || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+/* ===========================
+   GOOGLE ADS API INTEGRATION
+   OAuth2, Data Fetching, Analytics, Fibonacci, Forecasting
+=========================== */
+
+// Google Ads config
+var GOOGLE_ADS_DEVELOPER_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
+var GOOGLE_ADS_CUSTOMER_ID = (process.env.GOOGLE_ADS_CUSTOMER_ID || '').replace(/-/g, '');
+var GOOGLE_ADS_MANAGER_ID = (process.env.GOOGLE_ADS_MANAGER_ID || '').replace(/-/g, '');
+var GOOGLE_ADS_CLIENT_ID = process.env.GOOGLE_ADS_CLIENT_ID || '';
+var GOOGLE_ADS_CLIENT_SECRET = process.env.GOOGLE_ADS_CLIENT_SECRET || '';
+var GOOGLE_ADS_REFRESH_TOKEN = process.env.GOOGLE_ADS_REFRESH_TOKEN || '';
+
+// In-memory token storage
+var adsTokenStore = {
+  accessToken: null,
+  refreshToken: GOOGLE_ADS_REFRESH_TOKEN,
+  expiresAt: 0,
+};
+
+// Ads data cache (5 min)
+var adsCache = { data: null, time: 0 };
+var ADS_CACHE_TTL = 300000;
+
+console.log("Google Ads Config: " + (GOOGLE_ADS_DEVELOPER_TOKEN ? "Token ✓" : "Token ✗") + " | " + (GOOGLE_ADS_CUSTOMER_ID ? "CID: " + GOOGLE_ADS_CUSTOMER_ID : "CID ✗") + " | " + (GOOGLE_ADS_MANAGER_ID ? "MCC: " + GOOGLE_ADS_MANAGER_ID : "MCC ✗"));
+
+/* ===========================
+   GOOGLE ADS — OAuth2 Flow
+   User must create OAuth2 Web credentials in Cloud Console
+   and set GOOGLE_ADS_CLIENT_ID + GOOGLE_ADS_CLIENT_SECRET
+=========================== */
+
+// Step 1: Redirect to Google consent
+app.get('/ads/auth', function(req, res) {
+  if (!GOOGLE_ADS_CLIENT_ID) {
+    return res.send('<html><body style="background:#050d18;color:#ff4757;font-family:monospace;padding:40px;"><h2>Missing GOOGLE_ADS_CLIENT_ID</h2><p>Go to console.cloud.google.com → APIs & Credentials → Create OAuth 2.0 Client ID (Web Application)</p><p>Add redirect URI: <code>' + req.protocol + '://' + req.get('host') + '/ads/callback</code></p><p>Then add to Render env vars:<br>GOOGLE_ADS_CLIENT_ID=your_client_id<br>GOOGLE_ADS_CLIENT_SECRET=your_client_secret</p></body></html>');
+  }
+  var redirectUri = req.protocol + '://' + req.get('host') + '/ads/callback';
+  var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' +
+    'client_id=' + encodeURIComponent(GOOGLE_ADS_CLIENT_ID) +
+    '&redirect_uri=' + encodeURIComponent(redirectUri) +
+    '&response_type=code' +
+    '&scope=' + encodeURIComponent('https://www.googleapis.com/auth/adwords') +
+    '&access_type=offline' +
+    '&prompt=consent';
+  res.redirect(authUrl);
+});
+
+// Step 2: Exchange code for tokens
+app.get('/ads/callback', async function(req, res) {
+  var code = req.query.code;
+  if (!code) return res.send('Missing code parameter');
+  try {
+    var redirectUri = req.protocol + '://' + req.get('host') + '/ads/callback';
+    var tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'client_id=' + encodeURIComponent(GOOGLE_ADS_CLIENT_ID) +
+        '&client_secret=' + encodeURIComponent(GOOGLE_ADS_CLIENT_SECRET) +
+        '&code=' + encodeURIComponent(code) +
+        '&grant_type=authorization_code' +
+        '&redirect_uri=' + encodeURIComponent(redirectUri),
+    });
+    var tokenData = await tokenRes.json();
+    if (tokenData.error) {
+      return res.send('<pre>Error: ' + JSON.stringify(tokenData) + '</pre>');
+    }
+    adsTokenStore.accessToken = tokenData.access_token;
+    adsTokenStore.refreshToken = tokenData.refresh_token || adsTokenStore.refreshToken;
+    adsTokenStore.expiresAt = Date.now() + (tokenData.expires_in * 1000);
+    
+    var html = '<html><body style="background:#050d18;color:#00ff66;font-family:monospace;padding:40px;">';
+    html += '<h2>✅ Google Ads Connected!</h2>';
+    html += '<p>Access Token: ✓</p>';
+    html += '<p>Refresh Token: ' + (adsTokenStore.refreshToken ? '✓ (save this to Render!)' : '✗') + '</p>';
+    if (adsTokenStore.refreshToken) {
+      html += '<p style="background:#0a1520;padding:15px;border:1px solid #00ff6640;word-break:break-all;"><strong>GOOGLE_ADS_REFRESH_TOKEN=</strong>' + adsTokenStore.refreshToken + '</p>';
+      html += '<p style="color:#ff9f43;">⚠️ Copy this refresh token and add it to your Render environment variables so it persists across restarts.</p>';
+    }
+    html += '<p><a href="/ads" style="color:#00d4ff;">→ Go to Ads Dashboard</a></p>';
+    html += '</body></html>';
+    res.send(html);
+  } catch (err) {
+    res.send('<pre>OAuth Error: ' + err.message + '</pre>');
+  }
+});
+
+// Helper: Get valid access token (refresh if expired)
+async function getAdsAccessToken() {
+  if (adsTokenStore.accessToken && Date.now() < adsTokenStore.expiresAt - 60000) {
+    return adsTokenStore.accessToken;
+  }
+  if (!adsTokenStore.refreshToken) return null;
+  if (!GOOGLE_ADS_CLIENT_ID || !GOOGLE_ADS_CLIENT_SECRET) return null;
+  
+  try {
+    var res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'client_id=' + encodeURIComponent(GOOGLE_ADS_CLIENT_ID) +
+        '&client_secret=' + encodeURIComponent(GOOGLE_ADS_CLIENT_SECRET) +
+        '&refresh_token=' + encodeURIComponent(adsTokenStore.refreshToken) +
+        '&grant_type=refresh_token',
+    });
+    var data = await res.json();
+    if (data.access_token) {
+      adsTokenStore.accessToken = data.access_token;
+      adsTokenStore.expiresAt = Date.now() + (data.expires_in * 1000);
+      return data.access_token;
+    }
+    console.log("Ads token refresh failed:", data);
+    return null;
+  } catch (err) {
+    console.log("Ads token refresh error:", err.message);
+    return null;
+  }
+}
+
+// Helper: Execute Google Ads Query Language (GAQL) query
+async function executeGAQL(query, customerId) {
+  var token = await getAdsAccessToken();
+  if (!token) return null;
+  var cid = customerId || GOOGLE_ADS_CUSTOMER_ID;
+  if (!cid) return null;
+  
+  try {
+    var headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token,
+      'developer-token': GOOGLE_ADS_DEVELOPER_TOKEN,
+    };
+    if (GOOGLE_ADS_MANAGER_ID) {
+      headers['login-customer-id'] = GOOGLE_ADS_MANAGER_ID;
+    }
+    
+    var res = await fetch('https://googleads.googleapis.com/v16/customers/' + cid + '/googleAds:searchStream', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ query: query }),
+    });
+    var data = await res.json();
+    if (data.error) {
+      console.log("GAQL Error:", JSON.stringify(data.error).substring(0, 300));
+      return null;
+    }
+    // searchStream returns array of result batches
+    var results = [];
+    if (Array.isArray(data)) {
+      data.forEach(function(batch) {
+        if (batch.results) results = results.concat(batch.results);
+      });
+    } else if (data.results) {
+      results = data.results;
+    }
+    return results;
+  } catch (err) {
+    console.log("GAQL fetch error:", err.message);
+    return null;
+  }
+}
+
+/* ===========================
+   BUILD ADS CONTEXT — Pull All Data
+=========================== */
+
+async function buildAdsContext() {
+  // Check cache
+  if (adsCache.data && (Date.now() - adsCache.time) < ADS_CACHE_TTL) return adsCache.data;
+  
+  var result = {
+    connected: false,
+    needsAuth: false,
+    campaigns: [],
+    adGroups: [],
+    keywords: [],
+    searchTerms: [],
+    geoPerformance: [],
+    devicePerformance: [],
+    hourlyPerformance: [],
+    dayOfWeekPerformance: [],
+    monthlyPerformance: [],
+    weeklyPerformance: [],
+    dailyPerformance: [],
+    conversionActions: [],
+    accountSummary: {},
+    errors: [],
+  };
+  
+  // Check if configured
+  if (!GOOGLE_ADS_DEVELOPER_TOKEN || !GOOGLE_ADS_CUSTOMER_ID) {
+    result.errors.push("Missing GOOGLE_ADS_DEVELOPER_TOKEN or GOOGLE_ADS_CUSTOMER_ID");
+    return result;
+  }
+  
+  var token = await getAdsAccessToken();
+  if (!token) {
+    result.needsAuth = true;
+    result.errors.push("No valid access token. Visit /ads/auth to connect.");
+    adsCache.data = result;
+    adsCache.time = Date.now();
+    return result;
+  }
+  
+  result.connected = true;
+  
+  // ====== 1. CAMPAIGN PERFORMANCE (last 365 days) ======
+  try {
+    var campaignData = await executeGAQL(
+      "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, " +
+      "campaign.bidding_strategy_type, campaign.budget_amount_micros, " +
+      "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
+      "metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.average_cpm, " +
+      "metrics.search_impression_share, metrics.cost_per_conversion, " +
+      "metrics.all_conversions, metrics.interactions, metrics.interaction_rate " +
+      "FROM campaign WHERE segments.date DURING LAST_365_DAYS AND campaign.status != 'REMOVED' " +
+      "ORDER BY metrics.cost_micros DESC"
+    );
+    if (campaignData) {
+      result.campaigns = campaignData.map(function(r) {
+        var c = r.campaign || {}, m = r.metrics || {};
+        return {
+          id: c.id, name: c.name || 'Unknown', status: c.status || 'UNKNOWN',
+          type: c.advertisingChannelType || '', bidStrategy: c.biddingStrategyType || '',
+          budget: (c.budgetAmountMicros || 0) / 1000000,
+          impressions: parseInt(m.impressions || 0), clicks: parseInt(m.clicks || 0),
+          cost: (parseInt(m.costMicros || 0)) / 1000000,
+          conversions: parseFloat(m.conversions || 0), convValue: parseFloat(m.conversionsValue || 0),
+          ctr: parseFloat(m.ctr || 0), avgCPC: (parseInt(m.averageCpc || 0)) / 1000000,
+          avgCPM: (parseInt(m.averageCpm || 0)) / 1000000,
+          impressionShare: parseFloat(m.searchImpressionShare || 0),
+          costPerConv: (parseInt(m.costPerConversion || 0)) / 1000000,
+          allConversions: parseFloat(m.allConversions || 0),
+          interactions: parseInt(m.interactions || 0), interactionRate: parseFloat(m.interactionRate || 0),
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Campaign fetch: " + e.message); }
+
+  // ====== 2. AD GROUP PERFORMANCE ======
+  try {
+    var adGroupData = await executeGAQL(
+      "SELECT ad_group.id, ad_group.name, ad_group.status, campaign.name, " +
+      "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
+      "metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
+      "FROM ad_group WHERE segments.date DURING LAST_90_DAYS AND ad_group.status != 'REMOVED' " +
+      "ORDER BY metrics.cost_micros DESC LIMIT 100"
+    );
+    if (adGroupData) {
+      result.adGroups = adGroupData.map(function(r) {
+        var ag = r.adGroup || {}, m = r.metrics || {}, c = r.campaign || {};
+        return {
+          id: ag.id, name: ag.name || 'Unknown', status: ag.status || '',
+          campaign: c.name || '', impressions: parseInt(m.impressions || 0),
+          clicks: parseInt(m.clicks || 0), cost: parseInt(m.costMicros || 0) / 1000000,
+          conversions: parseFloat(m.conversions || 0), ctr: parseFloat(m.ctr || 0),
+          avgCPC: parseInt(m.averageCpc || 0) / 1000000,
+          costPerConv: parseInt(m.costPerConversion || 0) / 1000000,
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Ad Group fetch: " + e.message); }
+
+  // ====== 3. KEYWORD PERFORMANCE ======
+  try {
+    var kwData = await executeGAQL(
+      "SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, " +
+      "ad_group_criterion.quality_info.quality_score, ad_group_criterion.status, " +
+      "campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
+      "metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion, " +
+      "metrics.search_impression_share " +
+      "FROM keyword_view WHERE segments.date DURING LAST_90_DAYS " +
+      "ORDER BY metrics.cost_micros DESC LIMIT 200"
+    );
+    if (kwData) {
+      result.keywords = kwData.map(function(r) {
+        var kw = (r.adGroupCriterion || {}).keyword || {};
+        var qi = (r.adGroupCriterion || {}).qualityInfo || {};
+        var m = r.metrics || {}, c = r.campaign || {};
+        return {
+          text: kw.text || '', matchType: kw.matchType || '',
+          qualityScore: parseInt(qi.qualityScore || 0), status: (r.adGroupCriterion || {}).status || '',
+          campaign: c.name || '', impressions: parseInt(m.impressions || 0),
+          clicks: parseInt(m.clicks || 0), cost: parseInt(m.costMicros || 0) / 1000000,
+          conversions: parseFloat(m.conversions || 0), ctr: parseFloat(m.ctr || 0),
+          avgCPC: parseInt(m.averageCpc || 0) / 1000000,
+          costPerConv: parseInt(m.costPerConversion || 0) / 1000000,
+          impressionShare: parseFloat(m.searchImpressionShare || 0),
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Keyword fetch: " + e.message); }
+
+  // ====== 4. SEARCH TERMS (what people actually searched) ======
+  try {
+    var stData = await executeGAQL(
+      "SELECT search_term_view.search_term, search_term_view.status, campaign.name, " +
+      "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
+      "metrics.ctr, metrics.average_cpc " +
+      "FROM search_term_view WHERE segments.date DURING LAST_30_DAYS " +
+      "ORDER BY metrics.impressions DESC LIMIT 200"
+    );
+    if (stData) {
+      result.searchTerms = stData.map(function(r) {
+        var st = r.searchTermView || {}, m = r.metrics || {}, c = r.campaign || {};
+        return {
+          term: st.searchTerm || '', status: st.status || '',
+          campaign: c.name || '', impressions: parseInt(m.impressions || 0),
+          clicks: parseInt(m.clicks || 0), cost: parseInt(m.costMicros || 0) / 1000000,
+          conversions: parseFloat(m.conversions || 0), ctr: parseFloat(m.ctr || 0),
+          avgCPC: parseInt(m.averageCpc || 0) / 1000000,
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Search terms: " + e.message); }
+
+  // ====== 5. GEO PERFORMANCE (by city/region) ======
+  try {
+    var geoData = await executeGAQL(
+      "SELECT geographic_view.country_criterion_id, geographic_view.location_type, " +
+      "campaign_criterion.location.geo_target_constant, " +
+      "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
+      "metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
+      "FROM geographic_view WHERE segments.date DURING LAST_90_DAYS " +
+      "ORDER BY metrics.impressions DESC LIMIT 100"
+    );
+    if (geoData) {
+      result.geoPerformance = geoData.map(function(r) {
+        var gv = r.geographicView || {}, m = r.metrics || {};
+        return {
+          locationType: gv.locationType || '',
+          impressions: parseInt(m.impressions || 0), clicks: parseInt(m.clicks || 0),
+          cost: parseInt(m.costMicros || 0) / 1000000,
+          conversions: parseFloat(m.conversions || 0), ctr: parseFloat(m.ctr || 0),
+          avgCPC: parseInt(m.averageCpc || 0) / 1000000,
+          costPerConv: parseInt(m.costPerConversion || 0) / 1000000,
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Geo: " + e.message); }
+
+  // ====== 6. DEVICE PERFORMANCE ======
+  try {
+    var deviceData = await executeGAQL(
+      "SELECT segments.device, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
+      "metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
+      "FROM campaign WHERE segments.date DURING LAST_90_DAYS"
+    );
+    if (deviceData) {
+      var deviceMap = {};
+      deviceData.forEach(function(r) {
+        var dev = (r.segments || {}).device || 'UNKNOWN';
+        if (!deviceMap[dev]) deviceMap[dev] = { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+        var m = r.metrics || {};
+        deviceMap[dev].impressions += parseInt(m.impressions || 0);
+        deviceMap[dev].clicks += parseInt(m.clicks || 0);
+        deviceMap[dev].cost += parseInt(m.costMicros || 0) / 1000000;
+        deviceMap[dev].conversions += parseFloat(m.conversions || 0);
+      });
+      result.devicePerformance = Object.entries(deviceMap).map(function(d) {
+        var v = d[1];
+        return {
+          device: d[0], impressions: v.impressions, clicks: v.clicks, cost: Math.round(v.cost * 100) / 100,
+          conversions: Math.round(v.conversions * 10) / 10,
+          ctr: v.impressions > 0 ? Math.round(v.clicks / v.impressions * 10000) / 100 : 0,
+          avgCPC: v.clicks > 0 ? Math.round(v.cost / v.clicks * 100) / 100 : 0,
+          costPerConv: v.conversions > 0 ? Math.round(v.cost / v.conversions * 100) / 100 : 0,
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Device: " + e.message); }
+
+  // ====== 7. HOURLY PERFORMANCE ======
+  try {
+    var hourData = await executeGAQL(
+      "SELECT segments.hour, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
+      "metrics.conversions, metrics.ctr " +
+      "FROM campaign WHERE segments.date DURING LAST_30_DAYS"
+    );
+    if (hourData) {
+      var hourMap = {};
+      hourData.forEach(function(r) {
+        var hr = (r.segments || {}).hour || 0;
+        if (!hourMap[hr]) hourMap[hr] = { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+        var m = r.metrics || {};
+        hourMap[hr].impressions += parseInt(m.impressions || 0);
+        hourMap[hr].clicks += parseInt(m.clicks || 0);
+        hourMap[hr].cost += parseInt(m.costMicros || 0) / 1000000;
+        hourMap[hr].conversions += parseFloat(m.conversions || 0);
+      });
+      for (var h = 0; h < 24; h++) {
+        var hd = hourMap[h] || { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+        result.hourlyPerformance.push({
+          hour: h, impressions: hd.impressions, clicks: hd.clicks,
+          cost: Math.round(hd.cost * 100) / 100, conversions: Math.round(hd.conversions * 10) / 10,
+          ctr: hd.impressions > 0 ? Math.round(hd.clicks / hd.impressions * 10000) / 100 : 0,
+        });
+      }
+    }
+  } catch(e) { result.errors.push("Hourly: " + e.message); }
+
+  // ====== 8. DAY OF WEEK PERFORMANCE ======
+  try {
+    var dowData = await executeGAQL(
+      "SELECT segments.day_of_week, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
+      "metrics.conversions, metrics.ctr " +
+      "FROM campaign WHERE segments.date DURING LAST_90_DAYS"
+    );
+    if (dowData) {
+      var dowMap = {};
+      dowData.forEach(function(r) {
+        var day = (r.segments || {}).dayOfWeek || 'UNKNOWN';
+        if (!dowMap[day]) dowMap[day] = { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+        var m = r.metrics || {};
+        dowMap[day].impressions += parseInt(m.impressions || 0);
+        dowMap[day].clicks += parseInt(m.clicks || 0);
+        dowMap[day].cost += parseInt(m.costMicros || 0) / 1000000;
+        dowMap[day].conversions += parseFloat(m.conversions || 0);
+      });
+      ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY'].forEach(function(d) {
+        var dd = dowMap[d] || { impressions: 0, clicks: 0, cost: 0, conversions: 0 };
+        result.dayOfWeekPerformance.push({
+          day: d, impressions: dd.impressions, clicks: dd.clicks,
+          cost: Math.round(dd.cost * 100) / 100, conversions: Math.round(dd.conversions * 10) / 10,
+          ctr: dd.impressions > 0 ? Math.round(dd.clicks / dd.impressions * 10000) / 100 : 0,
+          costPerConv: dd.conversions > 0 ? Math.round(dd.cost / dd.conversions * 100) / 100 : 0,
+        });
+      });
+    }
+  } catch(e) { result.errors.push("DOW: " + e.message); }
+
+  // ====== 9. MONTHLY PERFORMANCE (for Fibonacci) ======
+  try {
+    var monthData = await executeGAQL(
+      "SELECT segments.month, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
+      "metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc " +
+      "FROM campaign WHERE segments.date DURING LAST_365_DAYS"
+    );
+    if (monthData) {
+      var monthMap = {};
+      monthData.forEach(function(r) {
+        var mo = (r.segments || {}).month || '';
+        if (!monthMap[mo]) monthMap[mo] = { impressions: 0, clicks: 0, cost: 0, conversions: 0, convValue: 0 };
+        var m = r.metrics || {};
+        monthMap[mo].impressions += parseInt(m.impressions || 0);
+        monthMap[mo].clicks += parseInt(m.clicks || 0);
+        monthMap[mo].cost += parseInt(m.costMicros || 0) / 1000000;
+        monthMap[mo].conversions += parseFloat(m.conversions || 0);
+        monthMap[mo].convValue += parseFloat(m.conversionsValue || 0);
+      });
+      result.monthlyPerformance = Object.keys(monthMap).sort().map(function(mo) {
+        var md = monthMap[mo];
+        return {
+          month: mo, impressions: md.impressions, clicks: md.clicks,
+          cost: Math.round(md.cost * 100) / 100, conversions: Math.round(md.conversions * 10) / 10,
+          convValue: Math.round(md.convValue * 100) / 100,
+          ctr: md.impressions > 0 ? Math.round(md.clicks / md.impressions * 10000) / 100 : 0,
+          avgCPC: md.clicks > 0 ? Math.round(md.cost / md.clicks * 100) / 100 : 0,
+          roas: md.cost > 0 ? Math.round(md.convValue / md.cost * 100) / 100 : 0,
+          costPerConv: md.conversions > 0 ? Math.round(md.cost / md.conversions * 100) / 100 : 0,
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Monthly: " + e.message); }
+
+  // ====== 10. DAILY PERFORMANCE (last 90 days for granular charts) ======
+  try {
+    var dayData = await executeGAQL(
+      "SELECT segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
+      "metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc " +
+      "FROM campaign WHERE segments.date DURING LAST_90_DAYS ORDER BY segments.date"
+    );
+    if (dayData) {
+      var dayMap = {};
+      dayData.forEach(function(r) {
+        var dt = (r.segments || {}).date || '';
+        if (!dayMap[dt]) dayMap[dt] = { impressions: 0, clicks: 0, cost: 0, conversions: 0, convValue: 0 };
+        var m = r.metrics || {};
+        dayMap[dt].impressions += parseInt(m.impressions || 0);
+        dayMap[dt].clicks += parseInt(m.clicks || 0);
+        dayMap[dt].cost += parseInt(m.costMicros || 0) / 1000000;
+        dayMap[dt].conversions += parseFloat(m.conversions || 0);
+        dayMap[dt].convValue += parseFloat(m.conversionsValue || 0);
+      });
+      result.dailyPerformance = Object.keys(dayMap).sort().map(function(dt) {
+        var dd = dayMap[dt];
+        return {
+          date: dt, impressions: dd.impressions, clicks: dd.clicks,
+          cost: Math.round(dd.cost * 100) / 100, conversions: Math.round(dd.conversions * 10) / 10,
+          convValue: Math.round(dd.convValue * 100) / 100,
+          ctr: dd.impressions > 0 ? Math.round(dd.clicks / dd.impressions * 10000) / 100 : 0,
+          avgCPC: dd.clicks > 0 ? Math.round(dd.cost / dd.clicks * 100) / 100 : 0,
+          roas: dd.cost > 0 ? Math.round(dd.convValue / dd.cost * 100) / 100 : 0,
+        };
+      });
+    }
+  } catch(e) { result.errors.push("Daily: " + e.message); }
+
+  // ====== 11. WEEKLY PERFORMANCE ======
+  if (result.dailyPerformance.length > 0) {
+    var weekMap = {};
+    result.dailyPerformance.forEach(function(d) {
+      var dt = new Date(d.date);
+      var weekStart = new Date(dt); weekStart.setDate(dt.getDate() - dt.getDay());
+      var wk = weekStart.toISOString().split('T')[0];
+      if (!weekMap[wk]) weekMap[wk] = { impressions: 0, clicks: 0, cost: 0, conversions: 0, convValue: 0, days: 0 };
+      weekMap[wk].impressions += d.impressions; weekMap[wk].clicks += d.clicks;
+      weekMap[wk].cost += d.cost; weekMap[wk].conversions += d.conversions;
+      weekMap[wk].convValue += d.convValue; weekMap[wk].days++;
+    });
+    result.weeklyPerformance = Object.keys(weekMap).sort().map(function(wk) {
+      var wd = weekMap[wk];
+      return {
+        week: wk, impressions: wd.impressions, clicks: wd.clicks,
+        cost: Math.round(wd.cost * 100) / 100, conversions: Math.round(wd.conversions * 10) / 10,
+        convValue: Math.round(wd.convValue * 100) / 100,
+        ctr: wd.impressions > 0 ? Math.round(wd.clicks / wd.impressions * 10000) / 100 : 0,
+        avgCPC: wd.clicks > 0 ? Math.round(wd.cost / wd.clicks * 100) / 100 : 0,
+        roas: wd.cost > 0 ? Math.round(wd.convValue / wd.cost * 100) / 100 : 0,
+      };
+    });
+  }
+
+  // ====== ACCOUNT SUMMARY ======
+  var totalSpend = 0, totalClicks = 0, totalImpressions = 0, totalConversions = 0, totalConvValue = 0;
+  result.campaigns.forEach(function(c) {
+    totalSpend += c.cost; totalClicks += c.clicks; totalImpressions += c.impressions;
+    totalConversions += c.conversions; totalConvValue += c.convValue;
+  });
+  result.accountSummary = {
+    totalSpend: Math.round(totalSpend * 100) / 100,
+    totalClicks: totalClicks, totalImpressions: totalImpressions,
+    totalConversions: Math.round(totalConversions * 10) / 10,
+    totalConvValue: Math.round(totalConvValue * 100) / 100,
+    avgCPC: totalClicks > 0 ? Math.round(totalSpend / totalClicks * 100) / 100 : 0,
+    avgCTR: totalImpressions > 0 ? Math.round(totalClicks / totalImpressions * 10000) / 100 : 0,
+    avgCostPerConv: totalConversions > 0 ? Math.round(totalSpend / totalConversions * 100) / 100 : 0,
+    roas: totalSpend > 0 ? Math.round(totalConvValue / totalSpend * 100) / 100 : 0,
+    activeCampaigns: result.campaigns.filter(function(c) { return c.status === 'ENABLED'; }).length,
+    totalCampaigns: result.campaigns.length,
+  };
+
+  console.log("Ads context built: " + result.campaigns.length + " campaigns, " + result.keywords.length + " keywords, " + result.dailyPerformance.length + " daily records");
+  
+  adsCache.data = result;
+  adsCache.time = Date.now();
+  global.adsData = result;
+  return result;
+}
+
+// JSON endpoint for ads data
+app.get('/ads/json', async function(req, res) {
+  try {
+    var data = await buildAdsContext();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Refresh ads cache
+app.get('/ads/refresh', async function(req, res) {
+  adsCache = { data: null, time: 0 };
+  try {
+    var data = await buildAdsContext();
+    res.json({ status: 'refreshed', campaigns: data.campaigns.length, keywords: data.keywords.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
+   /ads — GOOGLE ADS DASHBOARD
+   Full interactive dashboard with Fibonacci, forecasting, every metric
+=========================== */
+
+app.get('/ads', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var ads = await buildAdsContext();
+    var bm = global.bizMetrics || {};
+    var pm = global.profitMetrics || {};
+
+    // Analytics helpers (same as /analytics)
+    function linearRegression(values) {
+      var n = values.length;
+      if (n < 2) return { slope: 0, intercept: values[0] || 0, r2: 0 };
+      var sumX=0,sumY=0,sumXY=0,sumXX=0;
+      for (var i=0;i<n;i++){sumX+=i;sumY+=values[i];sumXY+=i*values[i];sumXX+=i*i;}
+      var d=(n*sumXX-sumX*sumX);var slope=d!==0?(n*sumXY-sumX*sumY)/d:0;var intercept=(sumY-slope*sumX)/n;
+      var ssRes=0,ssTot=0,mean=sumY/n;
+      for(var j=0;j<n;j++){var p=intercept+slope*j;ssRes+=(values[j]-p)*(values[j]-p);ssTot+=(values[j]-mean)*(values[j]-mean);}
+      return{slope:Math.round(slope*100)/100,intercept:Math.round(intercept*100)/100,r2:ssTot>0?Math.round((1-ssRes/ssTot)*1000)/1000:0};
+    }
+    function calcFibExt(values) {
+      var recent=values.slice(-12);var high=Math.max.apply(null,recent.length>0?recent:[0]);
+      var low=Math.min.apply(null,recent.length>0?recent:[0]);var range=high-low;
+      return{high:high,low:low,range:range,'23.6':Math.round(low+range*0.236),'38.2':Math.round(low+range*0.382),
+        '50.0':Math.round(low+range*0.5),'61.8':Math.round(low+range*0.618),'78.6':Math.round(low+range*0.786),
+        '127.2':Math.round(low+range*1.272),'161.8':Math.round(low+range*1.618),
+        current:recent.length>0?recent[recent.length-1]:0};
+    }
+    function growthMetrics(values) {
+      if(values.length<2)return{mom:0,last:0,prev:0};
+      var last=values[values.length-1],prev=values[values.length-2];
+      var mom=prev>0?Math.round(((last-prev)/prev)*1000)/10:0;
+      return{mom:mom,last:last,prev:prev};
+    }
+    function forecast(values,months) {
+      var lr=linearRegression(values);var n=values.length;var preds=[];
+      for(var i=0;i<months;i++){preds.push(Math.max(0,Math.round(lr.intercept+lr.slope*(n+i))));}
+      return preds;
+    }
+
+    // Compute monthly Fibonacci data for ads
+    var monthlyCosts = ads.monthlyPerformance.map(function(m){return m.cost;});
+    var monthlyClicks = ads.monthlyPerformance.map(function(m){return m.clicks;});
+    var monthlyConv = ads.monthlyPerformance.map(function(m){return m.conversions;});
+    var monthlyImpr = ads.monthlyPerformance.map(function(m){return m.impressions;});
+    var monthlyCPC = ads.monthlyPerformance.map(function(m){return m.avgCPC;});
+    var monthlyROAS = ads.monthlyPerformance.map(function(m){return m.roas;});
+    var monthlyCPConv = ads.monthlyPerformance.map(function(m){return m.costPerConv;});
+    var monthlyCTR = ads.monthlyPerformance.map(function(m){return m.ctr;});
+
+    var costFib = calcFibExt(monthlyCosts);
+    var clickFib = calcFibExt(monthlyClicks);
+    var convFib = calcFibExt(monthlyConv);
+    var cpcFib = calcFibExt(monthlyCPC);
+    var roasFib = calcFibExt(monthlyROAS);
+    var cpConvFib = calcFibExt(monthlyCPConv);
+    var ctrFib = calcFibExt(monthlyCTR);
+
+    var costGrowth = growthMetrics(monthlyCosts);
+    var clickGrowth = growthMetrics(monthlyClicks);
+    var convGrowth = growthMetrics(monthlyConv);
+    var cpcGrowth = growthMetrics(monthlyCPC);
+    var roasGrowth = growthMetrics(monthlyROAS);
+
+    var costForecast = forecast(monthlyCosts, 3);
+    var clickForecast = forecast(monthlyClicks, 3);
+    var convForecast = forecast(monthlyConv, 3);
+
+    // Compute daily Fibonacci for LightweightCharts
+    var dailyCosts = ads.dailyPerformance.map(function(d){return d.cost;});
+    var dailyClicks = ads.dailyPerformance.map(function(d){return d.clicks;});
+    var dailyCostFib = calcFibExt(dailyCosts);
+    var dailyClickFib = calcFibExt(dailyClicks);
+
+    var as = ads.accountSummary;
+
+    // ========== BUILD HTML ==========
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>WILDWOOD — Google Ads Intelligence</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
+    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.1/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<style>';
+    html += '*{margin:0;padding:0;box-sizing:border-box;}';
+    html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
+    html += '.wrap{max-width:1500px;margin:0 auto;padding:20px 30px;}';
+    html += '.nav{display:flex;gap:0;margin-bottom:20px;flex-wrap:wrap;}';
+    html += '.nav a{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);transition:all 0.3s;}';
+    html += '.nav a.active{color:#4285f4;border-color:#4285f440;background:rgba(66,133,244,0.1);}';
+    html += '.nav a:hover{border-color:#4285f440;}';
+    html += '.section{margin-bottom:30px;} .section-head{font-family:Orbitron;font-size:0.85em;letter-spacing:5px;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;}';
+    html += '.section-head .dot{width:10px;height:10px;border-radius:50%;display:inline-block;animation:glow 2s ease-in-out infinite alternate;}';
+    html += '@keyframes glow{0%{box-shadow:0 0 5px var(--gc,#4285f4);}100%{box-shadow:0 0 20px var(--gc,#4285f4);}}';
+    html += '.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:15px;}';
+    html += '.kpi{background:rgba(10,20,35,0.8);border:1px solid rgba(255,255,255,0.05);padding:14px;position:relative;overflow:hidden;transition:all 0.3s;}';
+    html += '.kpi:hover{border-color:var(--c,#4285f4);transform:translateY(-2px);}';
+    html += '.kpi::before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:var(--c,#4285f4);opacity:0.4;}';
+    html += '.kpi-label{color:#4a6a8a;font-family:Orbitron;font-size:0.45em;letter-spacing:2px;margin-bottom:4px;}';
+    html += '.kpi-val{font-family:Orbitron;font-size:1.3em;font-weight:900;color:var(--c,#4285f4);}';
+    html += '.kpi-sub{color:#4a6a8a;font-size:0.75em;margin-top:2px;}';
+    html += '.fib-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:15px;}';
+    html += '.fib-card{background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;padding:16px;}';
+    html += '.fib-title{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}';
+    html += '.fib-level{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #0a1520;}';
+    html += '.fib-level .pct{font-family:Orbitron;font-size:0.5em;color:#4a6a8a;width:50px;}';
+    html += '.fib-level .bar{flex:1;height:5px;background:#0a1520;margin:0 6px;position:relative;}';
+    html += '.fib-level .fill{height:100%;position:absolute;top:0;left:0;}';
+    html += '.fib-level .val{font-family:Orbitron;font-size:0.65em;width:65px;text-align:right;}';
+    html += '.data-table{width:100%;border-collapse:collapse;font-size:0.8em;}';
+    html += '.data-table th{padding:8px;text-align:left;color:#4285f4;font-family:Orbitron;font-size:0.5em;letter-spacing:1px;border-bottom:2px solid #4285f415;}';
+    html += '.data-table td{padding:5px 8px;border-bottom:1px solid #0a1520;}';
+    html += '.data-table tr:nth-child(even){background:rgba(10,20,35,0.3);}';
+    html += '.data-table tr:hover{background:rgba(66,133,244,0.03);}';
+    html += '.pill{display:inline-block;font-family:Orbitron;font-size:0.45em;letter-spacing:1px;padding:2px 8px;border-radius:2px;}';
+    html += '.pill-green{background:rgba(0,255,102,0.1);color:#00ff66;border:1px solid #00ff6630;}';
+    html += '.pill-red{background:rgba(255,71,87,0.1);color:#ff4757;border:1px solid #ff475730;}';
+    html += '.pill-blue{background:rgba(66,133,244,0.1);color:#4285f4;border:1px solid #4285f430;}';
+    html += '.pill-orange{background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4330;}';
+    html += '.signal-box{padding:12px;border:1px solid;margin-top:10px;font-size:0.85em;line-height:1.5;}';
+    html += '.chart-box{background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;padding:16px;margin-bottom:12px;}';
+    html += '.chart-title{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;margin-bottom:10px;}';
+    html += '@media(max-width:768px){.wrap{padding:10px 12px;} .kpi-row{grid-template-columns:repeat(2,1fr);} .fib-grid{grid-template-columns:1fr;} .nav a{padding:8px 12px;font-size:0.5em;} .kpi-val{font-size:1em;} table{font-size:0.65em;}}';
+    html += '@media(max-width:480px){.kpi-row{grid-template-columns:1fr;}}';
+    html += '</style></head><body><div class="wrap">';
+
+    // Nav
+    html += '<div class="nav">';
+    html += '<a href="/dashboard">JARVIS</a>';
+    html += '<a href="/business">ATHENA</a>';
+    html += '<a href="/tookan">TOOKAN</a>';
+    html += '<a href="/business/chart">CHARTS</a>';
+    html += '<a href="/analytics">ANALYTICS</a>';
+    html += '<a href="/ads" class="active">GOOGLE ADS</a>';
+    html += '</div>';
+
+    html += '<div style="font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:5px;">GOOGLE ADS INTELLIGENCE</div>';
+    html += '<div style="font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#4a6a8a;margin-bottom:20px;">CAMPAIGN FIBONACCI &bull; CPC ANALYSIS &bull; CONVERSION TRACKING &bull; SEARCH TERMS &bull; BUDGET OPTIMIZATION</div>';
+
+    // Connection status
+    if (!ads.connected) {
+      html += '<div style="padding:30px;border:2px solid #ff9f4340;background:rgba(255,159,67,0.05);text-align:center;margin-bottom:20px;">';
+      html += '<div style="font-family:Orbitron;font-size:1.2em;color:#ff9f43;margin-bottom:10px;">⚡ CONNECT GOOGLE ADS</div>';
+      if (!GOOGLE_ADS_CLIENT_ID) {
+        html += '<div style="color:#c0d8f0;margin-bottom:10px;">Step 1: Create OAuth2 credentials in Google Cloud Console</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.85em;margin-bottom:6px;">Go to console.cloud.google.com → APIs & Credentials → Create OAuth 2.0 Client ID (Web Application)</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.85em;margin-bottom:6px;">Add redirect URI: <code style="color:#00d4ff;">' + req.protocol + '://' + req.get('host') + '/ads/callback</code></div>';
+        html += '<div style="color:#4a6a8a;font-size:0.85em;">Add to Render: GOOGLE_ADS_CLIENT_ID and GOOGLE_ADS_CLIENT_SECRET</div>';
+      } else {
+        html += '<a href="/ads/auth" style="display:inline-block;font-family:Orbitron;font-size:0.8em;letter-spacing:3px;padding:12px 40px;background:rgba(66,133,244,0.2);border:1px solid #4285f4;color:#4285f4;text-decoration:none;">AUTHORIZE GOOGLE ADS →</a>';
+      }
+      if (ads.errors.length > 0) {
+        html += '<div style="margin-top:10px;color:#ff4757;font-size:0.8em;">' + ads.errors.join('<br>') + '</div>';
+      }
+      html += '</div>';
+    }
+
+    // ====== SECTION 1: ACCOUNT OVERVIEW ======
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW — LAST 365 DAYS</div>';
+    html += '<div class="kpi-row">';
+    var acctKPIs = [
+      { label: 'TOTAL SPEND', val: '$' + as.totalSpend.toLocaleString(), sub: as.activeCampaigns + ' active campaigns', c: '#ff4757' },
+      { label: 'TOTAL CLICKS', val: as.totalClicks.toLocaleString(), sub: as.avgCTR + '% CTR', c: '#4285f4' },
+      { label: 'IMPRESSIONS', val: as.totalImpressions.toLocaleString(), sub: 'Across all campaigns', c: '#00d4ff' },
+      { label: 'CONVERSIONS', val: as.totalConversions, sub: '$' + as.avgCostPerConv + ' per conversion', c: '#00ff66' },
+      { label: 'CONV. VALUE', val: '$' + as.totalConvValue.toLocaleString(), sub: as.roas + 'x ROAS', c: '#ffd700' },
+      { label: 'AVG CPC', val: '$' + as.avgCPC, sub: 'Cost per click', c: '#a855f7' },
+      { label: 'AVG CTR', val: as.avgCTR + '%', sub: 'Click-through rate', c: '#55f7d8' },
+      { label: 'COST/CONVERSION', val: '$' + as.avgCostPerConv, sub: 'Avg acquisition cost', c: '#ff9f43' },
+    ];
+    acctKPIs.forEach(function(k) {
+      html += '<div class="kpi" style="--c:' + k.c + ';"><div class="kpi-label">' + k.label + '</div><div class="kpi-val">' + k.val + '</div><div class="kpi-sub">' + k.sub + '</div></div>';
+    });
+    html += '</div></div>';
+
+    // ====== SECTION 2: INTERACTIVE DAILY CHART ======
+    if (ads.dailyPerformance.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#00d4ff;--gc:#00d4ff;"><span class="dot" style="background:#00d4ff;"></span>DAILY PERFORMANCE — INTERACTIVE CHART</div>';
+      html += '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">';
+      html += '<button onclick="switchMetric(\'cost\')" id="btn-m-cost" class="mbtn active" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:rgba(66,133,244,0.15);color:#4285f4;border:1px solid #4285f440;cursor:pointer;">SPEND</button>';
+      html += '<button onclick="switchMetric(\'clicks\')" id="btn-m-clicks" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CLICKS</button>';
+      html += '<button onclick="switchMetric(\'conversions\')" id="btn-m-conv" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CONVERSIONS</button>';
+      html += '<button onclick="switchMetric(\'ctr\')" id="btn-m-ctr" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CTR</button>';
+      html += '<button onclick="switchMetric(\'avgCPC\')" id="btn-m-cpc" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CPC</button>';
+      html += '<button onclick="switchMetric(\'roas\')" id="btn-m-roas" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">ROAS</button>';
+      html += '</div>';
+      html += '<div id="ads-daily-chart" style="border:1px solid #1a2a3a;min-height:350px;width:100%;"></div>';
+      html += '</div>';
+    }
+
+    // ====== SECTION 3: MONTHLY FIBONACCI CARDS ======
+    if (ads.monthlyPerformance.length >= 3) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>MONTHLY METRICS — FIBONACCI RETRACEMENT</div>';
+      html += '<div class="fib-grid">';
+
+      var adsFibs = [
+        { name: 'AD SPEND', fib: costFib, growth: costGrowth, color: '#ff4757', prefix: '$', inv: true },
+        { name: 'CLICKS', fib: clickFib, growth: clickGrowth, color: '#4285f4', prefix: '' },
+        { name: 'CONVERSIONS', fib: convFib, growth: convGrowth, color: '#00ff66', prefix: '' },
+        { name: 'AVG CPC', fib: cpcFib, growth: cpcGrowth, color: '#a855f7', prefix: '$', inv: true },
+        { name: 'ROAS', fib: roasFib, growth: roasGrowth, color: '#ffd700', prefix: '', suffix: 'x' },
+        { name: 'CTR', fib: ctrFib, growth: growthMetrics(monthlyCTR), color: '#55f7d8', prefix: '', suffix: '%' },
+      ];
+
+      adsFibs.forEach(function(af) {
+        html += '<div class="fib-card">';
+        html += '<div class="fib-title"><span style="color:' + af.color + ';">' + af.name + '</span>';
+        var tIcon = af.growth.mom > 0 ? '▲' : af.growth.mom < 0 ? '▼' : '►';
+        var tColor = af.inv ? (af.growth.mom > 0 ? '#ff4757' : '#00ff66') : (af.growth.mom > 0 ? '#00ff66' : '#ff4757');
+        html += '<span style="color:' + tColor + ';">' + tIcon + ' ' + (af.growth.mom >= 0 ? '+' : '') + af.growth.mom + '%</span></div>';
+
+        var fibArr = [
+          { label: '161.8% EXT', val: af.fib['161.8'], c: '#a855f7' },
+          { label: '100% HIGH', val: af.fib.high, c: '#00ff66' },
+          { label: '61.8%', val: af.fib['61.8'], c: '#00ff66' },
+          { label: '50%', val: af.fib['50.0'], c: '#ffd700' },
+          { label: '38.2%', val: af.fib['38.2'], c: '#ff4757' },
+          { label: '0% LOW', val: af.fib.low, c: '#ff4757' },
+        ];
+        fibArr.forEach(function(fl) {
+          var pct = af.fib.high > 0 ? Math.min(100, Math.round(fl.val / af.fib.high * 100)) : 0;
+          html += '<div class="fib-level"><span class="pct">' + fl.label.split(' ')[0] + '</span>';
+          html += '<div class="bar"><div class="fill" style="width:' + pct + '%;background:' + fl.c + '40;"></div></div>';
+          html += '<span class="val" style="color:' + fl.c + ';">' + af.prefix + (typeof fl.val === 'number' ? (fl.val >= 1000 ? Math.round(fl.val).toLocaleString() : fl.val) : fl.val) + (af.suffix || '') + '</span></div>';
+        });
+
+        // Current position
+        var curPos = af.fib.range > 0 ? Math.round((af.fib.current - af.fib.low) / af.fib.range * 100) : 50;
+        html += '<div style="margin-top:8px;display:flex;justify-content:space-between;font-size:0.75em;">';
+        html += '<span style="color:#4a6a8a;">Now: <strong style="color:' + af.color + ';">' + af.prefix + (typeof af.fib.current === 'number' ? af.fib.current : 0) + (af.suffix || '') + '</strong></span>';
+        html += '<span style="color:' + (curPos > 61.8 ? '#00ff66' : curPos > 38.2 ? '#ffd700' : '#ff4757') + ';font-family:Orbitron;font-size:0.7em;">' + curPos + '% RET</span>';
+        html += '</div></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== SECTION 4: CAMPAIGN TABLE ======
+    if (ads.campaigns.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;"><span class="dot" style="background:#4285f4;"></span>CAMPAIGN PERFORMANCE</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Campaign</th><th>Status</th><th>Spend</th><th>Clicks</th><th>CTR</th><th>CPC</th><th>Conv</th><th>Cost/Conv</th><th>ROAS</th><th>Impr Share</th></tr></thead><tbody>';
+      ads.campaigns.forEach(function(c) {
+        var statusPill = c.status === 'ENABLED' ? '<span class="pill pill-green">ACTIVE</span>' : c.status === 'PAUSED' ? '<span class="pill pill-orange">PAUSED</span>' : '<span class="pill pill-red">' + c.status + '</span>';
+        html += '<tr><td style="color:#c0d8f0;font-weight:700;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + c.name + '</td>';
+        html += '<td>' + statusPill + '</td>';
+        html += '<td style="color:#ff4757;">$' + c.cost.toLocaleString() + '</td>';
+        html += '<td style="color:#4285f4;">' + c.clicks.toLocaleString() + '</td>';
+        html += '<td>' + (c.ctr * 100).toFixed(2) + '%</td>';
+        html += '<td style="color:#a855f7;">$' + c.avgCPC.toFixed(2) + '</td>';
+        html += '<td style="color:#00ff66;">' + c.conversions + '</td>';
+        html += '<td style="color:#ff9f43;">$' + c.costPerConv.toFixed(2) + '</td>';
+        var roas = c.cost > 0 ? (c.convValue / c.cost).toFixed(2) : '0';
+        html += '<td style="color:#ffd700;">' + roas + 'x</td>';
+        html += '<td>' + (c.impressionShare * 100).toFixed(1) + '%</td></tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    // ====== SECTION 5: TOP KEYWORDS ======
+    if (ads.keywords.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>TOP KEYWORDS — ' + ads.keywords.length + ' TRACKED</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Keyword</th><th>Match</th><th>QS</th><th>Clicks</th><th>Cost</th><th>CTR</th><th>CPC</th><th>Conv</th><th>Cost/Conv</th></tr></thead><tbody>';
+      ads.keywords.slice(0, 50).forEach(function(kw) {
+        var qsColor = kw.qualityScore >= 7 ? '#00ff66' : kw.qualityScore >= 5 ? '#ff9f43' : '#ff4757';
+        html += '<tr><td style="color:#c0d8f0;font-weight:600;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + kw.text + '</td>';
+        html += '<td style="color:#4a6a8a;font-size:0.8em;">' + (kw.matchType || '').replace('_', ' ') + '</td>';
+        html += '<td style="color:' + qsColor + ';font-weight:700;">' + (kw.qualityScore || '-') + '</td>';
+        html += '<td style="color:#4285f4;">' + kw.clicks.toLocaleString() + '</td>';
+        html += '<td style="color:#ff4757;">$' + kw.cost.toFixed(2) + '</td>';
+        html += '<td>' + (kw.ctr * 100).toFixed(2) + '%</td>';
+        html += '<td style="color:#a855f7;">$' + kw.avgCPC.toFixed(2) + '</td>';
+        html += '<td style="color:#00ff66;">' + kw.conversions + '</td>';
+        html += '<td style="color:#ff9f43;">' + (kw.costPerConv > 0 ? '$' + kw.costPerConv.toFixed(2) : '-') + '</td></tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    // ====== SECTION 6: SEARCH TERMS ======
+    if (ads.searchTerms.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#55f7d8;--gc:#55f7d8;"><span class="dot" style="background:#55f7d8;"></span>SEARCH TERMS — WHAT PEOPLE ACTUALLY SEARCHED</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Search Term</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Cost</th><th>CPC</th><th>Conv</th></tr></thead><tbody>';
+      ads.searchTerms.slice(0, 50).forEach(function(st) {
+        html += '<tr><td style="color:#c0d8f0;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + st.term + '</td>';
+        html += '<td>' + st.impressions.toLocaleString() + '</td>';
+        html += '<td style="color:#4285f4;">' + st.clicks.toLocaleString() + '</td>';
+        html += '<td>' + (st.ctr * 100).toFixed(2) + '%</td>';
+        html += '<td style="color:#ff4757;">$' + st.cost.toFixed(2) + '</td>';
+        html += '<td style="color:#a855f7;">$' + st.avgCPC.toFixed(2) + '</td>';
+        html += '<td style="color:#00ff66;">' + st.conversions + '</td></tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    // ====== SECTION 7: DEVICE PERFORMANCE ======
+    if (ads.devicePerformance.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#ff9f43;--gc:#ff9f43;"><span class="dot" style="background:#ff9f43;"></span>DEVICE BREAKDOWN</div>';
+      html += '<div class="kpi-row">';
+      ads.devicePerformance.forEach(function(d) {
+        var icon = d.device === 'MOBILE' ? '📱' : d.device === 'DESKTOP' ? '🖥️' : d.device === 'TABLET' ? '📋' : '📺';
+        html += '<div class="kpi" style="--c:#ff9f43;"><div class="kpi-label">' + icon + ' ' + d.device + '</div><div class="kpi-val">' + d.clicks.toLocaleString() + '</div><div class="kpi-sub">$' + d.cost.toLocaleString() + ' spent &bull; ' + d.ctr + '% CTR &bull; $' + d.avgCPC + ' CPC</div></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== SECTION 8: HOURLY + DOW HEATMAP ======
+    if (ads.hourlyPerformance.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#00d4ff;--gc:#00d4ff;"><span class="dot" style="background:#00d4ff;"></span>TIME-BASED PERFORMANCE</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
+
+      // Hourly chart
+      html += '<div class="chart-box"><div class="chart-title" style="color:#00d4ff;">CLICKS BY HOUR</div>';
+      var maxHrClicks = Math.max.apply(null, ads.hourlyPerformance.map(function(h){return h.clicks;}));
+      html += '<div style="display:flex;align-items:flex-end;gap:2px;height:100px;">';
+      ads.hourlyPerformance.forEach(function(h) {
+        var ht = maxHrClicks > 0 ? Math.max(1, Math.round(h.clicks / maxHrClicks * 100)) : 1;
+        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
+        html += '<div style="width:90%;height:' + ht + '%;background:#00d4ff40;border-top:1px solid #00d4ff;"></div>';
+        html += '<div style="font-size:0.35em;color:#4a6a8a;margin-top:2px;">' + h.hour + '</div></div>';
+      });
+      html += '</div></div>';
+
+      // DOW chart
+      html += '<div class="chart-box"><div class="chart-title" style="color:#ff9f43;">CLICKS BY DAY OF WEEK</div>';
+      var maxDowClicks = Math.max.apply(null, ads.dayOfWeekPerformance.map(function(d){return d.clicks;}));
+      html += '<div style="display:flex;align-items:flex-end;gap:6px;height:100px;">';
+      ads.dayOfWeekPerformance.forEach(function(d) {
+        var dt2 = maxDowClicks > 0 ? Math.max(3, Math.round(d.clicks / maxDowClicks * 100)) : 3;
+        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
+        html += '<div style="color:#c0d8f0;font-size:0.55em;">' + d.clicks.toLocaleString() + '</div>';
+        html += '<div style="width:80%;height:' + dt2 + '%;background:#ff9f4340;border-top:2px solid #ff9f43;"></div>';
+        html += '<div style="font-family:Orbitron;font-size:0.4em;color:#4a6a8a;margin-top:4px;">' + d.day.substring(0, 3) + '</div></div>';
+      });
+      html += '</div></div></div></div>';
+    }
+
+    // ====== SECTION 9: AI STRATEGY SIGNAL ======
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>AI STRATEGY SIGNALS</div>';
+    var signals = [];
+    if (as.avgCPC > cpcFib['61.8'] && cpcFib['61.8'] > 0) signals.push('⚠️ CPC above 61.8% Fibonacci resistance ($' + cpcFib['61.8'] + '). Review bids and quality scores.');
+    if (as.avgCPC < cpcFib['38.2'] && cpcFib['38.2'] > 0) signals.push('✅ CPC below 38.2% support ($' + cpcFib['38.2'] + '). Efficiency is strong.');
+    if (convGrowth.mom > 10) signals.push('🚀 Conversions up ' + convGrowth.mom + '% MoM — scale budget!');
+    if (convGrowth.mom < -10) signals.push('⚠️ Conversions down ' + convGrowth.mom + '% MoM — check landing pages and ad copy.');
+    if (costGrowth.mom > 20 && convGrowth.mom < 5) signals.push('🔴 Spend growing (' + costGrowth.mom + '%) faster than conversions (' + convGrowth.mom + '%). Reduce waste.');
+    if (as.roas > 5) signals.push('💰 ROAS is ' + as.roas + 'x — ads are highly profitable. Consider scaling budget.');
+    if (as.roas > 0 && as.roas < 2) signals.push('⚡ ROAS is ' + as.roas + 'x — below break-even zone. Optimize or pause underperformers.');
+    if (ads.keywords.filter(function(k){return k.qualityScore > 0 && k.qualityScore < 5;}).length > 5) signals.push('📝 ' + ads.keywords.filter(function(k){return k.qualityScore > 0 && k.qualityScore < 5;}).length + ' keywords with Quality Score < 5. Improve ad relevance and landing pages.');
+    if (signals.length === 0) signals.push('📊 Connect Google Ads and allow data to accumulate for AI strategy recommendations.');
+
+    signals.forEach(function(s) {
+      var sColor = s.startsWith('✅') || s.startsWith('💰') || s.startsWith('🚀') ? '#00ff66' : s.startsWith('⚠️') || s.startsWith('🔴') ? '#ff4757' : '#ff9f43';
+      html += '<div class="signal-box" style="border-color:' + sColor + '30;background:' + sColor + '05;color:' + sColor + ';margin-bottom:6px;">' + s + '</div>';
+    });
+    html += '</div>';
+
+    // ====== SECTIONS 10-16: EXPANDED ANALYTICS ======
+
+    // ====== SECTION 10: CROSS-REFERENCE — ADS vs CRM CALLS ======
+    // Match Google Ads cities/spend with actual CRM call volume per city
+    var callsByCity = bm.monthlyCallsByCity || {};
+    var locationStats = bm.locationStats || {};
+    var cityROI = [];
+
+    // Build city-level ad spend (from geo or campaign names that contain city names)
+    var adsCitySpend = {};
+    ads.campaigns.forEach(function(c) {
+      // Try to extract city from campaign name
+      var cName = (c.name || '').toLowerCase();
+      Object.keys(locationStats).forEach(function(city) {
+        var cityLower = city.toLowerCase().split(',')[0].trim();
+        if (cityLower.length > 3 && cName.indexOf(cityLower) >= 0) {
+          if (!adsCitySpend[city]) adsCitySpend[city] = { spend: 0, clicks: 0, conversions: 0, impressions: 0, campaigns: [] };
+          adsCitySpend[city].spend += c.cost;
+          adsCitySpend[city].clicks += c.clicks;
+          adsCitySpend[city].conversions += c.conversions;
+          adsCitySpend[city].impressions += c.impressions;
+          adsCitySpend[city].campaigns.push(c.name);
+        }
+      });
+    });
+
+    // Calculate ROI per city
+    var monthlyCalls = bm.monthlyCalls || {};
+    var revenuePerCall = bm.totalLeads > 0 && (pm.financialHistory || {}).allTime ? Math.round(((pm.financialHistory || {}).allTime || {}).revenue / bm.totalLeads) : 321;
+
+    Object.keys(locationStats).forEach(function(city) {
+      var ls = locationStats[city];
+      var adCity = adsCitySpend[city] || { spend: 0, clicks: 0, conversions: 0, impressions: 0 };
+      var estRevenue = ls.total * revenuePerCall;
+      var roi = adCity.spend > 0 ? Math.round((estRevenue - adCity.spend) / adCity.spend * 100) : 0;
+      var costPerCall = adCity.clicks > 0 && ls.total > 0 ? Math.round(adCity.spend / ls.total * 100) / 100 : 0;
+      if (ls.total >= 5) {
+        cityROI.push({
+          city: city, totalCalls: ls.total, completed: ls.completed || 0, cancelled: ls.cancelled || 0,
+          adSpend: Math.round(adCity.spend * 100) / 100, adClicks: adCity.clicks,
+          adConversions: adCity.conversions, estRevenue: estRevenue,
+          roi: roi, costPerCall: costPerCall,
+          convRate: ls.total > 0 ? Math.round((ls.completed || 0) / ls.total * 1000) / 10 : 0,
+          hasAds: adCity.spend > 0,
+        });
+      }
+    });
+    cityROI.sort(function(a, b) { return b.totalCalls - a.totalCalls; });
+
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#55f7d8;--gc:#55f7d8;"><span class="dot" style="background:#55f7d8;"></span>ADS ↔ CRM CROSS-REFERENCE — GEOGRAPHIC ROI</div>';
+
+    // Summary KPIs
+    var totalAdSpendByCity = cityROI.reduce(function(s, c) { return s + c.adSpend; }, 0);
+    var totalEstRev = cityROI.reduce(function(s, c) { return s + c.estRevenue; }, 0);
+    var citiesWithAds = cityROI.filter(function(c) { return c.hasAds; }).length;
+    var citiesNoAds = cityROI.filter(function(c) { return !c.hasAds && c.totalCalls >= 10; }).length;
+
+    html += '<div class="kpi-row">';
+    html += '<div class="kpi" style="--c:#55f7d8;"><div class="kpi-label">TRACKED CITIES</div><div class="kpi-val">' + cityROI.length + '</div><div class="kpi-sub">' + citiesWithAds + ' with ads &bull; ' + citiesNoAds + ' organic only</div></div>';
+    html += '<div class="kpi" style="--c:#ff4757;"><div class="kpi-label">CITY AD SPEND</div><div class="kpi-val">$' + Math.round(totalAdSpendByCity).toLocaleString() + '</div><div class="kpi-sub">Matched to campaigns</div></div>';
+    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">EST. CITY REVENUE</div><div class="kpi-val">$' + Math.round(totalEstRev).toLocaleString() + '</div><div class="kpi-sub">$' + revenuePerCall + ' × ' + cityROI.reduce(function(s,c){return s+c.totalCalls;},0) + ' calls</div></div>';
+    html += '<div class="kpi" style="--c:#ffd700;"><div class="kpi-label">BLENDED ROI</div><div class="kpi-val">' + (totalAdSpendByCity > 0 ? Math.round((totalEstRev - totalAdSpendByCity) / totalAdSpendByCity * 100) : '∞') + '%</div><div class="kpi-sub">Revenue vs ad spend</div></div>';
+    html += '</div>';
+
+    // City ROI table
+    html += '<div style="overflow-x:auto;"><table class="data-table">';
+    html += '<thead><tr><th>City</th><th>Calls</th><th>Completed</th><th>Conv%</th><th>Ad Spend</th><th>Ad Clicks</th><th>Est Revenue</th><th>ROI</th><th>Cost/Call</th><th>Signal</th></tr></thead><tbody>';
+    cityROI.slice(0, 40).forEach(function(cr) {
+      var signal = '';
+      if (cr.hasAds && cr.roi > 200) signal = '<span class="pill pill-green">🏆 HIGH ROI</span>';
+      else if (cr.hasAds && cr.roi > 50) signal = '<span class="pill pill-green">✅ PROFITABLE</span>';
+      else if (cr.hasAds && cr.roi > 0) signal = '<span class="pill pill-orange">⚡ BREAK-EVEN</span>';
+      else if (cr.hasAds) signal = '<span class="pill pill-red">🔴 LOSING</span>';
+      else if (cr.totalCalls >= 20) signal = '<span class="pill pill-blue">🎯 ORGANIC STAR</span>';
+      else signal = '<span class="pill pill-blue">📍 ORGANIC</span>';
+
+      html += '<tr><td style="color:#c0d8f0;font-weight:700;white-space:nowrap;">' + cr.city + '</td>';
+      html += '<td style="color:#00d4ff;">' + cr.totalCalls + '</td>';
+      html += '<td>' + cr.completed + '</td>';
+      html += '<td style="color:' + (cr.convRate > 40 ? '#00ff66' : '#ff9f43') + ';">' + cr.convRate + '%</td>';
+      html += '<td style="color:#ff4757;">' + (cr.adSpend > 0 ? '$' + cr.adSpend.toLocaleString() : '-') + '</td>';
+      html += '<td>' + (cr.adClicks > 0 ? cr.adClicks.toLocaleString() : '-') + '</td>';
+      html += '<td style="color:#00ff66;">$' + cr.estRevenue.toLocaleString() + '</td>';
+      html += '<td style="color:' + (cr.roi > 100 ? '#00ff66' : cr.roi > 0 ? '#ff9f43' : '#ff4757') + ';font-weight:700;">' + (cr.hasAds ? cr.roi + '%' : '-') + '</td>';
+      html += '<td>' + (cr.costPerCall > 0 ? '$' + cr.costPerCall : '-') + '</td>';
+      html += '<td>' + signal + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Opportunity signal
+    var organicStars = cityROI.filter(function(c) { return !c.hasAds && c.totalCalls >= 15; });
+    if (organicStars.length > 0) {
+      html += '<div class="signal-box" style="border-color:#55f7d830;background:rgba(85,247,216,0.03);color:#55f7d8;margin-top:10px;">';
+      html += '🎯 UNTAPPED OPPORTUNITY: ' + organicStars.length + ' cities getting 15+ calls organically with zero ad spend: ';
+      html += organicStars.slice(0, 8).map(function(c) { return '<strong>' + c.city + '</strong> (' + c.totalCalls + ')'; }).join(', ');
+      html += '. Running ads here could significantly increase volume.';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // ====== SECTION 11: WASTED SPEND DETECTOR ======
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ff4757;--gc:#ff4757;"><span class="dot" style="background:#ff4757;"></span>WASTED SPEND DETECTOR</div>';
+
+    // Find keywords with high spend but zero conversions
+    var wastedKeywords = ads.keywords.filter(function(k) { return k.cost > 10 && k.conversions === 0; }).sort(function(a, b) { return b.cost - a.cost; });
+    var totalWasted = wastedKeywords.reduce(function(s, k) { return s + k.cost; }, 0);
+
+    // Find search terms that shouldn't be triggering
+    var negCandidates = ads.searchTerms.filter(function(st) {
+      var t = st.term.toLowerCase();
+      return st.clicks > 2 && st.conversions === 0 && (
+        t.indexOf('free') >= 0 || t.indexOf('diy') >= 0 || t.indexOf('how to') >= 0 ||
+        t.indexOf('manual') >= 0 || t.indexOf('youtube') >= 0 || t.indexOf('reddit') >= 0 ||
+        t.indexOf('salary') >= 0 || t.indexOf('job') >= 0 || t.indexOf('career') >= 0 ||
+        t.indexOf('near me') >= 0 && st.conversions === 0 && st.clicks > 5
+      );
+    });
+    var negWaste = negCandidates.reduce(function(s, n) { return s + n.cost; }, 0);
+
+    // Low QS keywords
+    var lowQS = ads.keywords.filter(function(k) { return k.qualityScore > 0 && k.qualityScore <= 4; });
+    var lowQSCost = lowQS.reduce(function(s, k) { return s + k.cost; }, 0);
+
+    html += '<div class="kpi-row">';
+    html += '<div class="kpi" style="--c:#ff4757;"><div class="kpi-label">ZERO-CONVERSION SPEND</div><div class="kpi-val">$' + Math.round(totalWasted).toLocaleString() + '</div><div class="kpi-sub">' + wastedKeywords.length + ' keywords with spend but 0 conversions</div></div>';
+    html += '<div class="kpi" style="--c:#ff9f43;"><div class="kpi-label">NEGATIVE KW CANDIDATES</div><div class="kpi-val">' + negCandidates.length + '</div><div class="kpi-sub">$' + Math.round(negWaste).toLocaleString() + ' wasted on irrelevant searches</div></div>';
+    html += '<div class="kpi" style="--c:#a855f7;"><div class="kpi-label">LOW QUALITY SCORE</div><div class="kpi-val">' + lowQS.length + '</div><div class="kpi-sub">Keywords with QS ≤ 4 ($' + Math.round(lowQSCost).toLocaleString() + ' spent)</div></div>';
+    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">SAVINGS POTENTIAL</div><div class="kpi-val">$' + Math.round(totalWasted + negWaste).toLocaleString() + '</div><div class="kpi-sub">Redirect to better performers</div></div>';
+    html += '</div>';
+
+    // Wasted keywords table
+    if (wastedKeywords.length > 0) {
+      html += '<div style="font-family:Orbitron;font-size:0.55em;color:#ff4757;letter-spacing:3px;margin-bottom:8px;">TOP ZERO-CONVERSION KEYWORDS (spending with no results)</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Keyword</th><th>Spend</th><th>Clicks</th><th>CTR</th><th>CPC</th><th>QS</th><th>Action</th></tr></thead><tbody>';
+      wastedKeywords.slice(0, 15).forEach(function(wk) {
+        html += '<tr><td style="color:#c0d8f0;font-weight:600;">' + wk.text + '</td>';
+        html += '<td style="color:#ff4757;font-weight:700;">$' + wk.cost.toFixed(2) + '</td>';
+        html += '<td>' + wk.clicks + '</td>';
+        html += '<td>' + (wk.ctr * 100).toFixed(2) + '%</td>';
+        html += '<td>$' + wk.avgCPC.toFixed(2) + '</td>';
+        html += '<td style="color:' + (wk.qualityScore >= 7 ? '#00ff66' : wk.qualityScore >= 5 ? '#ff9f43' : '#ff4757') + ';">' + (wk.qualityScore || '-') + '</td>';
+        html += '<td><span class="pill pill-red">PAUSE or OPTIMIZE</span></td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    // Negative keyword suggestions
+    if (negCandidates.length > 0) {
+      html += '<div style="font-family:Orbitron;font-size:0.55em;color:#ff9f43;letter-spacing:3px;margin:15px 0 8px;">SUGGESTED NEGATIVE KEYWORDS</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Search Term</th><th>Clicks</th><th>Spend</th><th>Conv</th><th>Why Negative</th></tr></thead><tbody>';
+      negCandidates.slice(0, 15).forEach(function(nc) {
+        var reason = nc.term.toLowerCase().indexOf('free') >= 0 ? 'DIY/Free intent' : nc.term.toLowerCase().indexOf('how to') >= 0 ? 'Informational' : nc.term.toLowerCase().indexOf('job') >= 0 || nc.term.toLowerCase().indexOf('salary') >= 0 ? 'Job seeker' : 'Low intent';
+        html += '<tr><td style="color:#c0d8f0;">' + nc.term + '</td>';
+        html += '<td>' + nc.clicks + '</td>';
+        html += '<td style="color:#ff4757;">$' + nc.cost.toFixed(2) + '</td>';
+        html += '<td style="color:#ff4757;">0</td>';
+        html += '<td style="color:#ff9f43;">' + reason + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
+
+    // ====== SECTION 12: PER-CAMPAIGN FIBONACCI ANALYSIS ======
+    if (ads.campaigns.length > 0 && ads.monthlyPerformance.length >= 3) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>PER-CAMPAIGN FIBONACCI — DEEP DIVE</div>';
+
+      // For top 6 campaigns by spend, show individual Fibonacci
+      var topCampaigns = ads.campaigns.filter(function(c) { return c.status === 'ENABLED' && c.cost > 0; }).slice(0, 6);
+      if (topCampaigns.length > 0) {
+        html += '<div class="fib-grid">';
+        topCampaigns.forEach(function(tc) {
+          // Build per-campaign monthly data from daily (approximate)
+          var campMonthly = {};
+          ads.dailyPerformance.forEach(function(d) {
+            var mo = d.date.substring(0, 7);
+            if (!campMonthly[mo]) campMonthly[mo] = 0;
+          });
+          // We don't have per-campaign daily, so use overall metrics as proxy
+          // Instead show the campaign's KPIs with Fib context from account-level
+          var costPct = as.totalSpend > 0 ? Math.round(tc.cost / as.totalSpend * 1000) / 10 : 0;
+          var convPct = as.totalConversions > 0 ? Math.round(tc.conversions / as.totalConversions * 1000) / 10 : 0;
+          var efficiency = costPct > 0 ? Math.round(convPct / costPct * 100) / 100 : 0;
+
+          var roas = tc.cost > 0 ? Math.round(tc.convValue / tc.cost * 100) / 100 : 0;
+          var cardColor = roas > 3 ? '#00ff66' : roas > 1.5 ? '#ff9f43' : tc.conversions > 0 ? '#ff4757' : '#4a6a8a';
+
+          html += '<div class="fib-card" style="border-color:' + cardColor + '15;">';
+          html += '<div class="fib-title"><span style="color:' + cardColor + ';font-size:0.95em;">' + tc.name.substring(0, 30) + '</span>';
+          html += '<span class="pill ' + (tc.status === 'ENABLED' ? 'pill-green' : 'pill-orange') + '">' + tc.status + '</span></div>';
+
+          // Mini stats grid
+          html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">';
+          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">SPEND</div><div style="color:#ff4757;font-family:Orbitron;font-size:0.8em;">$' + Math.round(tc.cost).toLocaleString() + '</div></div>';
+          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CLICKS</div><div style="color:#4285f4;font-family:Orbitron;font-size:0.8em;">' + tc.clicks.toLocaleString() + '</div></div>';
+          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CONV</div><div style="color:#00ff66;font-family:Orbitron;font-size:0.8em;">' + tc.conversions + '</div></div>';
+          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CPC</div><div style="color:#a855f7;font-family:Orbitron;font-size:0.8em;">$' + tc.avgCPC.toFixed(2) + '</div></div>';
+          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CTR</div><div style="color:#55f7d8;font-family:Orbitron;font-size:0.8em;">' + (tc.ctr * 100).toFixed(2) + '%</div></div>';
+          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">ROAS</div><div style="color:#ffd700;font-family:Orbitron;font-size:0.8em;">' + roas + 'x</div></div>';
+          html += '</div>';
+
+          // Efficiency meter (share of conversions vs share of spend)
+          html += '<div style="margin-bottom:6px;">';
+          html += '<div style="display:flex;justify-content:space-between;font-size:0.7em;color:#4a6a8a;margin-bottom:3px;">';
+          html += '<span>Budget Share: ' + costPct + '%</span>';
+          html += '<span>Conversion Share: ' + convPct + '%</span>';
+          html += '</div>';
+          html += '<div style="height:8px;background:#0a1520;position:relative;overflow:hidden;">';
+          html += '<div style="height:100%;width:' + Math.min(100, costPct * 2) + '%;background:#ff475740;position:absolute;"></div>';
+          html += '<div style="height:100%;width:' + Math.min(100, convPct * 2) + '%;background:#00ff6660;position:absolute;"></div>';
+          html += '</div></div>';
+
+          // CPC position vs account Fib
+          var cpcPos = cpcFib.range > 0 ? Math.round((tc.avgCPC - cpcFib.low) / cpcFib.range * 100) : 50;
+          html += '<div style="display:flex;justify-content:space-between;font-size:0.7em;margin-top:6px;">';
+          html += '<span style="color:#4a6a8a;">CPC Fib: <strong style="color:' + (cpcPos > 61.8 ? '#ff4757' : cpcPos > 38.2 ? '#ff9f43' : '#00ff66') + ';">' + cpcPos + '%</strong></span>';
+          html += '<span style="color:#4a6a8a;">Efficiency: <strong style="color:' + (efficiency > 1.2 ? '#00ff66' : efficiency > 0.8 ? '#ff9f43' : '#ff4757') + ';">' + efficiency + 'x</strong></span>';
+          html += '</div>';
+
+          // Signal
+          var campSignal = '';
+          if (roas > 3 && tc.conversions > 2) campSignal = '<span class="pill pill-green">🚀 SCALE UP</span>';
+          else if (roas > 1.5) campSignal = '<span class="pill pill-green">✅ PROFITABLE</span>';
+          else if (tc.conversions > 0) campSignal = '<span class="pill pill-orange">⚡ OPTIMIZE</span>';
+          else campSignal = '<span class="pill pill-red">⚠️ REVIEW</span>';
+          html += '<div style="margin-top:6px;">' + campSignal + '</div>';
+
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // ====== SECTION 13: BUDGET OPTIMIZER ======
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>BUDGET OPTIMIZATION CALCULATOR</div>';
+
+    var activeCamps = ads.campaigns.filter(function(c) { return c.status === 'ENABLED' && c.cost > 0; });
+    if (activeCamps.length > 0) {
+      // Calculate optimal budget allocation based on ROAS
+      var totalBudget = activeCamps.reduce(function(s, c) { return s + c.cost; }, 0);
+      var campWithROAS = activeCamps.map(function(c) {
+        var r = c.cost > 0 ? c.convValue / c.cost : 0;
+        return { name: c.name, cost: c.cost, roas: Math.round(r * 100) / 100, conversions: c.conversions, pctBudget: Math.round(c.cost / totalBudget * 1000) / 10 };
+      }).sort(function(a, b) { return b.roas - a.roas; });
+
+      // Calculate optimal allocation (proportional to ROAS)
+      var totalROAS = campWithROAS.reduce(function(s, c) { return s + Math.max(0.1, c.roas); }, 0);
+      campWithROAS.forEach(function(c) {
+        c.optimalPct = Math.round(Math.max(0.1, c.roas) / totalROAS * 1000) / 10;
+        c.optimalBudget = Math.round(totalBudget * c.optimalPct / 100);
+        c.currentBudget = Math.round(c.cost);
+        c.delta = c.optimalBudget - c.currentBudget;
+      });
+
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Campaign</th><th>Current Spend</th><th>Current %</th><th>ROAS</th><th>Optimal %</th><th>Optimal Spend</th><th>Change</th><th>Action</th></tr></thead><tbody>';
+      campWithROAS.forEach(function(c) {
+        var deltaColor = c.delta > 0 ? '#00ff66' : c.delta < 0 ? '#ff4757' : '#4a6a8a';
+        var action = c.delta > totalBudget * 0.05 ? '<span class="pill pill-green">↑ INCREASE</span>' : c.delta < -totalBudget * 0.05 ? '<span class="pill pill-red">↓ DECREASE</span>' : '<span class="pill pill-blue">→ MAINTAIN</span>';
+        html += '<tr><td style="color:#c0d8f0;font-weight:700;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + c.name + '</td>';
+        html += '<td style="color:#ff4757;">$' + c.currentBudget.toLocaleString() + '</td>';
+        html += '<td>' + c.pctBudget + '%</td>';
+        html += '<td style="color:#ffd700;font-weight:700;">' + c.roas + 'x</td>';
+        html += '<td style="color:#4285f4;">' + c.optimalPct + '%</td>';
+        html += '<td style="color:#00ff66;">$' + c.optimalBudget.toLocaleString() + '</td>';
+        html += '<td style="color:' + deltaColor + ';font-weight:700;">' + (c.delta >= 0 ? '+' : '') + '$' + c.delta.toLocaleString() + '</td>';
+        html += '<td>' + action + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+
+      // Summary
+      var potentialGain = campWithROAS.filter(function(c){return c.roas > 2;}).reduce(function(s,c){ return s + c.delta * c.roas; }, 0);
+      if (potentialGain > 0) {
+        html += '<div class="signal-box" style="border-color:#ffd70030;background:rgba(255,215,0,0.03);color:#ffd700;margin-top:10px;">';
+        html += '💡 BUDGET REALLOCATION: Shifting budget from low-ROAS to high-ROAS campaigns could generate an estimated $' + Math.round(potentialGain).toLocaleString() + ' in additional conversion value with the same total spend.';
+        html += '</div>';
+      }
+    } else {
+      html += '<div style="color:#4a6a8a;padding:20px;border:1px solid #1a2a3a;">No active campaigns with spend data available.</div>';
+    }
+    html += '</div>';
+
+    // ====== SECTION 14: CONVERSION FUNNEL ======
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#00ff66;--gc:#00ff66;"><span class="dot" style="background:#00ff66;"></span>CONVERSION FUNNEL</div>';
+
+    var funnelImpressions = as.totalImpressions;
+    var funnelClicks = as.totalClicks;
+    var funnelConversions = as.totalConversions;
+    var funnelCalls = bm.totalLeads || 0;
+    var funnelCompleted = bm.totalCompleted || 0;
+
+    var funnelSteps = [
+      { label: 'IMPRESSIONS', val: funnelImpressions, color: '#4285f4', pct: 100 },
+      { label: 'CLICKS', val: funnelClicks, color: '#00d4ff', pct: funnelImpressions > 0 ? Math.round(funnelClicks / funnelImpressions * 10000) / 100 : 0 },
+      { label: 'AD CONVERSIONS', val: Math.round(funnelConversions), color: '#ff9f43', pct: funnelClicks > 0 ? Math.round(funnelConversions / funnelClicks * 10000) / 100 : 0 },
+      { label: 'CRM CALLS', val: funnelCalls, color: '#a855f7', pct: funnelClicks > 0 ? Math.round(funnelCalls / funnelClicks * 10000) / 100 : 0 },
+      { label: 'COMPLETED JOBS', val: funnelCompleted, color: '#00ff66', pct: funnelCalls > 0 ? Math.round(funnelCompleted / funnelCalls * 10000) / 100 : 0 },
+    ];
+
+    html += '<div style="display:flex;flex-direction:column;gap:4px;max-width:800px;margin:0 auto;">';
+    funnelSteps.forEach(function(f, i) {
+      var barWidth = i === 0 ? 100 : Math.max(5, Math.round(f.val / (funnelImpressions || 1) * 100));
+      html += '<div style="display:flex;align-items:center;gap:10px;">';
+      html += '<div style="width:120px;text-align:right;font-family:Orbitron;font-size:0.5em;color:#4a6a8a;letter-spacing:1px;">' + f.label + '</div>';
+      html += '<div style="flex:1;height:32px;background:#0a1520;position:relative;">';
+      html += '<div style="height:100%;width:' + barWidth + '%;background:' + f.color + '30;border-right:3px solid ' + f.color + ';display:flex;align-items:center;justify-content:center;">';
+      html += '<span style="color:' + f.color + ';font-family:Orbitron;font-size:0.7em;font-weight:900;">' + (typeof f.val === 'number' ? f.val.toLocaleString() : f.val) + '</span>';
+      html += '</div></div>';
+      html += '<div style="width:50px;font-family:Orbitron;font-size:0.5em;color:#4a6a8a;">' + f.pct + '%</div>';
+      html += '</div>';
+      // Drop-off arrow between steps
+      if (i < funnelSteps.length - 1) {
+        var dropoff = funnelSteps[i].val > 0 ? Math.round((1 - funnelSteps[i + 1].val / funnelSteps[i].val) * 100) : 0;
+        html += '<div style="text-align:center;color:#ff475780;font-size:0.6em;padding:0 0 0 120px;">↓ ' + dropoff + '% drop-off</div>';
+      }
+    });
+    html += '</div></div>';
+
+    // ====== SECTION 15: WEEKLY TREND CHART ======
+    if (ads.weeklyPerformance.length > 3) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;"><span class="dot" style="background:#4285f4;"></span>WEEKLY TREND — SPEND vs CONVERSIONS</div>';
+      html += '<div id="ads-weekly-chart" style="border:1px solid #1a2a3a;min-height:250px;width:100%;margin-bottom:10px;"></div>';
+      html += '</div>';
+    }
+
+    // ====== SECTION 16: QUALITY SCORE DISTRIBUTION ======
+    if (ads.keywords.length > 0) {
+      var qsDist = {};
+      ads.keywords.forEach(function(k) {
+        if (k.qualityScore > 0) {
+          var qs = k.qualityScore;
+          if (!qsDist[qs]) qsDist[qs] = { count: 0, spend: 0, clicks: 0, conversions: 0 };
+          qsDist[qs].count++;
+          qsDist[qs].spend += k.cost;
+          qsDist[qs].clicks += k.clicks;
+          qsDist[qs].conversions += k.conversions;
+        }
+      });
+      var qsKeys = Object.keys(qsDist).sort(function(a,b){return parseInt(a)-parseInt(b);});
+
+      if (qsKeys.length > 0) {
+        html += '<div class="section">';
+        html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>QUALITY SCORE DISTRIBUTION</div>';
+
+        var maxQSCount = Math.max.apply(null, qsKeys.map(function(q){return qsDist[q].count;}));
+        html += '<div class="chart-box"><div class="chart-title" style="color:#a855f7;">KEYWORDS BY QUALITY SCORE</div>';
+        html += '<div style="display:flex;align-items:flex-end;gap:8px;height:120px;">';
+        for (var qs2 = 1; qs2 <= 10; qs2++) {
+          var qd = qsDist[qs2] || { count: 0, spend: 0 };
+          var qh = maxQSCount > 0 ? Math.max(2, Math.round(qd.count / maxQSCount * 100)) : 2;
+          var qColor = qs2 >= 7 ? '#00ff66' : qs2 >= 5 ? '#ff9f43' : '#ff4757';
+          html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
+          html += '<div style="color:#c0d8f0;font-size:0.6em;margin-bottom:2px;">' + qd.count + '</div>';
+          html += '<div style="width:80%;height:' + qh + '%;background:' + qColor + '40;border-top:2px solid ' + qColor + ';"></div>';
+          html += '<div style="font-family:Orbitron;font-size:0.5em;color:' + qColor + ';margin-top:4px;">' + qs2 + '</div></div>';
+        }
+        html += '</div>';
+        html += '<div style="display:flex;justify-content:center;gap:15px;margin-top:8px;font-size:0.7em;">';
+        html += '<span style="color:#ff4757;">● Poor (1-4)</span><span style="color:#ff9f43;">● Average (5-6)</span><span style="color:#00ff66;">● Good (7-10)</span>';
+        html += '</div></div>';
+
+        // QS impact table
+        html += '<div style="overflow-x:auto;"><table class="data-table">';
+        html += '<thead><tr><th>Quality Score</th><th>Keywords</th><th>Total Spend</th><th>Total Clicks</th><th>Conversions</th><th>Avg CPC</th><th>Impact</th></tr></thead><tbody>';
+        qsKeys.forEach(function(q) {
+          var qd2 = qsDist[q];
+          var avgCPC2 = qd2.clicks > 0 ? Math.round(qd2.spend / qd2.clicks * 100) / 100 : 0;
+          var qColor2 = parseInt(q) >= 7 ? '#00ff66' : parseInt(q) >= 5 ? '#ff9f43' : '#ff4757';
+          var impact = parseInt(q) <= 4 ? '<span class="pill pill-red">HIGH CPC PENALTY</span>' : parseInt(q) <= 6 ? '<span class="pill pill-orange">AVERAGE</span>' : '<span class="pill pill-green">CPC DISCOUNT</span>';
+          html += '<tr><td style="color:' + qColor2 + ';font-family:Orbitron;font-weight:900;font-size:1.1em;">' + q + '</td>';
+          html += '<td>' + qd2.count + '</td>';
+          html += '<td style="color:#ff4757;">$' + Math.round(qd2.spend).toLocaleString() + '</td>';
+          html += '<td style="color:#4285f4;">' + qd2.clicks.toLocaleString() + '</td>';
+          html += '<td style="color:#00ff66;">' + Math.round(qd2.conversions * 10) / 10 + '</td>';
+          html += '<td style="color:#a855f7;">$' + avgCPC2 + '</td>';
+          html += '<td>' + impact + '</td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+      }
+    }
+
+
+    html += '<div style="text-align:center;padding:30px;font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#1a2a3a;border-top:1px solid #0a1520;">WILDWOOD ADS INTELLIGENCE v2.0 // ' + ads.campaigns.length + ' campaigns &bull; ' + ads.keywords.length + ' keywords &bull; ' + ads.dailyPerformance.length + ' daily &bull; ' + cityROI.length + ' markets &bull; ' + wastedKeywords.length + ' waste flags</div>';
+
+    // ====== JAVASCRIPT — Interactive Charts ======
+    html += '<script>';
+    html += 'var dailyData=' + JSON.stringify(ads.dailyPerformance) + ';';
+
+    html += 'window.addEventListener("load",function(){';
+    html += 'if(dailyData.length < 2) return;';
+    html += 'var chartOpts={layout:{background:{color:"#050d18"},textColor:"#4a6a8a",fontSize:11},grid:{vertLines:{color:"#0a1520"},horzLines:{color:"#0a1520"}},crosshair:{mode:0},timeScale:{borderColor:"#1a2a3a",timeVisible:false},rightPriceScale:{borderColor:"#1a2a3a"}};';
+    html += 'var el=document.getElementById("ads-daily-chart");';
+    html += 'if(!el)return;';
+    html += 'var chart=LightweightCharts.createChart(el,Object.assign({},chartOpts,{width:el.offsetWidth,height:350}));';
+    html += 'var series=chart.addLineSeries({color:"#4285f4",lineWidth:2});';
+    html += 'var currentMetric="cost";';
+
+    html += 'window.switchMetric=function(metric){';
+    html += 'currentMetric=metric;';
+    html += 'var d=dailyData.map(function(r){return{time:r.date,value:r[metric]||0};});';
+    html += 'series.setData(d);chart.timeScale().fitContent();';
+    html += 'var colors={cost:"#ff4757",clicks:"#4285f4",conversions:"#00ff66",ctr:"#55f7d8",avgCPC:"#a855f7",roas:"#ffd700"};';
+    html += 'series.applyOptions({color:colors[metric]||"#4285f4"});';
+    html += 'document.querySelectorAll(".mbtn").forEach(function(b){b.style.background="#0a1520";b.style.color="#4a6a8a";b.style.borderColor="#1a2a3a";});';
+    html += 'var btnMap={cost:"btn-m-cost",clicks:"btn-m-clicks",conversions:"btn-m-conv",ctr:"btn-m-ctr",avgCPC:"btn-m-cpc",roas:"btn-m-roas"};';
+    html += 'var btn=document.getElementById(btnMap[metric]);';
+    html += 'if(btn){btn.style.background="rgba(66,133,244,0.15)";btn.style.color="#4285f4";btn.style.borderColor="#4285f440";}';
+    html += '};';
+
+    // Initial render
+    html += 'switchMetric("cost");';
+
+    // Weekly trend chart
+    html += 'var weeklyData=' + JSON.stringify(ads.weeklyPerformance) + ';';
+    html += 'var wEl=document.getElementById("ads-weekly-chart");';
+    html += 'if(wEl && weeklyData.length>3){';
+    html += 'var wChart=LightweightCharts.createChart(wEl,Object.assign({},chartOpts,{width:wEl.offsetWidth,height:250}));';
+    html += 'var wSpend=wChart.addLineSeries({color:"#ff4757",lineWidth:2,title:"Spend",priceScaleId:"left"});';
+    html += 'var wConv=wChart.addLineSeries({color:"#00ff66",lineWidth:2,title:"Conversions",priceScaleId:"right"});';
+    html += 'wChart.applyOptions({rightPriceScale:{visible:true,borderColor:"#1a2a3a"},leftPriceScale:{visible:true,borderColor:"#1a2a3a"}});';
+    html += 'wSpend.setData(weeklyData.map(function(w){return{time:w.week,value:w.cost};}));';
+    html += 'wConv.setData(weeklyData.map(function(w){return{time:w.week,value:w.conversions};}));';
+    html += 'wChart.timeScale().fitContent();';
+    html += 'window.addEventListener("resize",function(){wChart.applyOptions({width:wEl.offsetWidth});});';
+    html += '}';
+
+    html += 'window.addEventListener("resize",function(){chart.applyOptions({width:el.offsetWidth});});';
+    html += '});';
+    html += '<\/script>';
+
+    html += '</div></body></html>';
+    res.send(html);
+  } catch (err) {
+    console.error("Ads dashboard error:", err.stack || err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -10510,6 +11960,12 @@ app.listen(PORT, function() {
     return buildTookanContext();
   }).then(function(d) {
     console.log("Tookan startup: " + d.totalTasks + " tasks, " + d.completed + " completed, " + d.agents.length + " agents");
+    // Also try loading Google Ads data
+    if (GOOGLE_ADS_DEVELOPER_TOKEN && GOOGLE_ADS_CUSTOMER_ID) {
+      buildAdsContext().then(function(ad) {
+        console.log("Google Ads startup: " + ad.campaigns.length + " campaigns, " + (ad.connected ? "connected" : "needs auth"));
+      }).catch(function(ae) { console.log("Ads startup: " + ae.message); });
+    }
   }).catch(function(e) {
     console.log("Startup fetch error: " + e.message);
     // Still try Tookan even if business failed
