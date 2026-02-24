@@ -1,4 +1,4 @@
-// ATHENA v3.0 — Feb 21 2026 — Fibonacci Charts Build
+// ATHENA v4.0 — Feb 24 2026 — Direct Source Sheet Reader
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -337,441 +337,569 @@ async function buildLifeOSContext() {
 }
 
 /* ===========================
+
+/* ===========================
+   SHEET REGISTRY — All 12 source spreadsheets + descriptions
+   The server reads these DIRECTLY. No Combined tab needed.
+=========================== */
+
+var SOURCE_SHEETS = [
+  { id: "1LlfhcfiQdXStpV1vRrZzSmaEjyTvd1nrk5sqnhxsRYU", name: "Main CRM", desc: "Core CRM with 18+ city tabs. Each tab has customer bookings: name, phone, email, address, equipment, tech, status. Updated daily by receptionists. Also has Tech Numbers, Return Customers, Promo Replies, Diagnostic SMS, Manual Entry." },
+  { id: "1kl72v4yIJrpD3U5pCYwtCiDhtdFZ_n4wUvZDxhPeIQk", name: "Receptionist Data", desc: "Receptionist performance: booking rates, call logs per person. Matrix views for 2025-2026 showing monthly/weekly/daily booking %. Individual tabs for each receptionist (Ray, Muaaz, Rayan, Rubait, Salma, etc.) with call-by-call logs." },
+  { id: "1SDOqTxEMG8f81DtLwIu9ovz9mnxP_9Lpn6PH7OFBfBs", name: "Top Volume Cities", desc: "SEO market research: 70+ city tabs across 10+ states. Monthly Google search volume for 'small engine repair' from 2023-2025. Population data. Used for expansion planning." },
+  { id: "1fj6SZZx5YtLMU8ldsAEZ1yffK0rHhFQoFir0GAOCFNU", name: "US Audit", desc: "Nationwide SEO audit — all 50 states. Top 15-35 cities per state with population and monthly search volume 2023-2025." },
+  { id: "1ZITxT57ue2qSAbTUFRE_k1fJzKicPAO-BZMDSJOhJ7A", name: "SEO Competitive Analysis", desc: "All 50 states sorted by search volume high-to-low. Multiple keywords per city: small engine repair, lawn mower repair, etc. Includes keyword difficulty and CPC (cost per click)." },
+  { id: "1CJ9nn7l_PAwXPVSXmUogXejt46bsimrJi5iLQFQuo3o", name: "GMB Reviews", desc: "Google My Business reviews tracker. Reviews for Quick & Mobile Wildwood Small (7 reviews), Mobile Wildwood Mower Repair (44 reviews), Wildwood FL (22 reviews). GMB listing links per city. Discord reviews feed." },
+  { id: "1KIulnemtmR6QpRbzEflNjvVOElNszuL9zClKhcbmOow", name: "Active Locations & HR", desc: "Employee roster (~990 rows), tech hiring pipeline (~1123 applicants), active locations with assigned techs (33 locations), 90-day evaluations. Core HR + operations hub." },
+  { id: "19ndlgop-P0KLwv6PiG8sPdtj83jKH3vlDHf5AgjgmC8", name: "Payment Gap Analysis", desc: "Tracks avg hours between job completion and payment received. Monthly comparisons and weekly backend data. Cash flow health indicator." },
+  { id: "1A8oUmigHV6DsYcWF4hlDBC5KQDIHWMOh1Is6poCacx4", name: "Source Sheet 9", desc: "Additional business data — awaiting description." },
+  { id: "1vnNEZjdhhkFNpNkDXRINpS55Zfysb_MzuFLhjVw6A2g", name: "Source Sheet 10", desc: "Additional business data — awaiting description." },
+  { id: "1ZshCanMloF8uUlH39s2ZxvpCuvxjJQAONaSnN7590WA", name: "Source Sheet 11", desc: "Additional business data — awaiting description." },
+  { id: "1IK-T9O_-ozg7n-Fecn1DodEMuznbvVW-i0ClzCPfuOI", name: "Source Sheet 12", desc: "Additional business data — awaiting description." },
+];
+
+var SKIP_TABS = [
+  "combined","combined_all","tech numbers","mapping","dropdown","mail list",
+  "sample","test","location sheets","manual entry record",
+  "diagnostic sms reply","promotion customers reply","sops and contract",
+  "sheet1","location unavailable","return customers","unorganized customers",
+  "main","receptionist names","discord reviews"
+];
+
+var HEADER_MAP = {
+  "date called in":"dateIn","date and time":"dateIn","date and time ":"dateIn","column 1":"dateIn",
+  "first name":"firstName","first name ":"firstName",
+  "last name":"lastName","last name ":"lastName",
+  "start time":"startTime","start time ":"startTime",
+  "end time":"endTime"," end time":"endTime",
+  "date customer is available":"serviceDate","time (3 hour window)":"startTime",
+  "phone number":"phone","phone number ":"phone","phone":"phone",
+  "email":"email","email id":"email",
+  "address":"address","city":"city","state":"state","zip":"zip",
+  "type equipment":"equipType","type equipment ":"equipType",
+  "type of equipment":"equipType","type of equipment ":"equipType",
+  "what brand of equipment":"brand",
+  "issue with equipment":"issue","issue with equipment ":"issue",
+  "receptionist names":"receptionist","receptionist names ":"receptionist",
+  "notes tech needs to know":"notes","notes tech needs to know ":"notes",
+  "status":"status","when booked":"whenBooked",
+  "return/paid?":"returnPaid",
+  "posted date and time":"postedDate",
+  "tooka status and time":"tookanStatus",
+  "tookan job id":"tookanJobId","tech":"tech","transfer":"locationTab"
+};
+
+/* ===========================
    Build Business CRM Context for Claude
-   Cached for 5 minutes
+   Reads ALL 12 source sheets directly — no Combined tab dependency
+   Uses batchGet for speed, caches for 30 minutes
 =========================== */
 
 var businessCache = { data: null, time: 0 };
 
 async function buildBusinessContext() {
-  if (businessCache.data && (Date.now() - businessCache.time) < 900000) {
+  // Return cache if less than 30 minutes old
+  if (businessCache.data && (Date.now() - businessCache.time) < 1800000) {
     return businessCache.data;
   }
 
+  console.log("Building business context from " + SOURCE_SHEETS.length + " source sheets...");
   var context = "WILDWOOD SMALL ENGINE REPAIR — CRM DATA:\n\n";
 
-  try {
-    // Read Combined sheet — fast, single API call
-    var combinedRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: BUSINESS_SPREADSHEET_ID,
-      range: "'Combined'!A1:Z",
-    });
-    var allRows = combinedRes.data.values || [];
-    if (allRows.length <= 1) {
-      businessCache = { data: context + "No CRM data found.\n", time: Date.now() };
-      return businessCache.data;
+  // ====== PHASE 1: Read all job data from source sheets ======
+  var allJobRows = [];
+  var allOtherSections = {};
+  var sheetMetadata = {};
+  var sheetsRead = 0;
+  var tabsRead = 0;
+  var errors = [];
+
+  for (var si = 0; si < SOURCE_SHEETS.length; si++) {
+    var src = SOURCE_SHEETS[si];
+    try {
+      // Step 1: Get tab list for this sheet
+      var meta = await sheets.spreadsheets.get({
+        spreadsheetId: src.id,
+        fields: 'sheets.properties.title,sheets.properties.sheetId'
+      });
+      var tabNames = meta.data.sheets.map(function(s) { return s.properties.title; });
+      sheetMetadata[src.name] = { tabs: tabNames, id: src.id, desc: src.desc };
+
+      // Step 2: Build ranges for all non-skip tabs
+      var dataRanges = [];
+      for (var tn = 0; tn < tabNames.length; tn++) {
+        if (SKIP_TABS.indexOf(tabNames[tn].toLowerCase().trim()) < 0) {
+          dataRanges.push("'" + tabNames[tn] + "'!A1:AE");
+        }
+      }
+
+      if (dataRanges.length === 0) continue;
+
+      // Step 3: Batch read ALL tabs in ONE API call
+      var batchRes = await sheets.spreadsheets.values.batchGet({
+        spreadsheetId: src.id,
+        ranges: dataRanges,
+      });
+
+      sheetsRead++;
+      var valueRanges = batchRes.data.valueRanges || [];
+
+      for (var vr = 0; vr < valueRanges.length; vr++) {
+        var rows = valueRanges[vr].values || [];
+        if (rows.length < 2) continue;
+
+        var headers = rows[0];
+        var tabRange = valueRanges[vr].range || '';
+        var tabNameFromRange = tabRange.split('!')[0].replace(/'/g, '');
+        tabsRead++;
+
+        // Check if this is a job/customer tab (has "First Name" header)
+        var headerLookup = {};
+        var isJobTab = false;
+        for (var h = 0; h < headers.length; h++) {
+          var hKey = (headers[h] || '').toString().trim().toLowerCase();
+          if (HEADER_MAP[hKey]) headerLookup[HEADER_MAP[hKey]] = h;
+          if (hKey === 'first name' || hKey === 'first name ') isJobTab = true;
+        }
+
+        if (isJobTab) {
+          // Process as job/customer data
+          for (var jr = 1; jr < rows.length; jr++) {
+            var jRow = rows[jr];
+            var fName = headerLookup.firstName !== undefined ? (jRow[headerLookup.firstName] || '').toString().trim() : '';
+            var phn = headerLookup.phone !== undefined ? (jRow[headerLookup.phone] || '').toString().trim() : '';
+            if (!fName && !phn) continue; // skip empty rows
+
+            // Build standardized row object
+            var job = {
+              dateIn: headerLookup.dateIn !== undefined ? (jRow[headerLookup.dateIn] || '').toString() : '',
+              firstName: fName,
+              lastName: headerLookup.lastName !== undefined ? (jRow[headerLookup.lastName] || '').toString().trim() : '',
+              startTime: headerLookup.startTime !== undefined ? (jRow[headerLookup.startTime] || '').toString() : '',
+              endTime: headerLookup.endTime !== undefined ? (jRow[headerLookup.endTime] || '').toString() : '',
+              serviceDate: headerLookup.serviceDate !== undefined ? (jRow[headerLookup.serviceDate] || '').toString() : '',
+              phone: phn,
+              email: headerLookup.email !== undefined ? (jRow[headerLookup.email] || '').toString().trim() : '',
+              address: headerLookup.address !== undefined ? (jRow[headerLookup.address] || '').toString().trim() : '',
+              city: headerLookup.city !== undefined ? (jRow[headerLookup.city] || '').toString().trim() : '',
+              state: headerLookup.state !== undefined ? (jRow[headerLookup.state] || '').toString().trim() : '',
+              zip: headerLookup.zip !== undefined ? (jRow[headerLookup.zip] || '').toString().trim() : '',
+              equipType: headerLookup.equipType !== undefined ? (jRow[headerLookup.equipType] || '').toString().trim() : '',
+              brand: headerLookup.brand !== undefined ? (jRow[headerLookup.brand] || '').toString().trim() : '',
+              issue: headerLookup.issue !== undefined ? (jRow[headerLookup.issue] || '').toString().trim() : '',
+              receptionist: headerLookup.receptionist !== undefined ? (jRow[headerLookup.receptionist] || '').toString().trim() : '',
+              notes: headerLookup.notes !== undefined ? (jRow[headerLookup.notes] || '').toString().trim() : '',
+              status: headerLookup.status !== undefined ? (jRow[headerLookup.status] || '').toString().toLowerCase().trim() : '',
+              tech: headerLookup.tech !== undefined ? (jRow[headerLookup.tech] || '').toString().trim() : '',
+              locationTab: tabNameFromRange,
+              doneFlag: '',
+            };
+            // Check for DONE anywhere in the row
+            for (var dc = 0; dc < jRow.length; dc++) {
+              if ((jRow[dc] || '').toString().trim().toUpperCase() === 'DONE') { job.doneFlag = 'done'; break; }
+            }
+            allJobRows.push(job);
+          }
+        } else {
+          // Store as non-job data for AI context
+          var sectionKey = src.name + ' / ' + tabNameFromRange;
+          var sectionRows = [];
+          for (var or2 = 0; or2 < Math.min(rows.length, 35); or2++) {
+            var rowStr = rows[or2].map(function(c) { return (c || '').toString().trim(); }).filter(function(c) { return c; }).join(' | ');
+            if (rowStr) sectionRows.push(rowStr);
+          }
+          if (sectionRows.length > 0) {
+            allOtherSections[sectionKey] = { rows: sectionRows, totalRows: rows.length - 1 };
+          }
+        }
+      }
+
+      // Delay between sheets to stay under API quota (60 reads/min)
+      if (si < SOURCE_SHEETS.length - 1) {
+        await new Promise(function(r) { setTimeout(r, 1500); });
+      }
+
+    } catch (e) {
+      errors.push(src.name + ': ' + e.message);
+      console.log("Error reading " + src.name + ": " + e.message);
+    }
+  }
+
+  console.log("Source sheets: read " + sheetsRead + " sheets, " + tabsRead + " tabs, " + allJobRows.length + " job rows");
+  if (errors.length > 0) console.log("Read errors: " + errors.join('; '));
+
+  // ====== FALLBACK: If source read failed, try Combined tab ======
+  if (allJobRows.length < 10) {
+    console.log("Source read got " + allJobRows.length + " rows, trying Combined fallback...");
+    try {
+      var combinedRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: BUSINESS_SPREADSHEET_ID,
+        range: "'Combined'!A1:Z",
+      });
+      var cRows = combinedRes.data.values || [];
+      if (cRows.length > 1) {
+        for (var cr = 1; cr < cRows.length; cr++) {
+          var cRow = cRows[cr];
+          if (!cRow[1] && !cRow[6]) continue;
+          allJobRows.push({
+            dateIn: (cRow[0] || '').toString(), firstName: (cRow[1] || '').toString().trim(),
+            lastName: (cRow[2] || '').toString().trim(), startTime: (cRow[3] || '').toString(),
+            endTime: (cRow[4] || '').toString(), serviceDate: (cRow[5] || '').toString(),
+            phone: (cRow[6] || '').toString(), email: (cRow[7] || '').toString().trim(),
+            address: (cRow[8] || '').toString().trim(), city: (cRow[9] || '').toString().trim(),
+            state: (cRow[10] || '').toString().trim(), zip: (cRow[11] || '').toString(),
+            equipType: (cRow[12] || '').toString().trim(), brand: (cRow[13] || '').toString().trim(),
+            issue: (cRow[14] || '').toString().trim(), receptionist: (cRow[15] || '').toString().trim(),
+            notes: (cRow[16] || '').toString().trim(), status: (cRow[17] || '').toString().toLowerCase().trim(),
+            tech: (cRow[23] || '').toString().trim(), locationTab: (cRow[24] || '').toString().trim(),
+            doneFlag: (cRow[25] || '').toString().toLowerCase().trim(),
+          });
+        }
+        console.log("Combined fallback: " + allJobRows.length + " rows");
+      }
+    } catch(fe) { console.log("Combined fallback failed: " + fe.message); }
+  }
+
+  if (allJobRows.length === 0) {
+    businessCache = { data: context + "No CRM data found. Check that service account has access to source spreadsheets.\n", time: Date.now() };
+    return businessCache.data;
+  }
+
+  // ====== PHASE 2: Process all job data (same logic as before) ======
+  var totalBooked = 0, totalCancelled = 0, totalCompleted = 0, totalReturn = 0;
+  var todayBookings = [], recentBookings = [], needsReschedule = [];
+  var locationStats = {}, techStats = {}, equipStats = {}, brandStats = {};
+  var monthlyBookings = {}, weeklyBookings = 0;
+  var bookingToServiceDays = [];
+  var seasonalData = {};
+  var today = new Date();
+  var todayStr = today.toISOString().split('T')[0];
+  var thisMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+  var lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  var lastMonthStr = lastMonth.getFullYear() + '-' + String(lastMonth.getMonth() + 1).padStart(2, '0');
+  var weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay()); weekStart.setHours(0,0,0,0);
+  var newLocationsThisMonth = {};
+  var totalLeads = allJobRows.length;
+
+  for (var r = 0; r < allJobRows.length; r++) {
+    var job = allJobRows[r];
+    var fullName = (job.firstName + ' ' + job.lastName).trim();
+    if (!fullName || fullName === ' ') continue;
+
+    var location = job.city && job.state ? job.city + ', ' + job.state : job.locationTab;
+    var status = job.status;
+    var equipType = job.equipType;
+    var brand = job.brand;
+    var tech = job.tech;
+    var createdAt = job.dateIn;
+    var serviceDate = job.serviceDate;
+    var issue = job.issue;
+
+    // Status parsing
+    var isBooked = status.includes('booked') || job.doneFlag === 'done';
+    var isCancelled = status.includes('cancel');
+    var isCompleted = job.doneFlag === 'done' || status.includes('completed') || status.includes('done');
+    var isReturn = status.includes('return');
+    var needsResched = status.includes('reschedul') || (status.includes('need') && status.includes('book'));
+
+    if (isBooked) totalBooked++;
+    if (isCancelled) totalCancelled++;
+    if (isCompleted) totalCompleted++;
+    if (isReturn) totalReturn++;
+    if (needsResched) needsReschedule.push({ name: fullName, location: location, phone: job.phone });
+
+    // Location stats
+    if (location && location.length > 2) {
+      if (!locationStats[location]) locationStats[location] = { booked: 0, completed: 0, cancelled: 0, total: 0 };
+      locationStats[location].total++;
+      if (isBooked) locationStats[location].booked++;
+      if (isCompleted) locationStats[location].completed++;
+      if (isCancelled) locationStats[location].cancelled++;
     }
 
-    // Convert to standardized job rows (skip header)
-    var allJobRows = allRows.slice(1);
+    // Equipment normalization
+    var equipNorm = equipType;
+    if (equipType) {
+      var eqLow = equipType.toLowerCase();
+      if (eqLow.includes('snow')) equipNorm = 'Snow Blower';
+      else if (eqLow.includes('riding') || eqLow.includes('tractor')) equipNorm = 'Riding Mower';
+      else if (eqLow.includes('push')) equipNorm = 'Push Mower';
+      else if (eqLow.includes('zero')) equipNorm = 'Zero Turn';
+      else if (eqLow.includes('generator')) equipNorm = 'Generator';
+      else if (eqLow.includes('chain') || eqLow.includes('saw')) equipNorm = 'Chainsaw';
+      else if (eqLow.includes('trim') || eqLow.includes('weed')) equipNorm = 'Trimmer';
+      else if (eqLow.includes('lawn') || eqLow.includes('mower')) equipNorm = 'Mower';
+      else equipNorm = equipType.substring(0, 30);
+      equipStats[equipNorm] = (equipStats[equipNorm] || 0) + 1;
+    }
 
-    // Metrics accumulators
-    var totalBooked = 0, totalCancelled = 0, totalCompleted = 0, totalReturn = 0;
-    var todayBookings = [], recentBookings = [], needsReschedule = [];
-    var locationStats = {}, techStats = {}, equipStats = {}, brandStats = {};
-    var monthlyBookings = {}, weeklyBookings = 0;
-    var bookingToServiceDays = [];
-    var seasonalData = {}; // month -> { snow: 0, mower: 0, generator: 0, other: 0 }
-    var locationCoords = {}; // city,state -> { lat, lng, count }
-    var today = new Date();
-    var todayStr = today.toISOString().split('T')[0];
-    var thisMonth = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
-    var lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    var lastMonthStr = lastMonth.getFullYear() + '-' + String(lastMonth.getMonth() + 1).padStart(2, '0');
-    var weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay()); weekStart.setHours(0,0,0,0);
-    var newLocationsThisMonth = {};
-    var totalLeads = 0;
-
-    for (var r = 0; r < allJobRows.length; r++) {
-      var row = allJobRows[r];
-      if (!row[1] && !row[2]) continue; // skip empty rows
-
-      var firstName = (row[1] || '').toString().trim();
-      var lastName = (row[2] || '').toString().trim();
-      if (!firstName && !lastName) continue;
-
-      totalLeads++;
-      var fullName = firstName + ' ' + lastName;
-      var timeStart = (row[3] || '').toString();
-      var timeEnd = (row[4] || '').toString();
-      var serviceDate = (row[5] || '').toString();
-      var phone = (row[6] || '').toString();
-      var email = (row[7] || '').toString();
-      var address = (row[8] || '').toString();
-      var city = (row[9] || '').toString().trim();
-      var state = (row[10] || '').toString().trim();
-      var zip = (row[11] || '').toString();
-      var equipType = (row[12] || '').toString().trim();
-      var brand = (row[13] || '').toString().trim();
-      var issue = (row[14] || '').toString().trim();
-      var receptionist = (row[15] || '').toString().trim();
-      var notes = (row[16] || '').toString().trim();
-      var status = (row[17] || '').toString().toLowerCase().trim();
-      var createdAt = (row[0] || '').toString();
-      var tech = (row[23] || '').toString().trim(); // Col X = Tech
-      var locationTab = (row[24] || '').toString().trim(); // Col Y = Location Tab
-      var doneCol = (row[25] || '').toString().toLowerCase().trim(); // Col Z = Done Flag
-
-      var location = city && state ? city + ', ' + state : locationTab;
-
-      // Status parsing
-      var isBooked = status.includes('booked') || doneCol === 'done';
-      var isCancelled = status.includes('cancel');
-      var isCompleted = doneCol === 'done' || status.includes('completed') || status.includes('done');
-      var isReturn = status.includes('return');
-      var needsResched = status.includes('reschedul') || status.includes('need') && status.includes('book');
-
-      if (isBooked) totalBooked++;
-      if (isCancelled) totalCancelled++;
-      if (isCompleted) totalCompleted++;
-      if (isReturn) totalReturn++;
-      if (needsResched) needsReschedule.push({ name: fullName, location: location, phone: phone });
-
-      // Location stats
-      if (location) {
-        if (!locationStats[location]) locationStats[location] = { booked: 0, completed: 0, cancelled: 0, total: 0 };
-        locationStats[location].total++;
-        if (isBooked) locationStats[location].booked++;
-        if (isCompleted) locationStats[location].completed++;
-        if (isCancelled) locationStats[location].cancelled++;
-      }
-
-      // Tech stats (enhanced)
-      if (tech) {
-        if (!techStats[tech]) techStats[tech] = {
-          total: 0, completed: 0, cancelled: 0, revenue: 0,
-          locations: {}, equipment: {}, brands: {},
-          recentJobs: [], todayJobs: [], thisWeekJobs: 0, thisMonthJobs: 0,
-          avgResponseDays: [], returnCustomers: 0, firstSeen: null, lastSeen: null,
-        };
-        var ts = techStats[tech];
-        ts.total++;
-        if (isCompleted) ts.completed++;
-        if (isCancelled) ts.cancelled++;
-        if (isReturn) ts.returnCustomers++;
-        if (location) ts.locations[location] = (ts.locations[location] || 0) + 1;
-        if (equipType) {
-          var eqKey = equipNorm || equipType.substring(0, 30);
-          ts.equipment[eqKey] = (ts.equipment[eqKey] || 0) + 1;
-        }
-        if (brand && brand.length > 1 && brand.toLowerCase() !== 'not specified') {
-          var bKey = brand.split(' ')[0].trim();
-          bKey = bKey.charAt(0).toUpperCase() + bKey.slice(1).toLowerCase();
-          ts.brands[bKey] = (ts.brands[bKey] || 0) + 1;
-        }
-        if (createdAt) {
-          try {
-            var tDate = new Date(createdAt);
-            if (!isNaN(tDate.getTime())) {
-              if (!ts.firstSeen || tDate < ts.firstSeen) ts.firstSeen = tDate;
-              if (!ts.lastSeen || tDate > ts.lastSeen) ts.lastSeen = tDate;
-              var tMonthKey = tDate.getFullYear() + '-' + String(tDate.getMonth() + 1).padStart(2, '0');
-              if (tMonthKey === thisMonth) ts.thisMonthJobs++;
-              if (tDate >= weekStart) ts.thisWeekJobs++;
-            }
-          } catch(e){}
-        }
-        if (createdAt && serviceDate) {
-          try {
-            var rc1 = new Date(createdAt), rc2 = new Date(serviceDate);
-            if (!isNaN(rc1.getTime()) && !isNaN(rc2.getTime())) {
-              var respDays = Math.round((rc2 - rc1) / 86400000);
-              if (respDays >= 0 && respDays < 60) ts.avgResponseDays.push(respDays);
-            }
-          } catch(e){}
-        }
-        // Recent jobs for this tech (last 5)
-        if (ts.recentJobs.length < 5 || r >= allJobRows.length - 50) {
-          if (ts.recentJobs.length >= 5) ts.recentJobs.shift();
-          ts.recentJobs.push({ name: fullName, location: location, equip: equipType, status: status, date: createdAt });
-        }
-        // Today's jobs for this tech
-        if (serviceDate) {
-          try {
-            var tsd = new Date(serviceDate);
-            if (tsd.toISOString().split('T')[0] === todayStr) {
-              ts.todayJobs.push({ name: fullName, location: location, equip: equipType, issue: issue.substring(0, 60) });
-            }
-          } catch(e){}
-        }
-      }
-
-      // Equipment breakdown
-      if (equipType) {
-        var equipNorm = equipType.toLowerCase().replace(/riding\s*/i, 'Riding ').replace(/snow\s*blow/i, 'Snow Blow').replace(/push\s*mow/i, 'Push Mow');
-        if (equipNorm.toLowerCase().includes('snow')) equipNorm = 'Snow Blower';
-        else if (equipNorm.toLowerCase().includes('riding')) equipNorm = 'Riding Mower';
-        else if (equipNorm.toLowerCase().includes('push')) equipNorm = 'Push Mower';
-        else if (equipNorm.toLowerCase().includes('generator')) equipNorm = 'Generator';
-        else if (equipNorm.toLowerCase().includes('chain') || equipNorm.toLowerCase().includes('saw')) equipNorm = 'Chainsaw';
-        else if (equipNorm.toLowerCase().includes('trim') || equipNorm.toLowerCase().includes('weed')) equipNorm = 'Trimmer';
-        else equipNorm = equipType.substring(0, 30);
-        equipStats[equipNorm] = (equipStats[equipNorm] || 0) + 1;
-
-        // Seasonal demand tracking
-        if (createdAt) {
-          try {
-            var sDate2 = new Date(createdAt);
-            if (!isNaN(sDate2.getTime())) {
-              var sMonth = sDate2.getFullYear() + '-' + String(sDate2.getMonth() + 1).padStart(2, '0');
-              if (!seasonalData[sMonth]) seasonalData[sMonth] = { snow: 0, mower: 0, generator: 0, other: 0 };
-              if (equipNorm === 'Snow Blower') seasonalData[sMonth].snow++;
-              else if (equipNorm.includes('Mower')) seasonalData[sMonth].mower++;
-              else if (equipNorm === 'Generator') seasonalData[sMonth].generator++;
-              else seasonalData[sMonth].other++;
-            }
-          } catch(e){}
-        }
-      }
-
-      // Brand breakdown
+    // Tech stats
+    if (tech && tech.length > 1) {
+      if (!techStats[tech]) techStats[tech] = {
+        total: 0, completed: 0, cancelled: 0, revenue: 0,
+        locations: {}, equipment: {}, brands: {},
+        recentJobs: [], todayJobs: [], thisWeekJobs: 0, thisMonthJobs: 0,
+        avgResponseDays: [], returnCustomers: 0, firstSeen: null, lastSeen: null,
+      };
+      var ts = techStats[tech];
+      ts.total++;
+      if (isCompleted) ts.completed++;
+      if (isCancelled) ts.cancelled++;
+      if (isReturn) ts.returnCustomers++;
+      if (location) ts.locations[location] = (ts.locations[location] || 0) + 1;
+      if (equipNorm) ts.equipment[equipNorm] = (ts.equipment[equipNorm] || 0) + 1;
       if (brand && brand.length > 1 && brand.toLowerCase() !== 'not specified') {
-        var brandNorm = brand.split(' ')[0].trim();
-        brandNorm = brandNorm.charAt(0).toUpperCase() + brandNorm.slice(1).toLowerCase();
-        brandStats[brandNorm] = (brandStats[brandNorm] || 0) + 1;
+        var bKey = brand.split(' ')[0].trim();
+        bKey = bKey.charAt(0).toUpperCase() + bKey.slice(1).toLowerCase();
+        ts.brands[bKey] = (ts.brands[bKey] || 0) + 1;
       }
-
-      // Monthly tracking
       if (createdAt) {
         try {
-          var cDate = new Date(createdAt);
-          if (!isNaN(cDate.getTime())) {
-            var mKey = cDate.getFullYear() + '-' + String(cDate.getMonth() + 1).padStart(2, '0');
-            monthlyBookings[mKey] = (monthlyBookings[mKey] || 0) + 1;
-            if (cDate >= weekStart) weeklyBookings++;
+          var tDate = new Date(createdAt);
+          if (!isNaN(tDate.getTime())) {
+            if (!ts.firstSeen || tDate < ts.firstSeen) ts.firstSeen = tDate;
+            if (!ts.lastSeen || tDate > ts.lastSeen) ts.lastSeen = tDate;
+            var tMonthKey = tDate.getFullYear() + '-' + String(tDate.getMonth() + 1).padStart(2, '0');
+            if (tMonthKey === thisMonth) ts.thisMonthJobs++;
+            if (tDate >= weekStart) ts.thisWeekJobs++;
           }
-        } catch (e) {}
+        } catch(e){}
       }
-
-      // Average booking to service days
       if (createdAt && serviceDate) {
         try {
-          var cDate2 = new Date(createdAt);
-          var sDate = new Date(serviceDate);
-          if (!isNaN(cDate2.getTime()) && !isNaN(sDate.getTime())) {
-            var daysDiff = Math.round((sDate - cDate2) / 86400000);
-            if (daysDiff >= 0 && daysDiff < 60) bookingToServiceDays.push(daysDiff);
+          var rc1 = new Date(createdAt), rc2 = new Date(serviceDate);
+          if (!isNaN(rc1.getTime()) && !isNaN(rc2.getTime())) {
+            var respDays = Math.round((rc2 - rc1) / 86400000);
+            if (respDays >= 0 && respDays < 60) ts.avgResponseDays.push(respDays);
           }
-        } catch (e) {}
+        } catch(e){}
       }
-
-      // New locations this month
-      if (createdAt && location) {
-        try {
-          var cDate3 = new Date(createdAt);
-          var mKey2 = cDate3.getFullYear() + '-' + String(cDate3.getMonth() + 1).padStart(2, '0');
-          if (mKey2 === thisMonth) newLocationsThisMonth[location] = true;
-        } catch (e) {}
+      if (ts.recentJobs.length < 5 || r >= allJobRows.length - 50) {
+        if (ts.recentJobs.length >= 5) ts.recentJobs.shift();
+        ts.recentJobs.push({ name: fullName, location: location, equip: equipType, status: status, date: createdAt });
       }
-
-      // Service date check for today
       if (serviceDate) {
         try {
-          var sd = new Date(serviceDate);
-          if (sd.toISOString().split('T')[0] === todayStr) {
-            todayBookings.push({ name: fullName, location: location, equip: equipType, issue: issue.substring(0, 80), tech: tech });
+          var tsd = new Date(serviceDate);
+          if (tsd.toISOString().split('T')[0] === todayStr) {
+            ts.todayJobs.push({ name: fullName, location: location, equip: equipType, issue: (issue || '').substring(0, 60) });
           }
-        } catch (e) {}
-      }
-
-      // Recent bookings (last 20 rows)
-      if (r >= allJobRows.length - 20 && firstName) {
-        recentBookings.push({ name: fullName, location: location, status: status, equip: equipType, tech: tech, brand: brand, date: dateCalledIn });
+        } catch(e){}
       }
     }
 
-    // Tech Numbers tab
-    var techList = [];
-    try {
-      var techRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Tech Numbers'!A1:D40" });
-      var techRows = techRes.data.values || [];
-      for (var t = 1; t < techRows.length; t++) {
-        if (techRows[t][0]) techList.push({ name: techRows[t][0], phone: techRows[t][1] || '', location: techRows[t][2] || '' });
-      }
-    } catch (e) {}
-
-    // Return Customers tab
-    try {
-      var retRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Return Customers'!A:A" });
-      var retCount = Math.max(0, ((retRes.data.values || []).length) - 1);
-      if (retCount > totalReturn) totalReturn = retCount;
-    } catch (e) {}
-
-    // Promo replies
-    var promoReplies = 0;
-    try {
-      var promoRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Promotion Customers Reply'!A:A" });
-      promoReplies = Math.max(0, ((promoRes.data.values || []).length) - 1);
-    } catch (e) {}
-
-    // Calculate averages
-    var avgBookingDays = bookingToServiceDays.length > 0 ? Math.round(bookingToServiceDays.reduce(function(a,b){return a+b;}, 0) / bookingToServiceDays.length) : 0;
-    var conversionRate = totalLeads > 0 ? Math.round((totalBooked / totalLeads) * 100) : 0;
-    var thisMonthBookings = monthlyBookings[thisMonth] || 0;
-    var lastMonthBookings = monthlyBookings[lastMonthStr] || 0;
-    var monthGrowth = lastMonthBookings > 0 ? Math.round(((thisMonthBookings - lastMonthBookings) / lastMonthBookings) * 100) : 0;
-
-    // Build context string
-    context += "OVERVIEW:\n";
-    context += "  Total Leads: " + totalLeads + "\n";
-    context += "  Active Bookings: " + totalBooked + "\n";
-    context += "  Completed Jobs: " + totalCompleted + "\n";
-    context += "  Cancelled: " + totalCancelled + "\n";
-    context += "  Return Customers: " + totalReturn + "\n";
-    context += "  Promo Replies: " + promoReplies + "\n";
-    context += "  Locations Active: " + Object.keys(locationStats).length + "\n";
-    context += "  Technicians: " + techList.length + "\n";
-    context += "  Avg Days Booking→Service: " + avgBookingDays + "\n";
-    context += "  Conversion Rate: " + conversionRate + "%\n";
-    context += "  This Month Bookings: " + thisMonthBookings + "\n";
-    context += "  Last Month Bookings: " + lastMonthBookings + "\n";
-    context += "  Month Growth: " + monthGrowth + "%\n";
-    context += "  This Week Bookings: " + weeklyBookings + "\n\n";
-
-    if (todayBookings.length > 0) {
-      context += "TODAY'S BOOKINGS:\n";
-      todayBookings.forEach(function(b) { context += "  " + b.name + " (" + b.location + ") — " + b.equip + ": " + b.issue + " [Tech: " + b.tech + "]\n"; });
-      context += "\n";
+    // Brand breakdown
+    if (brand && brand.length > 1 && brand.toLowerCase() !== 'not specified') {
+      var brandNorm = brand.split(' ')[0].trim();
+      brandNorm = brandNorm.charAt(0).toUpperCase() + brandNorm.slice(1).toLowerCase();
+      brandStats[brandNorm] = (brandStats[brandNorm] || 0) + 1;
     }
 
-    if (needsReschedule.length > 0) {
-      context += "NEEDS RESCHEDULING (" + needsReschedule.length + "):\n";
-      needsReschedule.slice(0, 10).forEach(function(n) { context += "  " + n.name + " (" + n.location + ") — " + n.phone + "\n"; });
-      context += "\n";
-    }
+    // Monthly tracking
+    if (createdAt) {
+      try {
+        var cDate = new Date(createdAt);
+        if (!isNaN(cDate.getTime())) {
+          var mKey = cDate.getFullYear() + '-' + String(cDate.getMonth() + 1).padStart(2, '0');
+          monthlyBookings[mKey] = (monthlyBookings[mKey] || 0) + 1;
+          if (cDate >= weekStart) weeklyBookings++;
 
-    // Top equipment types
-    context += "EQUIPMENT BREAKDOWN:\n";
-    var eqSorted = Object.entries(equipStats).sort(function(a,b){return b[1]-a[1];});
-    eqSorted.slice(0, 8).forEach(function(e) { context += "  " + e[0] + ": " + e[1] + "\n"; });
-    context += "\n";
-
-    // Top brands
-    context += "TOP BRANDS:\n";
-    var brSorted = Object.entries(brandStats).sort(function(a,b){return b[1]-a[1];});
-    brSorted.slice(0, 8).forEach(function(b) { context += "  " + b[0] + ": " + b[1] + "\n"; });
-    context += "\n";
-
-    // Tech leaderboard (enhanced profiles)
-    context += "TECHNICIAN PERFORMANCE:\n";
-    var techSorted = Object.entries(techStats).sort(function(a,b){return b[1].total-a[1].total;});
-    techSorted.forEach(function(t) {
-      var ts = t[1];
-      var rate = ts.total > 0 ? Math.round((ts.completed / ts.total) * 100) : 0;
-      var avgResp = ts.avgResponseDays.length > 0 ? Math.round(ts.avgResponseDays.reduce(function(a,b){return a+b;},0) / ts.avgResponseDays.length) : 0;
-      var topEquip = Object.entries(ts.equipment).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(e){return e[0];}).join(', ');
-      var topLocs = Object.entries(ts.locations).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(l){return l[0];}).join(', ');
-      context += "  " + t[0] + ": " + ts.total + " jobs (" + ts.completed + " completed, " + ts.cancelled + " cancelled, " + rate + "% rate)";
-      context += " | This week: " + ts.thisWeekJobs + " | Avg response: " + avgResp + "d";
-      context += " | Specialties: " + (topEquip || 'none') + " | Markets: " + (topLocs || 'none') + "\n";
-    });
-    context += "\n";
-
-    // Auto-task assignment recommendations
-    if (todayBookings.length > 0 || needsReschedule.length > 0) {
-      context += "SMART TASK ASSIGNMENTS:\n";
-      var unassigned = todayBookings.filter(function(b) { return !b.tech || b.tech === ''; });
-      var reschedNeedsTech = needsReschedule.filter(function(n) { return n.name; });
-
-      // For unassigned jobs, recommend best tech
-      unassigned.forEach(function(job) {
-        var bestTech = null, bestScore = -1;
-        techSorted.forEach(function(t) {
-          var ts = t[1];
-          var score = 0;
-          var completionRate = ts.total > 0 ? ts.completed / ts.total : 0;
-          score += completionRate * 40; // weight completion rate
-          if (job.equip && ts.equipment[job.equip]) score += 20; // equipment match
-          if (job.location && ts.locations[job.location]) score += 20; // location match
-          score -= ts.todayJobs.length * 10; // penalize if already busy today
-          if (score > bestScore) { bestScore = score; bestTech = t[0]; }
-        });
-        if (bestTech) {
-          context += "  ASSIGN: " + job.name + " (" + job.equip + " in " + job.location + ") → " + bestTech + " (score: " + Math.round(bestScore) + ")\n";
+          // Seasonal demand
+          if (equipNorm) {
+            if (!seasonalData[mKey]) seasonalData[mKey] = { snow: 0, mower: 0, generator: 0, other: 0 };
+            if (equipNorm === 'Snow Blower') seasonalData[mKey].snow++;
+            else if (equipNorm.includes('Mower') || equipNorm === 'Zero Turn') seasonalData[mKey].mower++;
+            else if (equipNorm === 'Generator') seasonalData[mKey].generator++;
+            else seasonalData[mKey].other++;
+          }
         }
-      });
-      context += "\n";
+      } catch (e) {}
     }
 
-    // Location breakdown
-    context += "LOCATION BREAKDOWN:\n";
-    var locSorted = Object.entries(locationStats).sort(function(a,b){return b[1].total-a[1].total;});
-    locSorted.slice(0, 20).forEach(function(l) {
-      context += "  " + l[0] + ": " + l[1].total + " total, " + l[1].booked + " booked, " + l[1].completed + " completed, " + l[1].cancelled + " cancelled\n";
-    });
-    context += "\n";
-
-    if (recentBookings.length > 0) {
-      context += "RECENT ACTIVITY:\n";
-      recentBookings.slice(-10).forEach(function(b) { context += "  " + b.name + " — " + b.location + " — " + b.status + " (" + b.equip + ") [" + b.tech + "]\n"; });
-      context += "\n";
+    // Avg booking to service days
+    if (createdAt && serviceDate) {
+      try {
+        var cDate2 = new Date(createdAt), sDate = new Date(serviceDate);
+        if (!isNaN(cDate2.getTime()) && !isNaN(sDate.getTime())) {
+          var daysDiff = Math.round((sDate - cDate2) / 86400000);
+          if (daysDiff >= 0 && daysDiff < 60) bookingToServiceDays.push(daysDiff);
+        }
+      } catch (e) {}
     }
 
-    // Store parsed data globally for dashboard
-    global.bizMetrics = {
-      totalLeads: totalLeads, totalBooked: totalBooked, totalCompleted: totalCompleted,
-      totalCancelled: totalCancelled, totalReturn: totalReturn, promoReplies: promoReplies,
-      todayBookings: todayBookings, needsReschedule: needsReschedule, recentBookings: recentBookings,
-      locationStats: locationStats, techStats: techStats, equipStats: equipStats, brandStats: brandStats,
-      monthlyBookings: monthlyBookings, weeklyBookings: weeklyBookings,
-      avgBookingDays: avgBookingDays, conversionRate: conversionRate,
-      thisMonthBookings: thisMonthBookings, lastMonthBookings: lastMonthBookings,
-      monthGrowth: monthGrowth, techList: techList, newLocationsThisMonth: Object.keys(newLocationsThisMonth).length,
-      seasonalData: seasonalData,
-    };
+    // New locations this month
+    if (createdAt && location) {
+      try {
+        var cDate3 = new Date(createdAt);
+        var mKey2 = cDate3.getFullYear() + '-' + String(cDate3.getMonth() + 1).padStart(2, '0');
+        if (mKey2 === thisMonth) newLocationsThisMonth[location] = true;
+      } catch (e) {}
+    }
 
+    // Service date check for today
+    if (serviceDate) {
+      try {
+        var sd = new Date(serviceDate);
+        if (sd.toISOString().split('T')[0] === todayStr) {
+          todayBookings.push({ name: fullName, location: location, equip: equipType, issue: (issue || '').substring(0, 80), tech: tech });
+        }
+      } catch (e) {}
+    }
 
-  } catch (e) {
-    context += "Error loading CRM data: " + e.message + "\n";
+    // Recent bookings (last 20)
+    if (r >= allJobRows.length - 20 && job.firstName) {
+      recentBookings.push({ name: fullName, location: location, status: status, equip: equipType, tech: tech, brand: brand, date: createdAt });
+    }
   }
 
-  // ====== READ COMBINED_ALL (SOPs, SEO, Stats, everything non-job) ======
+  // ====== PHASE 3: Read support tabs (Tech Numbers, Return Customers, etc.) ======
+  var techList = [];
   try {
-    var allDataRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: BUSINESS_SPREADSHEET_ID,
-      range: "'Combined_All'!A1:ZZ",
-    });
-    var allDataRows = allDataRes.data.values || [];
-    if (allDataRows.length > 1) {
-      context += "BUSINESS OPERATIONS DATA (SOPs, Stats, SEO, etc.):\n\n";
-      
-      // Parse by source tab — each section starts with "===SOURCE: tabname==="
-      var currentSource = "";
-      var sectionData = {};
-      
-      for (var ad = 0; ad < allDataRows.length; ad++) {
-        var adRow = allDataRows[ad];
-        var firstCell = (adRow[0] || '').toString().trim();
-        
-        if (firstCell.startsWith('===SOURCE:')) {
-          currentSource = firstCell.replace('===SOURCE:', '').replace('===', '').trim();
-          if (!sectionData[currentSource]) sectionData[currentSource] = [];
-        } else if (currentSource && firstCell) {
-          var rowStr = adRow.map(function(c) { return (c || '').toString().trim(); }).filter(function(c) { return c; }).join(' | ');
-          if (rowStr) sectionData[currentSource].push(rowStr);
-        }
-      }
-      
-      // Add each section to context
-      Object.entries(sectionData).forEach(function(section) {
-        context += "--- " + section[0] + " ---\n";
-        var maxLines = Math.min(section[1].length, 30);
-        for (var sl = 0; sl < maxLines; sl++) {
-          context += "  " + section[1][sl] + "\n";
-        }
-        if (section[1].length > 30) context += "  ... and " + (section[1].length - 30) + " more rows\n";
-        context += "\n";
-      });
-      
-      // Store for dashboard
-      global.bizOpsData = sectionData;
+    var techRes = await sheets.spreadsheets.values.get({ spreadsheetId: SOURCE_SHEETS[0].id, range: "'Tech Numbers'!A1:D40" });
+    var techRows = techRes.data.values || [];
+    for (var t = 1; t < techRows.length; t++) {
+      if (techRows[t][0]) techList.push({ name: techRows[t][0], phone: techRows[t][1] || '', location: techRows[t][2] || '' });
     }
-  } catch (e) {
-    // Combined_All might not exist yet
-    console.log("Combined_All not found: " + e.message);
+  } catch (e) { console.log("Tech Numbers read: " + e.message); }
+
+  var totalReturnFromTab = 0;
+  try {
+    var retRes = await sheets.spreadsheets.values.get({ spreadsheetId: SOURCE_SHEETS[0].id, range: "'Return Customers'!A:A" });
+    totalReturnFromTab = Math.max(0, ((retRes.data.values || []).length) - 1);
+    if (totalReturnFromTab > totalReturn) totalReturn = totalReturnFromTab;
+  } catch (e) {}
+
+  var promoReplies = 0;
+  try {
+    var promoRes = await sheets.spreadsheets.values.get({ spreadsheetId: SOURCE_SHEETS[0].id, range: "'Promotion Customers Reply'!A:A" });
+    promoReplies = Math.max(0, ((promoRes.data.values || []).length) - 1);
+  } catch (e) {}
+
+  // ====== PHASE 4: Build context string ======
+  var avgBookingDays = bookingToServiceDays.length > 0 ? Math.round(bookingToServiceDays.reduce(function(a,b){return a+b;}, 0) / bookingToServiceDays.length) : 0;
+  var conversionRate = totalLeads > 0 ? Math.round((totalBooked / totalLeads) * 100) : 0;
+  var thisMonthBookings = monthlyBookings[thisMonth] || 0;
+  var lastMonthBookings = monthlyBookings[lastMonthStr] || 0;
+  var monthGrowth = lastMonthBookings > 0 ? Math.round(((thisMonthBookings - lastMonthBookings) / lastMonthBookings) * 100) : 0;
+
+  context += "OVERVIEW:\n";
+  context += "  Total Leads: " + totalLeads + "\n";
+  context += "  Active Bookings: " + totalBooked + "\n";
+  context += "  Completed Jobs: " + totalCompleted + "\n";
+  context += "  Cancelled: " + totalCancelled + "\n";
+  context += "  Return Customers: " + totalReturn + "\n";
+  context += "  Promo Replies: " + promoReplies + "\n";
+  context += "  Locations Active: " + Object.keys(locationStats).length + "\n";
+  context += "  Technicians: " + techList.length + "\n";
+  context += "  Avg Days Booking→Service: " + avgBookingDays + "\n";
+  context += "  Conversion Rate: " + conversionRate + "%\n";
+  context += "  This Month Bookings: " + thisMonthBookings + "\n";
+  context += "  Last Month Bookings: " + lastMonthBookings + "\n";
+  context += "  Month Growth: " + monthGrowth + "%\n";
+  context += "  This Week Bookings: " + weeklyBookings + "\n";
+  context += "  Data Source: " + sheetsRead + " sheets, " + tabsRead + " tabs read directly\n\n";
+
+  if (todayBookings.length > 0) {
+    context += "TODAY'S BOOKINGS:\n";
+    todayBookings.forEach(function(b) { context += "  " + b.name + " (" + b.location + ") — " + b.equip + ": " + b.issue + " [Tech: " + b.tech + "]\n"; });
+    context += "\n";
   }
 
-  // ====== READ PROFIT SHEET ======
+  if (needsReschedule.length > 0) {
+    context += "NEEDS RESCHEDULING (" + needsReschedule.length + "):\n";
+    needsReschedule.slice(0, 10).forEach(function(n) { context += "  " + n.name + " (" + n.location + ") — " + n.phone + "\n"; });
+    context += "\n";
+  }
+
+  context += "EQUIPMENT BREAKDOWN:\n";
+  var eqSorted = Object.entries(equipStats).sort(function(a,b){return b[1]-a[1];});
+  eqSorted.slice(0, 8).forEach(function(e) { context += "  " + e[0] + ": " + e[1] + "\n"; });
+  context += "\n";
+
+  context += "TOP BRANDS:\n";
+  var brSorted = Object.entries(brandStats).sort(function(a,b){return b[1]-a[1];});
+  brSorted.slice(0, 8).forEach(function(b) { context += "  " + b[0] + ": " + b[1] + "\n"; });
+  context += "\n";
+
+  context += "TECHNICIAN PERFORMANCE:\n";
+  var techSorted = Object.entries(techStats).sort(function(a,b){return b[1].total-a[1].total;});
+  techSorted.forEach(function(t) {
+    var s = t[1];
+    var rate = s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0;
+    var avgResp = s.avgResponseDays.length > 0 ? Math.round(s.avgResponseDays.reduce(function(a,b){return a+b;},0) / s.avgResponseDays.length) : 0;
+    var topEquip = Object.entries(s.equipment).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(e){return e[0];}).join(', ');
+    var topLocs = Object.entries(s.locations).sort(function(a,b){return b[1]-a[1];}).slice(0,3).map(function(l){return l[0];}).join(', ');
+    context += "  " + t[0] + ": " + s.total + " jobs (" + s.completed + " completed, " + s.cancelled + " cancelled, " + rate + "% rate)";
+    context += " | This week: " + s.thisWeekJobs + " | Avg response: " + avgResp + "d";
+    context += " | Specialties: " + (topEquip || 'none') + " | Markets: " + (topLocs || 'none') + "\n";
+  });
+  context += "\n";
+
+  if (todayBookings.length > 0 || needsReschedule.length > 0) {
+    context += "SMART TASK ASSIGNMENTS:\n";
+    var unassigned = todayBookings.filter(function(b) { return !b.tech || b.tech === ''; });
+    unassigned.forEach(function(job2) {
+      var bestTech = null, bestScore = -1;
+      techSorted.forEach(function(t) {
+        var s2 = t[1], score = 0;
+        var completionRate = s2.total > 0 ? s2.completed / s2.total : 0;
+        score += completionRate * 40;
+        if (job2.equip && s2.equipment[job2.equip]) score += 20;
+        if (job2.location && s2.locations[job2.location]) score += 20;
+        score -= s2.todayJobs.length * 10;
+        if (score > bestScore) { bestScore = score; bestTech = t[0]; }
+      });
+      if (bestTech) context += "  ASSIGN: " + job2.name + " (" + job2.equip + " in " + job2.location + ") → " + bestTech + "\n";
+    });
+    context += "\n";
+  }
+
+  context += "LOCATION BREAKDOWN:\n";
+  var locSorted = Object.entries(locationStats).sort(function(a,b){return b[1].total-a[1].total;});
+  locSorted.slice(0, 20).forEach(function(l) {
+    context += "  " + l[0] + ": " + l[1].total + " total, " + l[1].booked + " booked, " + l[1].completed + " completed, " + l[1].cancelled + " cancelled\n";
+  });
+  context += "\n";
+
+  if (recentBookings.length > 0) {
+    context += "RECENT ACTIVITY:\n";
+    recentBookings.slice(-10).forEach(function(b) { context += "  " + b.name + " — " + b.location + " — " + b.status + " (" + b.equip + ") [" + b.tech + "]\n"; });
+    context += "\n";
+  }
+
+  // Sheet registry for AI
+  context += "DATA SOURCES AVAILABLE:\n";
+  SOURCE_SHEETS.forEach(function(s) { context += "  " + s.name + ": " + s.desc + "\n"; });
+  context += "\n";
+
+  // Non-job data summaries
+  if (Object.keys(allOtherSections).length > 0) {
+    context += "BUSINESS OPERATIONS DATA:\n\n";
+    Object.entries(allOtherSections).forEach(function(section) {
+      context += "--- " + section[0] + " ---\n";
+      var maxLines = Math.min(section[1].rows.length, 20);
+      for (var sl = 0; sl < maxLines; sl++) { context += "  " + section[1].rows[sl] + "\n"; }
+      if (section[1].totalRows > 20) context += "  ... and " + (section[1].totalRows - 20) + " more rows\n";
+      context += "\n";
+    });
+  }
+
+  // Store parsed data globally for dashboard
+  global.bizMetrics = {
+    totalLeads: totalLeads, totalBooked: totalBooked, totalCompleted: totalCompleted,
+    totalCancelled: totalCancelled, totalReturn: totalReturn, promoReplies: promoReplies,
+    todayBookings: todayBookings, needsReschedule: needsReschedule, recentBookings: recentBookings,
+    locationStats: locationStats, techStats: techStats, equipStats: equipStats, brandStats: brandStats,
+    monthlyBookings: monthlyBookings, weeklyBookings: weeklyBookings,
+    avgBookingDays: avgBookingDays, conversionRate: conversionRate,
+    thisMonthBookings: thisMonthBookings, lastMonthBookings: lastMonthBookings,
+    monthGrowth: monthGrowth, techList: techList, newLocationsThisMonth: Object.keys(newLocationsThisMonth).length,
+    seasonalData: seasonalData, sheetsRead: sheetsRead, tabsRead: tabsRead, totalJobRows: allJobRows.length,
+  };
+  global.bizOpsData = allOtherSections;
+  global.sheetMetadata = sheetMetadata;
+
+  // ====== PHASE 5: Read Profit Sheet ======
   if (PROFIT_SPREADSHEET_ID) {
     try {
       var profitContext = "";
@@ -779,7 +907,6 @@ async function buildBusinessContext() {
       var monthNames3 = ["January","February","March","April","May","June","July","August","September","October","November","December"];
       var currentMonthTab = monthNames3[today2.getMonth()] + " " + today2.getFullYear();
       
-      // Read current month tab with FORMATTED values (resolves formulas)
       var profitRes = await sheets.spreadsheets.values.get({
         spreadsheetId: PROFIT_SPREADSHEET_ID,
         range: "'" + currentMonthTab + "'!A1:AF55",
@@ -788,49 +915,29 @@ async function buildBusinessContext() {
       var profitRows = profitRes.data.values || [];
       
       if (profitRows.length > 0) {
-        // Parse dates from header row
-        var dates = profitRows[0] || [];
-        var daysInMonth = dates.length - 1; // minus label column
-        
-        // Build expense totals for the month
         var monthExpenses = {};
-        var monthRevenue = 0;
-        var monthProfit = 0;
-        var dailyRevenue = [];
-        var dailyProfit = [];
-        var dailyAds = [];
-        var techPayouts = {};
-        var receptionistPayouts = {};
-        var adminPayouts = {};
+        var monthRevenue = 0, monthProfit = 0;
+        var dailyRevenue = [], dailyProfit = [], dailyAds = [];
+        var techPayouts = {}, receptionistPayouts = {}, adminPayouts = {};
         
         for (var pr = 1; pr < profitRows.length; pr++) {
           var pRow = profitRows[pr];
           var pLabel = (pRow[0] || '').toString().toLowerCase().trim();
           if (!pLabel) continue;
           
-          // Sum all days for this row
           var rowTotal = 0;
           for (var pd = 1; pd < pRow.length; pd++) {
             var val = parseFloat((pRow[pd] || '0').toString().replace(/[$,]/g, ''));
             if (!isNaN(val)) rowTotal += val;
           }
           
-          // Categorize
           if (pLabel === 'ads') {
             monthExpenses['Ads'] = rowTotal;
-            for (var ad = 1; ad < pRow.length; ad++) {
-              dailyAds.push(parseFloat((pRow[ad] || '0').toString().replace(/[$,]/g, '')) || 0);
-            }
+            for (var ad2 = 1; ad2 < pRow.length; ad2++) { dailyAds.push(parseFloat((pRow[ad2] || '0').toString().replace(/[$,]/g, '')) || 0); }
           }
           else if (pLabel === 'app total') monthExpenses['Apps/Software'] = rowTotal;
-          else if (pLabel === 'amazon and receipts' || pLabel === 'amazon (parts)') {
-            if (!monthExpenses['Parts/Supplies']) monthExpenses['Parts/Supplies'] = 0;
-            if (pLabel === 'amazon (parts)') monthExpenses['Parts/Supplies'] += rowTotal;
-          }
-          else if (pLabel === 'receipts') {
-            if (!monthExpenses['Receipts']) monthExpenses['Receipts'] = 0;
-            monthExpenses['Receipts'] += rowTotal;
-          }
+          else if (pLabel === 'amazon (parts)') { monthExpenses['Parts/Supplies'] = (monthExpenses['Parts/Supplies'] || 0) + rowTotal; }
+          else if (pLabel === 'receipts') { monthExpenses['Receipts'] = (monthExpenses['Receipts'] || 0) + rowTotal; }
           else if (pLabel === 'payment processing fees') monthExpenses['Processing Fees'] = rowTotal;
           else if (pLabel === 'refunds by amount') monthExpenses['Refunds'] = rowTotal;
           else if (pLabel === 'admin total') monthExpenses['Admin Labor'] = rowTotal;
@@ -839,29 +946,18 @@ async function buildBusinessContext() {
           else if (pLabel === 'tech total') monthExpenses['Tech Labor'] = rowTotal;
           else if (pLabel === 'total collected') {
             monthRevenue = rowTotal;
-            for (var rv = 1; rv < pRow.length; rv++) {
-              dailyRevenue.push(parseFloat((pRow[rv] || '0').toString().replace(/[$,]/g, '')) || 0);
-            }
+            for (var rv = 1; rv < pRow.length; rv++) { dailyRevenue.push(parseFloat((pRow[rv] || '0').toString().replace(/[$,]/g, '')) || 0); }
           }
           else if (pLabel === 'profit') {
             monthProfit = rowTotal;
-            for (var pf = 1; pf < pRow.length; pf++) {
-              dailyProfit.push(parseFloat((pRow[pf] || '0').toString().replace(/[$,]/g, '')) || 0);
-            }
+            for (var pf = 1; pf < pRow.length; pf++) { dailyProfit.push(parseFloat((pRow[pf] || '0').toString().replace(/[$,]/g, '')) || 0); }
           }
-          // Individual people
-          else if (['rocky','tucker','aly'].indexOf(pLabel) >= 0) {
-            adminPayouts[pRow[0]] = rowTotal;
-          }
-          else if (['ray','muaaz','rayan','rubait','andrew','hailey'].indexOf(pLabel) >= 0) {
-            if (['andrew','hailey','rubait'].indexOf(pLabel) >= 0) {
-              adminPayouts[pRow[0]] = rowTotal; // managers
-            } else {
-              receptionistPayouts[pRow[0]] = rowTotal;
-            }
-          }
+          else if (['rocky','tucker','aly'].indexOf(pLabel) >= 0) { adminPayouts[pRow[0]] = rowTotal; }
+          else if (['ray','muaaz','rayan'].indexOf(pLabel) >= 0) { receptionistPayouts[pRow[0]] = rowTotal; }
+          else if (['andrew','hailey','rubait'].indexOf(pLabel) >= 0) { adminPayouts[pRow[0]] = rowTotal; }
           else if (['justin turner','victor romero','alexander fernandez','tony reynolds','kurt nowicki',
-                     'talon twiford','michael scutti','maxx fritts','corey roberson','robert hummer','ashton hawley'].indexOf(pLabel) >= 0) {
+                     'talon twiford','michael scutti','maxx fritts','corey roberson','robert hummer','ashton hawley',
+                     'brandi butler','trent kennedy','keith'].indexOf(pLabel) >= 0) {
             techPayouts[pRow[0]] = rowTotal;
           }
         }
@@ -887,47 +983,29 @@ async function buildBusinessContext() {
           });
         }
         
-        if (Object.keys(adminPayouts).length > 0) {
-          profitContext += "\n  ADMIN/MANAGER PAYOUTS:\n";
-          Object.entries(adminPayouts).sort(function(a,b){return b[1]-a[1];}).forEach(function(a) {
-            if (a[1] > 0) profitContext += "    " + a[0] + ": $" + a[1].toFixed(2) + "\n";
-          });
-        }
-        
-        // Daily averages
         var daysWithRevenue = dailyRevenue.filter(function(v){return v > 0;}).length;
         var avgDailyRev = daysWithRevenue > 0 ? monthRevenue / daysWithRevenue : 0;
-        var avgDailyAds = dailyAds.length > 0 ? dailyAds.reduce(function(a,b){return a+b;},0) / dailyAds.filter(function(v){return v>0;}).length : 0;
+        var avgDailyAds = dailyAds.filter(function(v){return v>0;}).length > 0 ? dailyAds.reduce(function(a,b){return a+b;},0) / dailyAds.filter(function(v){return v>0;}).length : 0;
         profitContext += "\n  DAILY AVERAGES:\n";
         profitContext += "    Avg Daily Revenue: $" + avgDailyRev.toFixed(2) + "\n";
         profitContext += "    Avg Daily Ad Spend: $" + avgDailyAds.toFixed(2) + "\n";
         if (avgDailyAds > 0 && avgDailyRev > 0) {
           profitContext += "    Ad ROI: $" + (avgDailyRev / avgDailyAds).toFixed(2) + " revenue per $1 ad spend\n";
         }
-        profitContext += "\n";
         
         context += profitContext;
         
-        // Store for dashboard
         global.profitMetrics = {
-          currentMonth: currentMonthTab,
-          revenue: monthRevenue,
-          expenses: totalExpenses,
-          profit: monthProfit,
-          margin: monthRevenue > 0 ? ((monthProfit / monthRevenue) * 100).toFixed(1) : "0",
-          expenseBreakdown: monthExpenses,
-          techPayouts: techPayouts,
-          adminPayouts: adminPayouts,
-          receptionistPayouts: receptionistPayouts,
-          dailyRevenue: dailyRevenue,
-          dailyProfit: dailyProfit,
-          dailyAds: dailyAds,
-          avgDailyRev: avgDailyRev,
-          avgDailyAds: avgDailyAds,
+          currentMonth: currentMonthTab, revenue: monthRevenue, expenses: totalExpenses,
+          profit: monthProfit, margin: monthRevenue > 0 ? ((monthProfit / monthRevenue) * 100).toFixed(1) : "0",
+          expenseBreakdown: monthExpenses, techPayouts: techPayouts,
+          adminPayouts: adminPayouts, receptionistPayouts: receptionistPayouts,
+          dailyRevenue: dailyRevenue, dailyProfit: dailyProfit, dailyAds: dailyAds,
+          avgDailyRev: avgDailyRev, avgDailyAds: avgDailyAds,
         };
       }
       
-      // Also read Total 2026 for yearly context
+      // Yearly totals
       try {
         var yearTab = "Total " + today2.getFullYear();
         var yearRes = await sheets.spreadsheets.values.get({
@@ -937,27 +1015,25 @@ async function buildBusinessContext() {
         });
         var yearRows = yearRes.data.values || [];
         if (yearRows.length > 0) {
-          context += "YEARLY TOTALS — " + today2.getFullYear() + ":\n";
+          context += "\nYEARLY TOTALS — " + today2.getFullYear() + ":\n";
           for (var yr2 = 1; yr2 < yearRows.length; yr2++) {
             var yLabel = (yearRows[yr2][0] || '').toString().trim();
             var yVal = (yearRows[yr2][1] || '').toString().trim();
             if (yLabel && yVal) context += "  " + yLabel + ": $" + yVal + "\n";
           }
-          context += "\n";
         }
-      } catch(ye) {
-        // Yearly tab might not exist
-      }
+      } catch(ye) {}
       
     } catch (pe) {
       context += "Error loading profit data: " + pe.message + "\n";
     }
   }
 
-  console.log("Business context built: " + context.length + " chars");
+  console.log("Business context built: " + context.length + " chars (" + allJobRows.length + " jobs from " + sheetsRead + " sheets)");
   businessCache = { data: context, time: Date.now() };
   return context;
 }
+
 
 /* ===========================
    Call Claude API
@@ -5173,54 +5249,41 @@ var webChatHistory = {};
 app.get('/business', async function(req, res) {
   try {
     var bizContext = await buildBusinessContext();
-    var tabs = await getAllTabNames();
+    var tabs = [];
+    try { tabs = await getAllTabNames(); } catch(e) { tabs = []; }
 
-    // Parse stats from context
-    var bookedMatch = bizContext.match(/Active Bookings:\s*(\d+)/);
-    var completedMatch = bizContext.match(/Completed Jobs:\s*(\d+)/);
-    var cancelledMatch = bizContext.match(/Cancelled:\s*(\d+)/);
-    var returnMatch = bizContext.match(/Return Customers:\s*(\d+)/);
-    var promoMatch = bizContext.match(/Promo Replies:\s*(\d+)/);
-    var locationsMatch = bizContext.match(/Locations Active:\s*(\d+)/);
+    // Read directly from global.bizMetrics (no regex parsing!)
+    var bm = global.bizMetrics || {};
+    var totalBooked = bm.totalBooked || 0;
+    var totalCompleted = bm.totalCompleted || 0;
+    var totalCancelled = bm.totalCancelled || 0;
+    var totalReturn = bm.totalReturn || 0;
+    var promoReplies = bm.promoReplies || 0;
+    var totalLocations = Object.keys(bm.locationStats || {}).length;
+    var totalLeads = bm.totalLeads || 0;
+    var conversionRate = bm.conversionRate || 0;
+    var thisMonthBookings = bm.thisMonthBookings || 0;
+    var lastMonthBookings = bm.lastMonthBookings || 0;
+    var monthGrowth = bm.monthGrowth || 0;
+    var weeklyBookings = bm.weeklyBookings || 0;
+    var avgBookingDays = bm.avgBookingDays || 0;
+    var sheetsRead = bm.sheetsRead || 0;
+    var tabsReadCount = bm.tabsRead || 0;
+    var totalJobRows = bm.totalJobRows || 0;
 
-    var totalBooked = bookedMatch ? bookedMatch[1] : '0';
-    var totalCompleted = completedMatch ? completedMatch[1] : '0';
-    var totalCancelled = cancelledMatch ? cancelledMatch[1] : '0';
-    var totalReturn = returnMatch ? returnMatch[1] : '0';
-    var promoReplies = promoMatch ? promoMatch[1] : '0';
-    var totalLocations = locationsMatch ? locationsMatch[1] : '0';
-
-    // Parse today's bookings
-    var todayBookings = [];
-    var todayMatch = bizContext.match(/TODAY'S BOOKINGS:\n([\s\S]*?)(\n\n|NEEDS|LOCATION)/);
-    if (todayMatch) {
-      var lines = todayMatch[1].trim().split('\n');
-      lines.forEach(function(l) { if (l.trim()) todayBookings.push(l.trim()); });
-    }
-
-    // Parse needs rescheduling
-    var reschedule = [];
-    var reschedMatch = bizContext.match(/NEEDS RESCHEDULING.*?:\n([\s\S]*?)(\n\n|LOCATION)/);
-    if (reschedMatch) {
-      var lines = reschedMatch[1].trim().split('\n');
-      lines.forEach(function(l) { if (l.trim()) reschedule.push(l.trim()); });
-    }
-
-    // Parse location breakdown
-    var locationBreakdown = [];
-    var locMatch = bizContext.match(/LOCATION BREAKDOWN:\n([\s\S]*?)(\n\n|RECENT)/);
-    if (locMatch) {
-      var lines = locMatch[1].trim().split('\n');
-      lines.forEach(function(l) { if (l.trim()) locationBreakdown.push(l.trim()); });
-    }
-
-    // Parse technicians
-    var techs = [];
-    var techMatch = bizContext.match(/TECHNICIANS:\n([\s\S]*?)\n\n/);
-    if (techMatch) {
-      var lines = techMatch[1].trim().split('\n');
-      lines.forEach(function(l) { if (l.trim()) techs.push(l.trim()); });
-    }
+    var todayBookings = (bm.todayBookings || []).map(function(b) {
+      return b.name + ' (' + b.location + ') — ' + b.equip + ': ' + b.issue + ' [Tech: ' + b.tech + ']';
+    });
+    var reschedule = (bm.needsReschedule || []).map(function(n) {
+      return n.name + ' (' + n.location + ') — ' + n.phone;
+    });
+    var locationBreakdown = Object.entries(bm.locationStats || {}).sort(function(a,b){return b[1].total-a[1].total;}).map(function(l) {
+      return l[0] + ': ' + l[1].total + ' total, ' + l[1].booked + ' booked, ' + l[1].completed + ' completed, ' + l[1].cancelled + ' cancelled';
+    });
+    var techs = Object.entries(bm.techStats || {}).sort(function(a,b){return b[1].total-a[1].total;}).map(function(t) {
+      var s = t[1]; var rate = s.total > 0 ? Math.round((s.completed/s.total)*100) : 0;
+      return t[0] + ': ' + s.total + ' jobs (' + s.completed + ' completed, ' + rate + '% rate)';
+    });
 
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>J.A.R.V.I.S. — Business Command Center</title>';
@@ -5350,6 +5413,7 @@ app.get('/business', async function(req, res) {
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>CRM ONLINE</div>';
     html += '<div class="status-item"><div class="status-dot purple"></div>' + totalLocations + ' LOCATIONS</div>';
+    html += '<div class="status-item"><div class="status-dot ' + (totalJobRows > 100 ? 'green' : 'orange') + '"></div>' + totalJobRows + ' RECORDS FROM ' + sheetsRead + ' SHEETS</div>';
     html += '<div class="status-item"><div class="status-dot purple"></div>' + techs.length + ' TECHNICIANS</div>';
     html += '<div class="status-item"><div class="status-dot ' + (todayBookings.length > 0 ? 'orange' : 'green') + '"></div>' + todayBookings.length + ' TODAY</div>';
     html += '<div class="status-item"><div class="status-dot ' + (reschedule.length > 0 ? 'orange' : 'green') + '"></div>' + reschedule.length + ' RESCHEDULE</div>';
@@ -6413,4 +6477,3 @@ app.listen(PORT, function() {
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
-});
