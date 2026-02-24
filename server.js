@@ -344,7 +344,7 @@ async function buildLifeOSContext() {
 var businessCache = { data: null, time: 0 };
 
 async function buildBusinessContext() {
-  if (businessCache.data && (Date.now() - businessCache.time) < 300000) {
+  if (businessCache.data && (Date.now() - businessCache.time) < 900000) {
     return businessCache.data;
   }
 
@@ -405,11 +405,16 @@ async function buildBusinessContext() {
     "sheet1","location unavailable","return customers","unorganized customers"];
 
   try {
-    // Read ALL source spreadsheets in parallel
-    var sheetMetaPromises = sourceSheetIds.map(function(id) {
-      return sheets.spreadsheets.get({ spreadsheetId: id, fields: 'properties.title,sheets.properties.title' }).catch(function(e) { return null; });
-    });
-    var sheetMetas = await Promise.all(sheetMetaPromises);
+    // Read ALL source spreadsheets metadata in batches
+    var sheetMetas = [];
+    for (var mi = 0; mi < sourceSheetIds.length; mi += 4) {
+      if (mi > 0) await new Promise(function(r) { setTimeout(r, 1500); });
+      var metaBatch = sourceSheetIds.slice(mi, mi + 4).map(function(id) {
+        return sheets.spreadsheets.get({ spreadsheetId: id, fields: 'properties.title,sheets.properties.title' }).catch(function(e) { console.log("Sheet access error for " + id + ": " + e.message); return null; });
+      });
+      var metaResults = await Promise.all(metaBatch);
+      sheetMetas = sheetMetas.concat(metaResults);
+    }
 
     // Build list of all tabs to read
     var allTabRequests = [];
@@ -427,12 +432,15 @@ async function buildBusinessContext() {
       }
     }
 
-    // Read all tabs in parallel (batched)
-    var BATCH_SIZE = 15;
+    // Read all tabs in batches with delays to avoid quota
+    var BATCH_SIZE = 5;
     var allTabData = []; // { ssTitle, tabTitle, headers, rows }
     var allJobRows = []; // standardized job rows for CRM analysis
 
+    function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+
     for (var batch = 0; batch < allTabRequests.length; batch += BATCH_SIZE) {
+      if (batch > 0) await sleep(2000); // 2 second delay between batches
       var batchItems = allTabRequests.slice(batch, batch + BATCH_SIZE);
       var batchPromises = batchItems.map(function(item) {
         return sheets.spreadsheets.values.get({
