@@ -427,25 +427,28 @@ var TOOKAN_LOCATIONS = [
 var tookanCache = { data: null, time: 0 };
 
 // Fetch all tasks from Tookan API for a date range
-async function fetchTookanTasks(startDate, endDate) {
+async function fetchTookanTasks(startDate, endDate, teamId) {
   try {
+    var payload = {
+      api_key: TOOKAN_API_KEY,
+      job_type: 2,
+      job_status: '',
+      start_date: startDate,
+      end_date: endDate,
+      is_pagination: 0,
+    };
+    if (teamId) payload.team_id = teamId;
     var response = await fetch(TOOKAN_ENDPOINTS.getAllTasks, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: TOOKAN_API_KEY,
-        job_type: 0,
-        job_status: '',
-        start_date: startDate,
-        end_date: endDate,
-        is_pagination: 0,
-      }),
+      body: JSON.stringify(payload),
     });
     var data = await response.json();
     if (data.status === 200) {
-      return Array.isArray(data.data) ? data.data : (data.data || []);
+      var tasks = Array.isArray(data.data) ? data.data : (data.data || []);
+      return tasks;
     }
-    console.log("Tookan getAllTasks status: " + data.status + " msg: " + (data.message || ''));
+    console.log("Tookan getAllTasks status: " + data.status + " msg: " + (data.message || '') + " team:" + (teamId || 'none'));
     return [];
   } catch (e) {
     console.log("Tookan getAllTasks error: " + e.message);
@@ -577,37 +580,66 @@ async function buildTookanContext() {
       console.log("Tookan: " + allTasks.length + " tasks fetched via get_job_details");
     }
 
-    // ====== Strategy 2 (fallback): Try get_all_tasks if no CRM data ======
+    // ====== Strategy 2 (fallback): Try get_all_tasks per team if no CRM data ======
     if (allTasks.length === 0) {
-      console.log("Tookan: No CRM job IDs, trying get_all_tasks in 30-day chunks...");
-      // Tookan API only allows 31-day max range, so fetch in 30-day chunks
-      // Include future dates (upcoming scheduled jobs) + past 90 days
-      var chunks = [
-        { label: 'future', daysBack: 0, daysForward: 30 },   // Today → 30 days ahead
-        { label: 'recent', daysBack: 30, daysForward: 0 },    // 30 days ago → today
-        { label: 'mid', daysBack: 60, daysForward: -30 },     // 60 → 30 days ago
-        { label: 'old', daysBack: 90, daysForward: -60 },     // 90 → 60 days ago
+      console.log("Tookan: No CRM job IDs, trying get_all_tasks per team...");
+      // Get unique team IDs
+      var uniqueTeamIds = {};
+      TOOKAN_LOCATIONS.forEach(function(loc) { uniqueTeamIds[loc.teamId] = true; });
+      var teamList = Object.keys(uniqueTeamIds);
+
+      // Tookan API only allows 31-day max range
+      // Fetch last 30 days + next 30 days per team
+      var dateChunks = [
+        { label: 'future', start: 0, end: 30 },    // Today → +30 days
+        { label: 'recent', start: -30, end: 0 },    // -30 days → Today
+        { label: 'mid', start: -60, end: -30 },     // -60 → -30 days
+        { label: 'old', start: -90, end: -60 },     // -90 → -60 days
       ];
-      for (var chunk = 0; chunk < chunks.length; chunk++) {
-        var ch = chunks[chunk];
-        var chunkStart = new Date();
-        chunkStart.setDate(chunkStart.getDate() - ch.daysBack);
-        var chunkEnd = new Date();
-        chunkEnd.setDate(chunkEnd.getDate() + (ch.daysForward || 0));
-        // Ensure start < end
-        if (chunkStart > chunkEnd) { var tmp = chunkStart; chunkStart = chunkEnd; chunkEnd = tmp; }
-        var cStartStr = chunkStart.toISOString().split('T')[0] + ' 00:00:00';
-        var cEndStr = chunkEnd.toISOString().split('T')[0] + ' 23:59:59';
-        try {
-          var chunkTasks = await fetchTookanTasks(cStartStr, cEndStr);
-          console.log("Tookan " + ch.label + " (" + cStartStr.split(' ')[0] + " to " + cEndStr.split(' ')[0] + "): " + chunkTasks.length + " tasks");
-          allTasks = allTasks.concat(chunkTasks);
-          if (chunk < chunks.length - 1) await new Promise(function(r) { setTimeout(r, 500); });
-        } catch (ce) {
-          console.log("Tookan " + ch.label + " error: " + ce.message);
+
+      var seenJobIds = {};
+      for (var ti2 = 0; ti2 < teamList.length; ti2++) {
+        var tid = parseInt(teamList[ti2]);
+        for (var ci = 0; ci < dateChunks.length; ci++) {
+          var ch = dateChunks[ci];
+          var cStart = new Date(); cStart.setDate(cStart.getDate() + ch.start);
+          var cEnd = new Date(); cEnd.setDate(cEnd.getDate() + ch.end);
+          var cStartStr = cStart.toISOString().split('T')[0] + ' 00:00:00';
+          var cEndStr = cEnd.toISOString().split('T')[0] + ' 23:59:59';
+          try {
+            var chunkTasks = await fetchTookanTasks(cStartStr, cEndStr, tid);
+            // Deduplicate across teams/chunks
+            var newCount = 0;
+            chunkTasks.forEach(function(t) {
+              var jid = t.job_id || t.jobid || '';
+              if (!seenJobIds[jid]) {
+                seenJobIds[jid] = true;
+                allTasks.push(t);
+                newCount++;
+              }
+            });
+            if (newCount > 0) console.log("Tookan team " + tid + " " + ch.label + ": +" + newCount + " tasks");
+            await new Promise(function(r) { setTimeout(r, 200); });
+          } catch (ce) {
+            console.log("Tookan team " + tid + " " + ch.label + " error: " + ce.message);
+          }
         }
       }
-      console.log("Tookan get_all_tasks total: " + allTasks.length + " tasks (past 90d + future 30d)");
+
+      // If team-level fetch also empty, try without team_id as last resort
+      if (allTasks.length === 0) {
+        console.log("Tookan: Team fetch empty, trying without team_id...");
+        var now2 = new Date();
+        var ago30 = new Date(); ago30.setDate(ago30.getDate() - 30);
+        var fwd30 = new Date(); fwd30.setDate(fwd30.getDate() + 30);
+        try {
+          var recentAll = await fetchTookanTasks(ago30.toISOString().split('T')[0] + ' 00:00:00', fwd30.toISOString().split('T')[0] + ' 23:59:59');
+          console.log("Tookan no-team fetch: " + recentAll.length + " tasks");
+          allTasks = allTasks.concat(recentAll);
+        } catch (e2) {}
+      }
+
+      console.log("Tookan total from get_all_tasks: " + allTasks.length + " tasks");
     }
 
     result.totalTasks = allTasks.length;
@@ -1003,12 +1035,71 @@ async function buildBusinessContext() {
   var newLocationsThisMonth = {};
   var totalLeads = allJobRows.length;
 
+  // Location normalizer — merges "Missouri" → "MO", filters junk entries
+  var STATE_ABBREVS = {
+    'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA',
+    'colorado':'CO','connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA',
+    'hawaii':'HI','idaho':'ID','illinois':'IL','indiana':'IN','iowa':'IA',
+    'kansas':'KS','kentucky':'KY','louisiana':'LA','maine':'ME','maryland':'MD',
+    'massachusetts':'MA','michigan':'MI','minnesota':'MN','mississippi':'MS','missouri':'MO',
+    'montana':'MT','nebraska':'NE','nevada':'NV','new hampshire':'NH','new jersey':'NJ',
+    'new mexico':'NM','new york':'NY','north carolina':'NC','north dakota':'ND','ohio':'OH',
+    'oklahoma':'OK','oregon':'OR','pennsylvania':'PA','rhode island':'RI','south carolina':'SC',
+    'south dakota':'SD','tennessee':'TN','texas':'TX','utah':'UT','vermont':'VT',
+    'virginia':'VA','washington':'WA','west virginia':'WV','wisconsin':'WI','wyoming':'WY',
+    'district of columbia':'DC',
+  };
+  var JUNK_LOCATIONS = [
+    'master database','check back with us','out of range','sent diy','n/a','paid',
+    'backup','wrong number','we dont work on this','cancelled','canceled','buy parts',
+    'customer fixed equipment','location unavailable','return customers','unorganized',
+    'test','sample','manual entry','promo','diagnostic','tech numbers','do not service',
+    'no answer','voicemail','duplicate','transfer','not in service area','outside area',
+    'too far','declined','refused','no show','spam','solicitor',
+  ];
+  function normalizeLocation(city, state, tabName) {
+    var c = (city || '').toString().trim();
+    var s = (state || '').toString().trim();
+    if (!c && !s) {
+      // Try to extract from tab name
+      if (tabName) {
+        var tabParts = tabName.split(',');
+        if (tabParts.length >= 2) {
+          c = tabParts[0].trim();
+          s = tabParts[1].trim().split(' ')[0].trim();
+        }
+      }
+      if (!c) return '';
+    }
+    // Normalize state: full name → abbreviation
+    var sLower = s.toLowerCase().trim();
+    if (STATE_ABBREVS[sLower]) s = STATE_ABBREVS[sLower];
+    // Clean state to just 2-letter code
+    s = s.replace(/[^A-Za-z]/g, '').toUpperCase();
+    if (s.length > 2) {
+      // Try matching first word
+      var stateWords = (state || '').toLowerCase().trim();
+      if (STATE_ABBREVS[stateWords]) s = STATE_ABBREVS[stateWords];
+      else s = s.substring(0, 2);
+    }
+    // Clean city
+    c = c.replace(/[^A-Za-z\s\.\-\']/g, '').trim();
+    c = c.split(' ').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); }).join(' ');
+    if (!c) return '';
+    // Check junk
+    var combined = (c + ' ' + s).toLowerCase();
+    for (var ji = 0; ji < JUNK_LOCATIONS.length; ji++) {
+      if (combined.includes(JUNK_LOCATIONS[ji])) return '';
+    }
+    return s ? c + ', ' + s : c;
+  }
+
   for (var r = 0; r < allJobRows.length; r++) {
     var job = allJobRows[r];
     var fullName = (job.firstName + ' ' + job.lastName).trim();
     if (!fullName || fullName === ' ') continue;
 
-    var location = job.city && job.state ? job.city + ', ' + job.state : job.locationTab;
+    var location = normalizeLocation(job.city, job.state, job.locationTab);
     var status = job.status;
     var equipType = job.equipType;
     var brand = job.brand;
@@ -3905,6 +3996,7 @@ app.get('/dashboard', async function(req, res) {
     html += '<a href="/dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#00d4ff;border:1px solid #00d4ff40;text-decoration:none;background:rgba(0,212,255,0.1);box-shadow:0 0 15px rgba(0,212,255,0.1);">JARVIS</a>';
     html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ATHENA</a>';
     html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
+    html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -4691,305 +4783,381 @@ app.get('/dashboard', async function(req, res) {
       html += '</div></div>';
     }
 
-    // ====== CALL VOLUME CHART + FIBONACCI PREDICTION ======
+    // ====== INTERACTIVE TECHNICAL ANALYSIS CHART ======
     html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
-    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00d4ff;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;box-shadow:0 0 8px #00d4ff;display:inline-block;"></span>Total Calls Received + Fibonacci Forecast</div>';
-    
+    html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#00d4ff;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;box-shadow:0 0 8px #00d4ff;display:inline-block;"></span>Call Volume Technical Analysis</div>';
+
     // Build monthly volume data
     var volMonths = Object.keys(monthlyCalls).sort();
     var volData = volMonths.map(function(k) { return monthlyCalls[k] || 0; });
-    var monthLabels = volMonths.map(function(k) {
-      var parts = k.split("-");
-      var mNames = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      return mNames[parseInt(parts[1])] + " " + parts[0].substring(2);
-    });
-    
-    // Fibonacci retracement calculation
-    // Uses last 6 months of data to find trend, then projects 3 months forward
-    var fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+
+    // ====== SERVER-SIDE INDICATOR COMPUTATION ======
+    function calcSMA(data, period) {
+      var result = [];
+      for (var i = 0; i < data.length; i++) {
+        if (i < period - 1) { result.push(null); continue; }
+        var sum = 0; for (var j = i - period + 1; j <= i; j++) sum += data[j];
+        result.push(Math.round((sum / period) * 10) / 10);
+      }
+      return result;
+    }
+    function calcEMA(data, period) {
+      var result = []; var k = 2 / (period + 1);
+      for (var i = 0; i < data.length; i++) {
+        if (i === 0) { result.push(data[0]); continue; }
+        var prev = result[i - 1] !== null ? result[i - 1] : data[i];
+        result.push(Math.round((data[i] * k + prev * (1 - k)) * 10) / 10);
+      }
+      return result;
+    }
+
+    // Bollinger Bands
+    var bbPeriod = Math.max(2, Math.min(6, Math.floor(volData.length / 2)));
+    var bbUpper = [], bbMiddle = [], bbLower = [], bbWidth = [];
+    for (var bbi = 0; bbi < volData.length; bbi++) {
+      if (bbi < bbPeriod - 1) { bbUpper.push(null); bbMiddle.push(null); bbLower.push(null); bbWidth.push(null); continue; }
+      var sl = volData.slice(bbi - bbPeriod + 1, bbi + 1);
+      var avg = sl.reduce(function(a, b) { return a + b; }, 0) / bbPeriod;
+      var vr = sl.reduce(function(a, b) { return a + (b - avg) * (b - avg); }, 0) / bbPeriod;
+      var std = Math.sqrt(vr);
+      bbUpper.push(Math.round(avg + 2 * std)); bbMiddle.push(Math.round(avg)); bbLower.push(Math.round(Math.max(0, avg - 2 * std)));
+      bbWidth.push(avg > 0 ? Math.round((4 * std / avg) * 1000) / 10 : 0);
+    }
+    var bbSqueeze = false, bbSqueezeMsg = '';
+    var recentW = bbWidth.filter(function(w) { return w !== null; });
+    if (recentW.length >= 3) {
+      var lastW = recentW[recentW.length - 1];
+      var avgW = recentW.reduce(function(a, b) { return a + b; }, 0) / recentW.length;
+      if (lastW < avgW * 0.7) { bbSqueeze = true; bbSqueezeMsg = 'Bands at ' + lastW + '% width (avg: ' + Math.round(avgW) + '%). Expect volatility breakout.'; }
+    }
+
+    // Keltner Channels (EMA + ATR * 1.5)
+    var kcEMA = calcEMA(volData, bbPeriod);
+    var kcUpper = [], kcLower = [], atrData = [];
+    for (var ki = 0; ki < volData.length; ki++) {
+      if (ki < bbPeriod - 1) { kcUpper.push(null); kcLower.push(null); atrData.push(null); continue; }
+      // ATR = average of true ranges (for monthly data: abs difference between consecutive months)
+      var trSum = 0, trCount = 0;
+      for (var kj = ki - bbPeriod + 1; kj <= ki; kj++) {
+        if (kj > 0) { trSum += Math.abs(volData[kj] - volData[kj - 1]); trCount++; }
+      }
+      var atr = trCount > 0 ? trSum / trCount : 0;
+      atrData.push(Math.round(atr * 10) / 10);
+      var kcMid = kcEMA[ki] || 0;
+      kcUpper.push(Math.round(kcMid + 1.5 * atr));
+      kcLower.push(Math.round(Math.max(0, kcMid - 1.5 * atr)));
+    }
+
+    // TTM Squeeze: BB inside KC = squeeze ON (red dot), BB outside KC = squeeze OFF (green dot)
+    var squeezeDots = []; // { time, value: 0, color: red/green }
+    var squeezeOn = false, squeezeCount = 0;
+    for (var si = 0; si < volData.length; si++) {
+      if (bbUpper[si] === null || kcUpper[si] === null) { squeezeDots.push(null); continue; }
+      var isSqueezeOn = bbUpper[si] < kcUpper[si] && bbLower[si] > kcLower[si];
+      squeezeDots.push({ on: isSqueezeOn });
+      if (isSqueezeOn) squeezeCount++;
+    }
+    // Check if currently in squeeze
+    var lastSqueeze = squeezeDots.filter(function(d) { return d !== null; });
+    var currentSqueezeOn = lastSqueeze.length > 0 && lastSqueeze[lastSqueeze.length - 1].on;
+    if (currentSqueezeOn) {
+      bbSqueeze = true;
+      var consecSqueeze = 0;
+      for (var cs = lastSqueeze.length - 1; cs >= 0; cs--) {
+        if (lastSqueeze[cs].on) consecSqueeze++; else break;
+      }
+      bbSqueezeMsg = 'TTM SQUEEZE ACTIVE — ' + consecSqueeze + ' consecutive months. BB inside Keltner Channels. Breakout imminent when squeeze fires.';
+    }
+
+    // Squeeze Momentum: Linear regression of (close - midline of KC/BB)
+    var sqzMomentum = [];
+    for (var smi = 0; smi < volData.length; smi++) {
+      if (bbMiddle[smi] === null || kcEMA[smi] === null) { sqzMomentum.push(null); continue; }
+      var midline = (bbMiddle[smi] + kcEMA[smi]) / 2;
+      var mom = volData[smi] - midline;
+      sqzMomentum.push(Math.round(mom * 10) / 10);
+    }
+    // Determine momentum direction for coloring (rising = aqua, falling = red)
+    var sqzMomColors = [];
+    for (var mc2 = 0; mc2 < sqzMomentum.length; mc2++) {
+      if (sqzMomentum[mc2] === null) { sqzMomColors.push(null); continue; }
+      var prev = mc2 > 0 ? sqzMomentum[mc2 - 1] : 0;
+      if (prev === null) prev = 0;
+      var val = sqzMomentum[mc2];
+      // 4-color system: dark/light cyan for positive, dark/light red for negative
+      if (val >= 0 && val >= prev) sqzMomColors.push('#00d4ff');       // positive rising = bright cyan
+      else if (val >= 0 && val < prev) sqzMomColors.push('#00d4ff80'); // positive falling = dim cyan
+      else if (val < 0 && val <= prev) sqzMomColors.push('#ff4757');   // negative falling = bright red
+      else sqzMomColors.push('#ff475780');                              // negative rising = dim red
+    }
+
+    var sma3 = calcSMA(volData, Math.min(3, volData.length));
+    var sma6 = calcSMA(volData, Math.min(6, volData.length));
+
+    // RSI
+    var rsiPeriod = Math.min(6, volData.length - 1);
+    var rsiData = [];
+    for (var ri = 0; ri < volData.length; ri++) {
+      if (ri < rsiPeriod) { rsiData.push(null); continue; }
+      var gains = 0, losses = 0;
+      for (var rj = ri - rsiPeriod + 1; rj <= ri; rj++) { var diff = volData[rj] - volData[rj - 1]; if (diff > 0) gains += diff; else losses -= diff; }
+      var avgG = gains / rsiPeriod, avgL = losses / rsiPeriod;
+      rsiData.push(avgL === 0 ? 100 : Math.round(100 - (100 / (1 + avgG / avgL))));
+    }
+
+    // MACD
+    var emaF = calcEMA(volData, Math.min(3, volData.length));
+    var emaS = calcEMA(volData, Math.min(6, volData.length));
+    var macdLine = []; for (var mi2 = 0; mi2 < volData.length; mi2++) { macdLine.push(Math.round((emaF[mi2] - emaS[mi2]) * 10) / 10); }
+    var macdNN = macdLine.filter(function(v) { return v !== null; });
+    var macdSig = calcEMA(macdNN, Math.min(3, macdNN.length));
+    var macdHist = []; for (var mh2 = 0; mh2 < volData.length; mh2++) { macdHist.push(Math.round((macdLine[mh2] - (macdSig[mh2] || 0)) * 10) / 10); }
+
+    // Fibonacci levels
     var recentVol = volData.slice(-6);
     var fibHigh = Math.max.apply(null, recentVol.length > 0 ? recentVol : [0]);
     var fibLow = Math.min.apply(null, recentVol.length > 0 ? recentVol : [0]);
     var fibRange = fibHigh - fibLow;
-    
-    // Trend detection: compare avg of last 3 months vs prior 3
-    var last3Avg = 0, prior3Avg = 0;
-    if (recentVol.length >= 6) {
-      last3Avg = (recentVol[3] + recentVol[4] + recentVol[5]) / 3;
-      prior3Avg = (recentVol[0] + recentVol[1] + recentVol[2]) / 3;
-    } else if (recentVol.length >= 2) {
-      last3Avg = recentVol[recentVol.length - 1];
-      prior3Avg = recentVol[0];
-    }
-    var trendUp = last3Avg >= prior3Avg;
-    
-    // Generate 3 months of Fibonacci predictions
-    var predictions = [];
-    var predLabels = [];
-    var nowMonth = today.getMonth() + 1;
-    var nowYear = today.getFullYear();
-    for (var fp = 1; fp <= 3; fp++) {
-      var pm = nowMonth + fp;
-      var py = nowYear;
-      if (pm > 12) { pm -= 12; py++; }
-      var mNames2 = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      predLabels.push(mNames2[pm] + " " + String(py).substring(2));
-      
-      // Fibonacci projection: if trending up, use 0.618 extension above; if down, 0.382 retracement
-      if (trendUp) {
-        var fibTarget = fibHigh + fibRange * 0.618 * (1 - fp * 0.15); // Diminishing extension
-        predictions.push(Math.round(Math.max(fibTarget, fibLow)));
-      } else {
-        var fibTarget2 = fibHigh - fibRange * 0.618 * (1 - fp * 0.15); // Diminishing retracement
-        predictions.push(Math.round(Math.max(fibTarget2, 0)));
-      }
-    }
+    var fibLevels = { '0%': fibLow, '23.6%': Math.round(fibLow + fibRange * 0.236), '38.2%': Math.round(fibLow + fibRange * 0.382), '50%': Math.round(fibLow + fibRange * 0.5), '61.8%': Math.round(fibLow + fibRange * 0.618), '78.6%': Math.round(fibLow + fibRange * 0.786), '100%': fibHigh };
 
-    // Chart container
-    html += '<div style="position:relative;background:rgba(10,20,35,0.6);border:1px solid #00d4ff10;padding:30px 20px 20px;min-height:350px;">';
-    
-    // Y-axis labels
-    var allVals = volData.concat(predictions);
-    var chartMax = Math.max.apply(null, allVals.length > 0 ? allVals : [10]);
-    chartMax = Math.ceil(chartMax * 1.2 / 10) * 10 || 10;
-    
-    html += '<div style="position:absolute;left:10px;top:30px;bottom:50px;width:40px;display:flex;flex-direction:column;justify-content:space-between;">';
-    for (var yi = 0; yi <= 4; yi++) {
-      var yVal = Math.round(chartMax - (chartMax / 4) * yi);
-      html += '<div style="color:#4a6a8a;font-size:0.6em;font-family:Orbitron;text-align:right;">' + yVal + '</div>';
-    }
-    html += '</div>';
-    
-    // Chart area
-    html += '<div style="margin-left:50px;display:flex;align-items:flex-end;gap:2px;height:250px;border-bottom:1px solid #1a3050;border-left:1px solid #1a3050;padding:0 5px;position:relative;">';
-    
-    // Fibonacci level lines
-    if (fibRange > 0) {
-      var fibColors = ["#ff475740","#ff9f4340","#ffd70040","#00ff6640","#00d4ff40","#a855f740","#ff6b9d40"];
-      var fibLabelsArr = ["0%","23.6%","38.2%","50%","61.8%","78.6%","100%"];
-      for (var fi = 0; fi < fibLevels.length; fi++) {
-        var fibVal = fibLow + fibRange * fibLevels[fi];
-        var fibPct = chartMax > 0 ? (fibVal / chartMax) * 100 : 0;
-        if (fibPct > 0 && fibPct <= 100) {
-          html += '<div style="position:absolute;bottom:' + fibPct + '%;left:0;right:0;border-top:1px dashed ' + fibColors[fi] + ';z-index:1;">';
-          html += '<span style="position:absolute;right:0;top:-12px;color:' + fibColors[fi].replace("40","") + ';font-size:0.5em;font-family:Orbitron;">' + fibLabelsArr[fi] + ' (' + Math.round(fibVal) + ')</span>';
-          html += '</div>';
-        }
-      }
-    }
-    
-    // Actual data bars
-    var allLabels = monthLabels.concat(predLabels);
-    var totalBars = volData.length + predictions.length;
-    var barWidth = totalBars > 0 ? Math.max(12, Math.floor(100 / totalBars)) : 30;
-    
-    volData.forEach(function(v, idx) {
-      var barH = chartMax > 0 ? (v / chartMax) * 100 : 0;
-      var isThisMonth2 = idx === volData.length - 1;
-      var barColor = isThisMonth2 ? '#00d4ff' : '#00d4ff80';
-      var glow = isThisMonth2 ? 'box-shadow:0 0 10px #00d4ff40;' : '';
-      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:' + barWidth + 'px;z-index:2;">';
-      html += '<div style="color:#c0d8f0;font-size:0.6em;font-weight:700;margin-bottom:2px;">' + v + '</div>';
-      html += '<div style="width:70%;height:' + barH + '%;background:' + barColor + ';min-height:2px;transition:height 0.5s;' + glow + '"></div>';
-      html += '<div style="color:#4a6a8a;font-size:0.5em;margin-top:4px;font-family:Orbitron;white-space:nowrap;">' + monthLabels[idx] + '</div>';
-      html += '</div>';
-    });
-    
-    // Prediction bars (dashed/striped style)
-    predictions.forEach(function(v, idx) {
-      var barH = chartMax > 0 ? (v / chartMax) * 100 : 0;
-      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:' + barWidth + 'px;z-index:2;">';
-      html += '<div style="color:#ff9f43;font-size:0.6em;font-weight:700;margin-bottom:2px;">~' + v + '</div>';
-      html += '<div style="width:70%;height:' + barH + '%;background:repeating-linear-gradient(0deg,#ff9f43 0px,#ff9f43 4px,transparent 4px,transparent 8px);min-height:2px;opacity:0.7;border:1px dashed #ff9f4360;"></div>';
-      html += '<div style="color:#ff9f43;font-size:0.5em;margin-top:4px;font-family:Orbitron;white-space:nowrap;">' + predLabels[idx] + '</div>';
-      html += '</div>';
-    });
-    
-    html += '</div>'; // end chart area
-    
-    // Legend
-    html += '<div style="display:flex;gap:20px;margin-top:15px;font-size:0.75em;flex-wrap:wrap;">';
-    html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:12px;background:#00d4ff;"></div><span style="color:#4a6a8a;">Actual Call Volume</span></div>';
-    html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:12px;background:repeating-linear-gradient(0deg,#ff9f43 0px,#ff9f43 3px,transparent 3px,transparent 6px);border:1px dashed #ff9f4360;"></div><span style="color:#4a6a8a;">Fibonacci Forecast</span></div>';
-    html += '<div style="display:flex;align-items:center;gap:5px;"><div style="width:12px;height:1px;border-top:1px dashed #00ff6640;"></div><span style="color:#4a6a8a;">Fib Levels (Support/Resistance)</span></div>';
-    html += '</div>';
-    
-    // Fibonacci Analysis Box
-    html += '<div style="margin-top:15px;padding:15px;border:1px solid #00d4ff20;background:rgba(0,212,255,0.02);">';
-    html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#00d4ff;margin-bottom:10px;">FIBONACCI ANALYSIS</div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">';
-    
-    // Trend
-    var trendIcon = trendUp ? '▲' : '▼';
-    var trendColor = trendUp ? '#00ff66' : '#ff4757';
+    // Trend + predictions
+    var last3Avg = 0, prior3Avg = 0;
+    if (recentVol.length >= 6) { last3Avg = (recentVol[3] + recentVol[4] + recentVol[5]) / 3; prior3Avg = (recentVol[0] + recentVol[1] + recentVol[2]) / 3; }
+    else if (recentVol.length >= 2) { last3Avg = recentVol[recentVol.length - 1]; prior3Avg = recentVol[0]; }
+    var trendUp = last3Avg >= prior3Avg;
     var trendPct = prior3Avg > 0 ? Math.round(((last3Avg - prior3Avg) / prior3Avg) * 100) : 0;
-    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
-    html += '<div style="color:#4a6a8a;font-size:0.75em;">TREND</div>';
-    html += '<div style="color:' + trendColor + ';font-size:1.3em;font-weight:900;">' + trendIcon + ' ' + (trendUp ? 'UPTREND' : 'DOWNTREND') + '</div>';
-    html += '<div style="color:#4a6a8a;font-size:0.8em;">' + (trendPct >= 0 ? '+' : '') + trendPct + '% momentum</div>';
+    var predictions = [], predMonths = [];
+    var nowMonth = today.getMonth() + 1, nowYear = today.getFullYear();
+    for (var fp = 1; fp <= 3; fp++) { var pm = nowMonth + fp, py = nowYear; if (pm > 12) { pm -= 12; py++; } predMonths.push(py + '-' + String(pm).padStart(2, '0') + '-01'); if (trendUp) predictions.push(Math.round(Math.max(fibHigh + fibRange * 0.618 * (1 - fp * 0.15), fibLow))); else predictions.push(Math.round(Math.max(fibHigh - fibRange * 0.618 * (1 - fp * 0.15), 0))); }
+
+    // Serialize for client
+    var lcMain = JSON.stringify(volMonths.map(function(k, i) { return { time: k + '-01', value: volData[i] }; }));
+    var lcBBU = JSON.stringify(volMonths.map(function(k, i) { return bbUpper[i] !== null ? { time: k + '-01', value: bbUpper[i] } : null; }).filter(Boolean));
+    var lcBBM = JSON.stringify(volMonths.map(function(k, i) { return bbMiddle[i] !== null ? { time: k + '-01', value: bbMiddle[i] } : null; }).filter(Boolean));
+    var lcBBL = JSON.stringify(volMonths.map(function(k, i) { return bbLower[i] !== null ? { time: k + '-01', value: bbLower[i] } : null; }).filter(Boolean));
+    var lcS3 = JSON.stringify(volMonths.map(function(k, i) { return sma3[i] !== null ? { time: k + '-01', value: sma3[i] } : null; }).filter(Boolean));
+    var lcS6 = JSON.stringify(volMonths.map(function(k, i) { return sma6[i] !== null ? { time: k + '-01', value: sma6[i] } : null; }).filter(Boolean));
+    var lcRSI = JSON.stringify(volMonths.map(function(k, i) { return rsiData[i] !== null ? { time: k + '-01', value: rsiData[i] } : null; }).filter(Boolean));
+    var lcMACD = JSON.stringify(volMonths.map(function(k, i) { return { time: k + '-01', value: macdLine[i] }; }));
+    var lcMSig = JSON.stringify(volMonths.map(function(k, i) { return { time: k + '-01', value: macdSig[i] || 0 }; }));
+    var lcMHist = JSON.stringify(volMonths.map(function(k, i) { return { time: k + '-01', value: macdHist[i], color: macdHist[i] >= 0 ? 'rgba(0,255,102,0.5)' : 'rgba(255,71,87,0.5)' }; }));
+    var lcPred = JSON.stringify(predMonths.map(function(k, i) { return { time: k, value: predictions[i] }; }));
+    var lcVol = JSON.stringify(volMonths.map(function(k, i) { return { time: k + '-01', value: volData[i], color: i === volData.length - 1 ? 'rgba(0,212,255,0.6)' : 'rgba(0,212,255,0.2)' }; }));
+
+    // KC + Squeeze serialized
+    var lcKCU = JSON.stringify(volMonths.map(function(k, i) { return kcUpper[i] !== null ? { time: k + '-01', value: kcUpper[i] } : null; }).filter(Boolean));
+    var lcKCL = JSON.stringify(volMonths.map(function(k, i) { return kcLower[i] !== null ? { time: k + '-01', value: kcLower[i] } : null; }).filter(Boolean));
+    var lcSqzDots = JSON.stringify(volMonths.map(function(k, i) { return squeezeDots[i] !== null ? { time: k + '-01', value: 0, color: squeezeDots[i].on ? '#ff4757' : '#00ff66' } : null; }).filter(Boolean));
+    var lcSqzMom = JSON.stringify(volMonths.map(function(k, i) { return sqzMomentum[i] !== null ? { time: k + '-01', value: sqzMomentum[i], color: sqzMomColors[i] } : null; }).filter(Boolean));
+
+    // ====== TOOLBAR ======
+    html += '<div style="background:rgba(10,20,35,0.9);border:1px solid #1a2a3a;">';
+    html += '<div style="display:flex;align-items:center;gap:0;border-bottom:1px solid #1a2a3a;flex-wrap:wrap;">';
+    // Indicators
+    html += '<div style="padding:8px 12px;font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#4a6a8a;">INDICATORS</div>';
+    [['bb','Bollinger','#a855f7',true],['kc','Keltner','#ff6b9d',false],['sma3','SMA 3','#ffd700',false],['sma6','SMA 6','#ff9f43',false],['fib','Fibonacci','#00ff66',true],['pred','Forecast','#ff9f43',true]].forEach(function(ind) {
+      html += '<div id="btn-' + ind[0] + '" onclick="toggleInd(\'' + ind[0] + '\')" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:' + (ind[3] ? ind[2] : '#4a6a8a') + ';border-bottom:2px solid ' + (ind[3] ? ind[2] : 'transparent') + ';" data-on="' + ind[3] + '" data-c="' + ind[2] + '">' + ind[1] + '</div>';
+    });
+    // Panels
+    html += '<div style="margin-left:auto;display:flex;align-items:center;gap:0;">';
+    html += '<div style="padding:8px 12px;font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#4a6a8a;">PANELS</div>';
+    html += '<div id="btn-rsi" onclick="togglePnl(\'rsi\')" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:#00d4ff;border-bottom:2px solid #00d4ff;">RSI</div>';
+    html += '<div id="btn-macd" onclick="togglePnl(\'macd\')" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:#4a6a8a;border-bottom:2px solid transparent;">MACD</div>';
+    html += '<div id="btn-squeeze" onclick="togglePnl(\'squeeze\')" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:' + (currentSqueezeOn ? '#ff4757' : '#4a6a8a') + ';border-bottom:2px solid ' + (currentSqueezeOn ? '#ff4757' : 'transparent') + ';">' + (currentSqueezeOn ? '🔴 SQUEEZE' : 'Squeeze') + '</div>';
     html += '</div>';
-    
-    // Support level (Fib 0.618)
-    var supportLevel = Math.round(fibLow + fibRange * 0.382);
-    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
-    html += '<div style="color:#4a6a8a;font-size:0.75em;">SUPPORT (38.2%)</div>';
-    html += '<div style="color:#00ff66;font-size:1.3em;font-weight:900;">' + supportLevel + ' calls</div>';
-    html += '<div style="color:#4a6a8a;font-size:0.8em;">Floor — volume unlikely below this</div>';
+    // Drawing tools
+    html += '<div style="display:flex;align-items:center;gap:0;border-left:1px solid #1a2a3a;">';
+    html += '<div style="padding:8px 12px;font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#4a6a8a;">DRAW</div>';
+    html += '<div id="btn-trendline" onclick="setDraw(\'trendline\')" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:#4a6a8a;">📏 Line</div>';
+    html += '<div id="btn-hline" onclick="setDraw(\'hline\')" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:#4a6a8a;">➖ H-Line</div>';
+    html += '<div id="btn-rect" onclick="setDraw(\'rect\')" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:#4a6a8a;">▭ Zone</div>';
+    html += '<div onclick="clearDraw()" style="cursor:pointer;padding:6px 10px;font-size:0.7em;color:#ff4757;">✕ Clear</div>';
+    html += '</div></div>';
+
+    // Chart containers
+    html += '<div style="position:relative;"><div id="main-chart" style="width:100%;height:400px;"></div>';
+    html += '<canvas id="draw-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;"></canvas></div>';
+    html += '<div id="rsi-panel" style="border-top:1px solid #1a2a3a;"><div id="rsi-chart" style="width:100%;height:120px;"></div></div>';
+    html += '<div id="macd-panel" style="border-top:1px solid #1a2a3a;display:none;"><div id="macd-chart" style="width:100%;height:120px;"></div></div>';
+    html += '<div id="squeeze-panel" style="border-top:1px solid #1a2a3a;display:' + (currentSqueezeOn ? 'block' : 'none') + ';">';
+    html += '<div style="display:flex;align-items:center;padding:4px 10px;background:rgba(10,20,35,0.8);gap:8px;">';
+    html += '<span style="font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#4a6a8a;">TTM SQUEEZE</span>';
+    html += '<span style="font-size:0.65em;color:#ff4757;">● = Squeeze ON (BB inside KC)</span>';
+    html += '<span style="font-size:0.65em;color:#00ff66;">● = Squeeze OFF (fired)</span>';
     html += '</div>';
-    
-    // Resistance level (Fib 0.618 from top)
-    var resistLevel = Math.round(fibLow + fibRange * 0.618);
-    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
-    html += '<div style="color:#4a6a8a;font-size:0.75em;">RESISTANCE (61.8%)</div>';
-    html += '<div style="color:#ff9f43;font-size:1.3em;font-weight:900;">' + resistLevel + ' calls</div>';
-    html += '<div style="color:#4a6a8a;font-size:0.8em;">Ceiling — breakout means growth spike</div>';
-    html += '</div>';
-    
-    // Next month prediction
-    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;">';
-    html += '<div style="color:#4a6a8a;font-size:0.75em;">NEXT MONTH PREDICTION</div>';
-    html += '<div style="color:#ff9f43;font-size:1.3em;font-weight:900;">~' + (predictions[0] || 0) + ' calls</div>';
-    html += '<div style="color:#4a6a8a;font-size:0.8em;">Based on 0.618 Fibonacci ' + (trendUp ? 'extension' : 'retracement') + '</div>';
-    html += '</div>';
-    
-    html += '</div>'; // end grid
-    
-    // Strategy recommendation
-    var fibStrategy = '';
-    if (trendUp && trendPct > 20) {
-      fibStrategy = 'STRONG GROWTH — Volume breaking above 61.8% resistance. Hire more techs NOW. Each week of delay = lost revenue. Target: ' + Math.round(fibHigh * 1.3) + ' calls/month capacity.';
-    } else if (trendUp) {
-      fibStrategy = 'MODERATE GROWTH — Volume trending up but below 61.8% resistance. Prepare to scale. Keep 2-3 techs on standby. Watch for breakout above ' + resistLevel + ' calls.';
-    } else if (trendPct > -15) {
-      fibStrategy = 'CONSOLIDATION — Volume holding between 38.2%-61.8% levels. Normal seasonal pattern. Focus on conversion rate and customer retention over new leads.';
-    } else {
-      fibStrategy = 'PULLBACK — Volume retracing toward 38.2% support at ' + supportLevel + ' calls. Reduce ad spend, focus on rebooking cancelled jobs. If volume holds above ' + supportLevel + ', expect reversal.';
+    html += '<div id="squeeze-chart" style="width:100%;height:140px;"></div></div>';
+
+    // Squeeze alert
+    if (bbSqueeze) {
+      html += '<div style="padding:10px 15px;background:rgba(168,85,247,0.1);border-top:1px solid #a855f740;display:flex;align-items:center;gap:10px;">';
+      html += '<span style="font-size:1.2em;">🔮</span><div><span style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:#a855f7;">BOLLINGER SQUEEZE ALERT</span>';
+      html += '<div style="color:#c0d8f0;font-size:0.85em;margin-top:2px;">' + bbSqueezeMsg + '</div></div></div>';
     }
+    html += '</div>'; // end chart border
+
+    // ====== ANALYSIS BOX ======
+    html += '<div style="margin-top:15px;padding:15px;border:1px solid #00d4ff20;background:rgba(0,212,255,0.02);">';
+    html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#00d4ff;margin-bottom:10px;">TECHNICAL ANALYSIS</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">';
+    var trendIcon = trendUp ? '▲' : '▼', trendColor = trendUp ? '#00ff66' : '#ff4757';
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;"><div style="color:#4a6a8a;font-size:0.75em;">TREND</div><div style="color:' + trendColor + ';font-size:1.2em;font-weight:900;">' + trendIcon + ' ' + (trendUp ? 'UP' : 'DOWN') + '</div><div style="color:#4a6a8a;font-size:0.8em;">' + (trendPct >= 0 ? '+' : '') + trendPct + '%</div></div>';
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;"><div style="color:#4a6a8a;font-size:0.75em;">SUPPORT 38.2%</div><div style="color:#00ff66;font-size:1.2em;font-weight:900;">' + fibLevels['38.2%'] + '</div></div>';
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;"><div style="color:#4a6a8a;font-size:0.75em;">RESIST 61.8%</div><div style="color:#ff9f43;font-size:1.2em;font-weight:900;">' + fibLevels['61.8%'] + '</div></div>';
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;"><div style="color:#4a6a8a;font-size:0.75em;">PREDICT</div><div style="color:#ff9f43;font-size:1.2em;font-weight:900;">~' + predictions[0] + '</div></div>';
+    var lastRSI = rsiData.filter(function(r) { return r !== null; }); var rsiVal = lastRSI.length > 0 ? lastRSI[lastRSI.length - 1] : 50;
+    var rsiColor = rsiVal > 70 ? '#ff4757' : rsiVal < 30 ? '#00ff66' : '#c0d8f0';
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;"><div style="color:#4a6a8a;font-size:0.75em;">RSI</div><div style="color:' + rsiColor + ';font-size:1.2em;font-weight:900;">' + rsiVal + '</div><div style="color:#4a6a8a;font-size:0.8em;">' + (rsiVal > 70 ? 'OVERBOUGHT' : rsiVal < 30 ? 'OVERSOLD' : 'NEUTRAL') + '</div></div>';
+    var bbwVal = recentW.length > 0 ? recentW[recentW.length - 1] : 0;
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;"><div style="color:#4a6a8a;font-size:0.75em;">BB WIDTH</div><div style="color:' + (bbSqueeze ? '#a855f7' : '#c0d8f0') + ';font-size:1.2em;font-weight:900;">' + bbwVal + '%</div><div style="color:#4a6a8a;font-size:0.8em;">' + (bbSqueeze ? 'SQUEEZE' : 'NORMAL') + '</div></div>';
+    // TTM Squeeze
+    var sqzStatus = currentSqueezeOn ? 'ACTIVE' : 'OFF';
+    var sqzColor = currentSqueezeOn ? '#ff4757' : '#00ff66';
+    var lastMom = sqzMomentum.filter(function(m) { return m !== null; }); var momVal = lastMom.length > 0 ? lastMom[lastMom.length - 1] : 0;
+    var momDir = momVal > 0 ? '▲ BULLISH' : '▼ BEARISH';
+    html += '<div style="background:rgba(10,20,35,0.5);padding:12px;"><div style="color:#4a6a8a;font-size:0.75em;">TTM SQUEEZE</div><div style="color:' + sqzColor + ';font-size:1.2em;font-weight:900;">' + (currentSqueezeOn ? '🔴' : '🟢') + ' ' + sqzStatus + '</div><div style="color:#4a6a8a;font-size:0.8em;">Mom: ' + momDir + '</div></div>';
+    html += '</div>';
+
+    // Strategy
+    var supportLevel = fibLevels['38.2%'], resistLevel = fibLevels['61.8%'];
+    var fibStrategy = '';
+    if (trendUp && trendPct > 20) fibStrategy = 'STRONG GROWTH — Breaking resistance. Scale NOW. Target: ' + Math.round(fibHigh * 1.3) + '/mo.';
+    else if (trendUp) fibStrategy = 'MODERATE GROWTH — Below resistance. Keep standby techs. Watch for breakout above ' + resistLevel + '.';
+    else if (trendPct > -15) fibStrategy = 'CONSOLIDATION — Between support/resistance. Focus on conversion.';
+    else fibStrategy = 'PULLBACK — Retracing toward ' + supportLevel + ' support. Reduce ad spend, rebook cancelled.';
+    if (bbSqueeze) fibStrategy += ' ⚡ SQUEEZE: Breakout imminent.';
     html += '<div style="margin-top:12px;padding:12px;border:1px solid #00d4ff20;background:rgba(0,212,255,0.03);color:#00d4ff;font-size:0.85em;">STRATEGY: ' + fibStrategy + '</div>';
-    html += '</div>'; // end fib analysis box
-    html += '</div>'; // end chart container
+
+    // ====== PER-LOCATION DROPDOWN ======
+    var callsByTab = bm.monthlyCallsByTab || {};
+    var tabNamesArr = Object.keys(callsByTab).sort();
+    var fibTabs = tabNamesArr.filter(function(t) { return Object.keys(callsByTab[t]).length >= 3; });
+    if (fibTabs.length > 0) {
+      html += '<div style="margin-top:15px;border-top:1px solid #00d4ff15;padding-top:15px;">';
+      html += '<div onclick="var el=document.getElementById(\'fib-locations\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.arrow\').textContent=el.style.display===\'none\'?\'▶\':\'▼\';" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 0;">';
+      html += '<span class="arrow" style="font-family:Orbitron;font-size:0.8em;color:#a855f7;">▶</span>';
+      html += '<span style="font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#a855f7;">FIBONACCI BY LOCATION (' + fibTabs.length + ' MARKETS)</span></div>';
+      html += '<div id="fib-locations" style="display:none;">';
+      fibTabs.forEach(function(tabName, tabIdx) {
+        var td = callsByTab[tabName], tm = Object.keys(td).sort(), tv = tm.map(function(k) { return td[k] || 0; });
+        var tl = tm.map(function(k) { var p = k.split('-'); return ['','J','F','M','A','M','J','J','A','S','O','N','D'][parseInt(p[1])] + "'" + p[0].substring(2); });
+        var lr = tv.slice(-6), lH = Math.max.apply(null, lr.length > 0 ? lr : [0]), lL = Math.min.apply(null, lr.length > 0 ? lr : [0]), lR = lH - lL;
+        var lT = tv.reduce(function(a, b) { return a + b; }, 0);
+        var l3 = 0, p3 = 0; if (lr.length >= 6) { l3 = (lr[3]+lr[4]+lr[5])/3; p3 = (lr[0]+lr[1]+lr[2])/3; } else if (lr.length >= 2) { l3 = lr[lr.length-1]; p3 = lr[0]; }
+        var lU = l3 >= p3, lP = p3 > 0 ? Math.round(((l3-p3)/p3)*100) : 0;
+        var lPr = lU ? Math.round(lH + lR * 0.618 * 0.85) : Math.round(Math.max(lH - lR * 0.618 * 0.85, 0));
+        var lS = Math.round(lL + lR * 0.382), lRe = Math.round(lL + lR * 0.618);
+        var lC = lU ? '#00ff66' : '#ff4757', lI = lU ? '▲' : '▼', eId = 'fib-loc-' + tabIdx;
+        html += '<div style="border:1px solid #1a2a3a;margin-bottom:2px;">';
+        html += '<div onclick="var el=document.getElementById(\'' + eId + '\');el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.arr\').textContent=el.style.display===\'none\'?\'▶\':\'▼\';" style="cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(10,20,35,0.6);">';
+        html += '<span class="arr" style="color:#4a6a8a;font-size:0.8em;">▶</span>';
+        html += '<span style="flex:1;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:#c0d8f0;">' + tabName + '</span>';
+        html += '<span style="color:' + lC + ';font-family:Orbitron;font-size:0.65em;">' + lI + ' ' + (lP >= 0 ? '+' : '') + lP + '%</span>';
+        html += '<span style="color:#4a6a8a;font-size:0.8em;">' + lT + '</span>';
+        html += '<span style="color:#ff9f43;font-family:Orbitron;font-size:0.6em;">→~' + lPr + '</span></div>';
+        html += '<div id="' + eId + '" style="display:none;padding:14px;background:rgba(5,10,20,0.4);">';
+        var cm = tv.slice(-10), cl = tl.slice(-10), cx = Math.max.apply(null, cm.length > 0 ? cm : [1]);
+        html += '<div style="display:flex;align-items:flex-end;gap:3px;height:70px;margin-bottom:12px;">';
+        cm.forEach(function(v, i) { var bH = cx > 0 ? Math.max(3, Math.round((v/cx)*100)) : 3; html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;"><div style="color:' + (i===cm.length-1?'#c0d8f0':'#4a6a8a') + ';font-size:0.6em;">' + v + '</div><div style="width:100%;height:' + bH + '%;background:' + (i===cm.length-1?'#a855f7':'#a855f730') + ';min-height:2px;"></div><div style="color:#4a6a8a;font-size:0.45em;font-family:Orbitron;">' + (cl[i]||'') + '</div></div>'; });
+        var pH = cx > 0 ? Math.min(100, Math.max(3, Math.round((lPr/cx)*100))) : 3;
+        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;"><div style="color:#ff9f43;font-size:0.6em;">~' + lPr + '</div><div style="width:100%;height:' + pH + '%;background:repeating-linear-gradient(0deg,#ff9f43 0px,#ff9f43 3px,transparent 3px,transparent 6px);min-height:2px;border:1px dashed #ff9f4340;opacity:0.7;"></div><div style="color:#ff9f43;font-size:0.45em;font-family:Orbitron;">NEXT</div></div>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:10px;flex-wrap:wrap;">';
+        html += '<div style="flex:1;background:rgba(10,20,35,0.5);padding:8px;text-align:center;min-width:60px;"><div style="color:#4a6a8a;font-size:0.6em;">HIGH</div><div style="color:#c0d8f0;font-weight:700;">' + lH + '</div></div>';
+        html += '<div style="flex:1;background:rgba(10,20,35,0.5);padding:8px;text-align:center;min-width:60px;"><div style="color:#4a6a8a;font-size:0.6em;">LOW</div><div style="color:#c0d8f0;font-weight:700;">' + lL + '</div></div>';
+        html += '<div style="flex:1;background:rgba(10,20,35,0.5);padding:8px;text-align:center;min-width:60px;"><div style="color:#4a6a8a;font-size:0.6em;">SUPPORT</div><div style="color:#00ff66;font-weight:700;">' + lS + '</div></div>';
+        html += '<div style="flex:1;background:rgba(10,20,35,0.5);padding:8px;text-align:center;min-width:60px;"><div style="color:#4a6a8a;font-size:0.6em;">RESIST</div><div style="color:#ff9f43;font-weight:700;">' + lRe + '</div></div>';
+        html += '<div style="flex:1;background:rgba(10,20,35,0.5);padding:8px;text-align:center;min-width:60px;"><div style="color:#4a6a8a;font-size:0.6em;">PREDICT</div><div style="color:#ff9f43;font-weight:700;">~' + lPr + '</div></div>';
+        html += '</div></div></div>';
+      });
+      html += '</div></div>';
+    }
+    html += '</div>'; // end analysis box
     html += '</div>'; // end section
 
-    // ====== PER-LOCATION FIBONACCI FORECASTS ======
-    var callsByTab = bm.monthlyCallsByTab || {};
-    var tabNames = Object.keys(callsByTab).sort();
-    // Filter to tabs with at least 3 months of data
-    var fibTabs = tabNames.filter(function(t) {
-      return Object.keys(callsByTab[t]).length >= 3;
-    });
+    // ====== LIGHTWEIGHT CHARTS SCRIPT ======
+    html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></' + 'script>';
+    html += '<script>';
+    html += '(function(){';
+    html += 'var md=' + lcMain + ',bbU=' + lcBBU + ',bbM=' + lcBBM + ',bbL=' + lcBBL + ',s3=' + lcS3 + ',s6=' + lcS6 + ';';
+    html += 'var rd=' + lcRSI + ',mcd=' + lcMACD + ',msd=' + lcMSig + ',mhd=' + lcMHist + ',pd=' + lcPred + ',vb=' + lcVol + ';';
+    html += 'var kcU=' + lcKCU + ',kcL=' + lcKCL + ',sqDots=' + lcSqzDots + ',sqMom=' + lcSqzMom + ';';
+    html += 'var fl=' + JSON.stringify(fibLevels) + ';';
+    // Main chart
+    html += 'var ce=document.getElementById("main-chart");';
+    html += 'var ch=LightweightCharts.createChart(ce,{width:ce.clientWidth,height:400,layout:{background:{type:"solid",color:"#0a1423"},textColor:"#4a6a8a",fontFamily:"monospace"},grid:{vertLines:{color:"#1a2a3a"},horzLines:{color:"#1a2a3a"}},crosshair:{mode:0},rightPriceScale:{borderColor:"#1a2a3a"},timeScale:{borderColor:"#1a2a3a",timeVisible:false}});';
+    // Volume
+    html += 'var vs=ch.addHistogramSeries({priceScaleId:"vol",priceFormat:{type:"volume"}});vs.priceScale().applyOptions({scaleMargins:{top:0.85,bottom:0}});vs.setData(vb);';
+    // Main line
+    html += 'var ms=ch.addLineSeries({color:"#00d4ff",lineWidth:3,lastValueVisible:true,priceLineVisible:true});ms.setData(md);';
+    // BB
+    html += 'var bu=ch.addLineSeries({color:"rgba(168,85,247,0.5)",lineWidth:1,lineStyle:2,lastValueVisible:false,priceLineVisible:false});bu.setData(bbU);';
+    html += 'var bm2=ch.addLineSeries({color:"rgba(168,85,247,0.3)",lineWidth:1,lineStyle:1,lastValueVisible:false,priceLineVisible:false});bm2.setData(bbM);';
+    html += 'var bl=ch.addLineSeries({color:"rgba(168,85,247,0.5)",lineWidth:1,lineStyle:2,lastValueVisible:false,priceLineVisible:false});bl.setData(bbL);';
+    // SMA (hidden)
+    html += 'var s3s=ch.addLineSeries({color:"#ffd700",lineWidth:2,visible:false,lastValueVisible:false,priceLineVisible:false});s3s.setData(s3);';
+    html += 'var s6s=ch.addLineSeries({color:"#ff9f43",lineWidth:2,visible:false,lastValueVisible:false,priceLineVisible:false});s6s.setData(s6);';
+    // Keltner Channels (hidden by default)
+    html += 'var kcu=ch.addLineSeries({color:"rgba(255,107,157,0.5)",lineWidth:1,lineStyle:3,visible:false,lastValueVisible:false,priceLineVisible:false});kcu.setData(kcU);';
+    html += 'var kcl=ch.addLineSeries({color:"rgba(255,107,157,0.5)",lineWidth:1,lineStyle:3,visible:false,lastValueVisible:false,priceLineVisible:false});kcl.setData(kcL);';
+    // Prediction
+    html += 'var ps=ch.addLineSeries({color:"#ff9f43",lineWidth:2,lineStyle:2,lastValueVisible:true,priceLineVisible:false});';
+    html += 'if(md.length>0){ps.setData([md[md.length-1]].concat(pd));}';
+    // Fib lines
+    html += 'var fc={"0%":"#4a6a8a","23.6%":"#00d4ff40","38.2%":"#00ff6680","50%":"#ffd70060","61.8%":"#ff9f4380","78.6%":"#ff475760","100%":"#4a6a8a"};';
+    html += 'var fls={};Object.keys(fl).forEach(function(k){fls[k]=ms.createPriceLine({price:fl[k],color:fc[k],lineWidth:1,lineStyle:1,axisLabelVisible:true,title:"Fib "+k});});';
+    html += 'ch.timeScale().fitContent();';
+    // RSI
+    html += 'var re=document.getElementById("rsi-chart");';
+    html += 'var rc=LightweightCharts.createChart(re,{width:re.clientWidth,height:120,layout:{background:{type:"solid",color:"#080e1a"},textColor:"#4a6a8a",fontFamily:"monospace"},grid:{vertLines:{color:"#1a2a3a"},horzLines:{color:"#1a2a3a"}},rightPriceScale:{borderColor:"#1a2a3a"},timeScale:{borderColor:"#1a2a3a",visible:false}});';
+    html += 'var rs2=rc.addLineSeries({color:"#00d4ff",lineWidth:2});rs2.setData(rd);';
+    html += 'rs2.createPriceLine({price:70,color:"rgba(255,71,87,0.4)",lineWidth:1,lineStyle:2,title:"OB"});';
+    html += 'rs2.createPriceLine({price:30,color:"rgba(0,255,102,0.4)",lineWidth:1,lineStyle:2,title:"OS"});';
+    html += 'rc.timeScale().fitContent();';
+    // MACD
+    html += 'var me=document.getElementById("macd-chart");';
+    html += 'var mc=LightweightCharts.createChart(me,{width:me.clientWidth,height:120,layout:{background:{type:"solid",color:"#080e1a"},textColor:"#4a6a8a",fontFamily:"monospace"},grid:{vertLines:{color:"#1a2a3a"},horzLines:{color:"#1a2a3a"}},rightPriceScale:{borderColor:"#1a2a3a"},timeScale:{borderColor:"#1a2a3a",visible:false}});';
+    html += 'var mhs=mc.addHistogramSeries({});mhs.setData(mhd);';
+    html += 'var mls=mc.addLineSeries({color:"#00d4ff",lineWidth:2});mls.setData(mcd);';
+    html += 'var mss=mc.addLineSeries({color:"#ff9f43",lineWidth:1,lineStyle:2});mss.setData(msd);';
+    html += 'mc.timeScale().fitContent();';
 
-    if (fibTabs.length > 0) {
-      html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
-      html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#a855f7;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#a855f7;border-radius:50%;box-shadow:0 0 8px #a855f7;display:inline-block;"></span>Fibonacci Forecast by Location (' + fibTabs.length + ' markets)</div>';
+    // Squeeze chart (dots + momentum histogram)
+    html += 'var se=document.getElementById("squeeze-chart");';
+    html += 'var sc=LightweightCharts.createChart(se,{width:se.clientWidth,height:140,layout:{background:{type:"solid",color:"#080e1a"},textColor:"#4a6a8a",fontFamily:"monospace"},grid:{vertLines:{color:"#1a2a3a"},horzLines:{color:"#1a2a3a"}},rightPriceScale:{borderColor:"#1a2a3a"},timeScale:{borderColor:"#1a2a3a",visible:false}});';
+    html += 'var smh=sc.addHistogramSeries({priceScaleId:"mom"});smh.setData(sqMom);';
+    html += 'var sds=sc.addHistogramSeries({priceScaleId:"dots",priceFormat:{type:"price",precision:0,minMove:1}});';
+    html += 'sds.priceScale().applyOptions({scaleMargins:{top:0.85,bottom:0}});';
+    html += 'sds.setData(sqDots.map(function(d){return{time:d.time,value:1,color:d.color};}));';
+    html += 'sc.timeScale().fitContent();';
 
-      html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:15px;">';
+    // Sync all timescales
+    html += 'ch.timeScale().subscribeVisibleLogicalRangeChange(function(r){if(r){rc.timeScale().setVisibleLogicalRange(r);mc.timeScale().setVisibleLogicalRange(r);try{sc.timeScale().setVisibleLogicalRange(r);}catch(e){}}});';
 
-      fibTabs.forEach(function(tabName) {
-        var tabData = callsByTab[tabName];
-        var tabMonths = Object.keys(tabData).sort();
-        var tabVols = tabMonths.map(function(k) { return tabData[k] || 0; });
-        var tabLabels = tabMonths.map(function(k) {
-          var p = k.split('-');
-          var mn = ['','J','F','M','A','M','J','J','A','S','O','N','D'];
-          return mn[parseInt(p[1])] + "'" + p[0].substring(2);
-        });
+    // Toggle indicators
+    html += 'window.toggleInd=function(id){var b=document.getElementById("btn-"+id);var on=b.getAttribute("data-on")==="true";var c=b.getAttribute("data-c");';
+    html += 'if(id==="bb"){bu.applyOptions({visible:!on});bm2.applyOptions({visible:!on});bl.applyOptions({visible:!on});}';
+    html += 'else if(id==="kc"){kcu.applyOptions({visible:!on});kcl.applyOptions({visible:!on});}';
+    html += 'else if(id==="sma3"){s3s.applyOptions({visible:!on});}';
+    html += 'else if(id==="sma6"){s6s.applyOptions({visible:!on});}';
+    html += 'else if(id==="fib"){Object.keys(fls).forEach(function(k){ms.removePriceLine(fls[k]);});if(on){fls={};}else{Object.keys(fl).forEach(function(k){fls[k]=ms.createPriceLine({price:fl[k],color:fc[k],lineWidth:1,lineStyle:1,axisLabelVisible:true,title:"Fib "+k});});}}';
+    html += 'else if(id==="pred"){ps.applyOptions({visible:!on});}';
+    html += 'b.setAttribute("data-on",!on);b.style.color=!on?c:"#4a6a8a";b.style.borderBottom=!on?"2px solid "+c:"2px solid transparent";};';
 
-        // Fibonacci calc for this location
-        var locRecent = tabVols.slice(-6);
-        var locHigh = Math.max.apply(null, locRecent.length > 0 ? locRecent : [0]);
-        var locLow = Math.min.apply(null, locRecent.length > 0 ? locRecent : [0]);
-        var locRange = locHigh - locLow;
-        var locTotal = tabVols.reduce(function(a, b) { return a + b; }, 0);
+    // Toggle panels
+    html += 'window.togglePnl=function(id){var p=document.getElementById(id+"-panel");var b=document.getElementById("btn-"+id);var v=p.style.display!=="none";p.style.display=v?"none":"block";b.style.color=v?"#4a6a8a":"#00d4ff";b.style.borderBottom=v?"2px solid transparent":"2px solid #00d4ff";if(!v)setTimeout(function(){rc.resize(re.clientWidth,120);mc.resize(me.clientWidth,120);sc.resize(se.clientWidth,140);},50);};';
 
-        // Trend
-        var locLast3 = 0, locPrior3 = 0;
-        if (locRecent.length >= 6) {
-          locLast3 = (locRecent[3] + locRecent[4] + locRecent[5]) / 3;
-          locPrior3 = (locRecent[0] + locRecent[1] + locRecent[2]) / 3;
-        } else if (locRecent.length >= 2) {
-          locLast3 = locRecent[locRecent.length - 1];
-          locPrior3 = locRecent[0];
-        }
-        var locTrendUp = locLast3 >= locPrior3;
-        var locTrendPct = locPrior3 > 0 ? Math.round(((locLast3 - locPrior3) / locPrior3) * 100) : 0;
-
-        // Next month prediction
-        var locPred;
-        if (locTrendUp) {
-          locPred = Math.round(locHigh + locRange * 0.618 * 0.85);
-        } else {
-          locPred = Math.round(Math.max(locHigh - locRange * 0.618 * 0.85, 0));
-        }
-
-        // Support/Resistance
-        var locSupport = Math.round(locLow + locRange * 0.382);
-        var locResist = Math.round(locLow + locRange * 0.618);
-
-        // Card colors
-        var trendColor = locTrendUp ? '#00ff66' : '#ff4757';
-        var trendIcon = locTrendUp ? '▲' : '▼';
-
-        // Build mini card
-        html += '<div style="background:rgba(10,20,35,0.8);border:1px solid ' + (locTrendUp ? '#00ff6615' : '#ff475715') + ';padding:16px;">';
-
-        // Header row
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
-        html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:2px;color:#c0d8f0;">' + tabName + '</div>';
-        html += '<div style="display:flex;align-items:center;gap:6px;">';
-        html += '<span style="color:' + trendColor + ';font-size:0.85em;font-weight:700;">' + trendIcon + ' ' + (locTrendPct >= 0 ? '+' : '') + locTrendPct + '%</span>';
-        html += '</div></div>';
-
-        // Mini bar chart (last 8 months)
-        var chartMonths = tabVols.slice(-8);
-        var chartLabels2 = tabLabels.slice(-8);
-        var chartMax = Math.max.apply(null, chartMonths.length > 0 ? chartMonths : [1]);
-
-        html += '<div style="display:flex;align-items:flex-end;gap:3px;height:60px;margin-bottom:10px;">';
-        chartMonths.forEach(function(v, idx) {
-          var barH = chartMax > 0 ? Math.max(3, Math.round((v / chartMax) * 100)) : 3;
-          var isLast = idx === chartMonths.length - 1;
-          html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">';
-          html += '<div style="color:' + (isLast ? '#c0d8f0' : '#4a6a8a') + ';font-size:0.55em;">' + v + '</div>';
-          html += '<div style="width:100%;height:' + barH + '%;background:' + (isLast ? '#a855f7' : '#a855f730') + ';min-height:2px;"></div>';
-          html += '<div style="color:#4a6a8a;font-size:0.4em;font-family:Orbitron;">' + (chartLabels2[idx] || '') + '</div>';
-          html += '</div>';
-        });
-
-        // Prediction bar (dashed)
-        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">';
-        html += '<div style="color:#ff9f43;font-size:0.55em;">~' + locPred + '</div>';
-        var predBarH = chartMax > 0 ? Math.max(3, Math.round((locPred / chartMax) * 100)) : 3;
-        html += '<div style="width:100%;height:' + Math.min(predBarH, 100) + '%;background:repeating-linear-gradient(0deg,#ff9f43 0px,#ff9f43 3px,transparent 3px,transparent 6px);min-height:2px;border:1px dashed #ff9f4340;opacity:0.7;"></div>';
-        html += '<div style="color:#ff9f43;font-size:0.4em;font-family:Orbitron;">NEXT</div>';
-        html += '</div>';
-        html += '</div>';
-
-        // Stats row
-        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-        html += '<div style="flex:1;background:rgba(5,10,20,0.5);padding:6px 8px;min-width:80px;text-align:center;">';
-        html += '<div style="color:#4a6a8a;font-size:0.6em;">TOTAL</div>';
-        html += '<div style="color:#c0d8f0;font-size:1.1em;font-weight:700;">' + locTotal + '</div>';
-        html += '</div>';
-        html += '<div style="flex:1;background:rgba(5,10,20,0.5);padding:6px 8px;min-width:80px;text-align:center;">';
-        html += '<div style="color:#4a6a8a;font-size:0.6em;">SUPPORT</div>';
-        html += '<div style="color:#00ff66;font-size:1.1em;font-weight:700;">' + locSupport + '</div>';
-        html += '</div>';
-        html += '<div style="flex:1;background:rgba(5,10,20,0.5);padding:6px 8px;min-width:80px;text-align:center;">';
-        html += '<div style="color:#4a6a8a;font-size:0.6em;">RESIST</div>';
-        html += '<div style="color:#ff9f43;font-size:1.1em;font-weight:700;">' + locResist + '</div>';
-        html += '</div>';
-        html += '<div style="flex:1;background:rgba(5,10,20,0.5);padding:6px 8px;min-width:80px;text-align:center;">';
-        html += '<div style="color:#4a6a8a;font-size:0.6em;">PREDICT</div>';
-        html += '<div style="color:#ff9f43;font-size:1.1em;font-weight:700;">~' + locPred + '</div>';
-        html += '</div>';
-        html += '</div>';
-
-        html += '</div>'; // end card
-      });
-
-      html += '</div>'; // end grid
-      html += '</div>'; // end section
-    }
+    // Drawing tools
+    html += 'var dm=null,dws=[],ds=null,cv=document.getElementById("draw-canvas"),cx2=cv.getContext("2d");';
+    html += 'function rsz(){cv.width=cv.parentElement.clientWidth;cv.height=cv.parentElement.clientHeight;rdw();}rsz();';
+    html += 'window.addEventListener("resize",function(){ch.resize(ce.clientWidth,400);rc.resize(re.clientWidth,120);mc.resize(me.clientWidth,120);sc.resize(se.clientWidth,140);rsz();});';
+    html += 'function rdw(){cx2.clearRect(0,0,cv.width,cv.height);dws.forEach(function(d){cx2.strokeStyle="#00d4ff";cx2.lineWidth=2;cx2.setLineDash(d.type==="hline"?[6,3]:[]);if(d.type==="trendline"){cx2.beginPath();cx2.moveTo(d.x1,d.y1);cx2.lineTo(d.x2,d.y2);cx2.stroke();}else if(d.type==="hline"){cx2.beginPath();cx2.moveTo(0,d.y1);cx2.lineTo(cv.width,d.y1);cx2.stroke();}else if(d.type==="rect"){cx2.strokeStyle="rgba(168,85,247,0.6)";cx2.fillStyle="rgba(168,85,247,0.08)";cx2.fillRect(d.x1,d.y1,d.x2-d.x1,d.y2-d.y1);cx2.strokeRect(d.x1,d.y1,d.x2-d.x1,d.y2-d.y1);}cx2.setLineDash([]);});}';
+    html += 'window.setDraw=function(m){dm=dm===m?null:m;cv.style.pointerEvents=dm?"all":"none";cv.style.cursor=dm?"crosshair":"default";["trendline","hline","rect"].forEach(function(x){document.getElementById("btn-"+x).style.color=x===dm?"#00d4ff":"#4a6a8a";});};';
+    html += 'window.clearDraw=function(){dws=[];ds=null;cx2.clearRect(0,0,cv.width,cv.height);};';
+    html += 'cv.addEventListener("mousedown",function(e){if(!dm)return;var r=cv.getBoundingClientRect();ds={x:e.clientX-r.left,y:e.clientY-r.top};if(dm==="hline"){dws.push({type:"hline",y1:ds.y});rdw();ds=null;dm=null;cv.style.pointerEvents="none";document.getElementById("btn-hline").style.color="#4a6a8a";}});';
+    html += 'cv.addEventListener("mousemove",function(e){if(!ds||!dm)return;var r=cv.getBoundingClientRect();var x2=e.clientX-r.left,y2=e.clientY-r.top;rdw();cx2.strokeStyle="#00d4ff80";cx2.lineWidth=1;cx2.setLineDash([4,4]);if(dm==="trendline"){cx2.beginPath();cx2.moveTo(ds.x,ds.y);cx2.lineTo(x2,y2);cx2.stroke();}else if(dm==="rect"){cx2.strokeStyle="rgba(168,85,247,0.4)";cx2.fillStyle="rgba(168,85,247,0.05)";cx2.fillRect(ds.x,ds.y,x2-ds.x,y2-ds.y);cx2.strokeRect(ds.x,ds.y,x2-ds.x,y2-ds.y);}cx2.setLineDash([]);});';
+    html += 'cv.addEventListener("mouseup",function(e){if(!ds||!dm)return;var r=cv.getBoundingClientRect();dws.push({type:dm,x1:ds.x,y1:ds.y,x2:e.clientX-r.left,y2:e.clientY-r.top});ds=null;rdw();});';
+    html += '})();';
+    html += '</' + 'script>';
 
     // ====== WEEKLY CALL VOLUME HEATMAP ======
     html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
@@ -7959,6 +8127,327 @@ app.get('/tookan', async function(req, res) {
 });
 
 // Raw JSON endpoint for Tookan data
+/* ===========================
+   INTERACTIVE CHARTING — Technical Analysis for Call Volume
+   /business/chart — Full TA charting with Bollinger Bands, MACD, RSI, drawing tools
+=========================== */
+
+app.get('/business/chart', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var bm = global.bizMetrics || {};
+    var monthlyCalls2 = bm.monthlyCalls || {};
+    var callsByTab = bm.monthlyCallsByTab || {};
+
+    // Build data series for all locations + aggregate
+    var allSeries = {};
+    allSeries['ALL LOCATIONS'] = monthlyCalls2;
+    Object.keys(callsByTab).sort().forEach(function(tab) {
+      if (Object.keys(callsByTab[tab]).length >= 3) {
+        allSeries[tab] = callsByTab[tab];
+      }
+    });
+
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>ATHENA — Call Volume Technical Analysis</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">';
+    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.1/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<style>';
+    html += 'body{margin:0;background:#050d18;color:#c0d8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}';
+    html += '.wrap{max-width:1500px;margin:0 auto;padding:20px 30px;}';
+    html += '.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:15px;padding:10px;background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;}';
+    html += '.toolbar select,.toolbar button{font-family:Orbitron;font-size:0.55em;letter-spacing:2px;padding:8px 14px;background:#0a1520;color:#c0d8f0;border:1px solid #1a2a3a;cursor:pointer;outline:none;}';
+    html += '.toolbar select:hover,.toolbar button:hover{border-color:#00d4ff40;}';
+    html += '.toolbar button.active{background:rgba(0,212,255,0.15);border-color:#00d4ff;color:#00d4ff;}';
+    html += '.toolbar .sep{width:1px;height:20px;background:#1a2a3a;}';
+    html += '.toolbar label{font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:#4a6a8a;}';
+    html += '#main-chart{border:1px solid #1a2a3a;margin-bottom:5px;}';
+    html += '#rsi-chart{border:1px solid #1a2a3a;margin-bottom:5px;}';
+    html += '#macd-chart{border:1px solid #1a2a3a;margin-bottom:10px;}';
+    html += '.indicator-label{font-family:Orbitron;font-size:0.45em;letter-spacing:2px;color:#4a6a8a;padding:4px 10px;background:rgba(10,20,35,0.8);display:inline-block;margin-bottom:2px;}';
+    html += '.tab-nav{display:flex;gap:0;margin-bottom:15px;}';
+    html += '.tab-nav a{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);}';
+    html += '.tab-nav a.active{color:#a855f7;border-color:#a855f740;background:rgba(168,85,247,0.1);}';
+    html += '.legend{display:flex;gap:15px;flex-wrap:wrap;padding:8px 10px;font-size:0.75em;}';
+    html += '.legend-item{display:flex;align-items:center;gap:5px;color:#4a6a8a;}';
+    html += '.legend-dot{width:10px;height:3px;display:inline-block;}';
+    html += '</style></head><body><div class="wrap">';
+
+    // Tab nav
+    html += '<div class="tab-nav">';
+    html += '<a href="/dashboard">JARVIS</a>';
+    html += '<a href="/business">ATHENA</a>';
+    html += '<a href="/tookan">TOOKAN</a>';
+    html += '<a href="/business/chart" class="active">CHARTS</a>';
+    html += '</div>';
+
+    html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
+    html += '<div style="font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#4a6a8a;margin-bottom:15px;">FIBONACCI • BOLLINGER BANDS • MACD • RSI • DRAWING TOOLS</div>';
+
+    // Toolbar
+    html += '<div class="toolbar">';
+    html += '<label>MARKET</label>';
+    html += '<select id="market-select">';
+    Object.keys(allSeries).forEach(function(name) {
+      html += '<option value="' + name + '">' + name + '</option>';
+    });
+    html += '</select>';
+    html += '<div class="sep"></div>';
+    html += '<label>OVERLAYS</label>';
+    html += '<button id="btn-bb" onclick="toggleBB()" title="Bollinger Bands">BB</button>';
+    html += '<button id="btn-sma20" onclick="toggleSMA(20)" title="20-period SMA">SMA20</button>';
+    html += '<button id="btn-sma50" onclick="toggleSMA(50)" title="50-period SMA">SMA50</button>';
+    html += '<button id="btn-ema12" onclick="toggleEMA()" title="12-period EMA">EMA12</button>';
+    html += '<button id="btn-fib" onclick="toggleFib()" title="Fibonacci Levels">FIB</button>';
+    html += '<div class="sep"></div>';
+    html += '<label>DRAW</label>';
+    html += '<button id="btn-trendline" onclick="setDrawMode(\'trendline\')">TRENDLINE</button>';
+    html += '<button id="btn-hline" onclick="setDrawMode(\'hline\')">H-LINE</button>';
+    html += '<button id="btn-clear" onclick="clearDrawings()">CLEAR</button>';
+    html += '<div class="sep"></div>';
+    html += '<label>BB PERIOD</label>';
+    html += '<select id="bb-period" onchange="updateAll()"><option value="10">10</option><option value="15">15</option><option value="20" selected>20</option></select>';
+    html += '<label>BB STD</label>';
+    html += '<select id="bb-std" onchange="updateAll()"><option value="1.5">1.5</option><option value="2" selected>2.0</option><option value="2.5">2.5</option></select>';
+    html += '</div>';
+
+    // Chart containers
+    html += '<div id="main-chart"></div>';
+    html += '<div class="legend" id="main-legend"></div>';
+    html += '<div class="indicator-label">RSI (14)</div>';
+    html += '<div id="rsi-chart"></div>';
+    html += '<div class="indicator-label">MACD (12, 26, 9)</div>';
+    html += '<div id="macd-chart"></div>';
+    html += '<div class="indicator-label">BOLLINGER BAND WIDTH (Squeeze Detector)</div>';
+    html += '<div id="bbw-chart"></div>';
+
+    // Inject data & charting logic
+    html += '<script>';
+    html += 'var allData = ' + JSON.stringify(allSeries) + ';';
+
+    // TA calculation functions
+    html += 'function sma(data, period) {';
+    html += '  var result = [];';
+    html += '  for (var i = 0; i < data.length; i++) {';
+    html += '    if (i < period - 1) { result.push(null); continue; }';
+    html += '    var sum = 0; for (var j = 0; j < period; j++) sum += data[i - j].value;';
+    html += '    result.push({ time: data[i].time, value: Math.round(sum / period * 100) / 100 });';
+    html += '  } return result.filter(function(d) { return d !== null; });';
+    html += '}';
+
+    html += 'function ema(data, period) {';
+    html += '  var result = []; var k = 2 / (period + 1); var prev = data[0].value;';
+    html += '  result.push({ time: data[0].time, value: prev });';
+    html += '  for (var i = 1; i < data.length; i++) {';
+    html += '    prev = data[i].value * k + prev * (1 - k);';
+    html += '    result.push({ time: data[i].time, value: Math.round(prev * 100) / 100 });';
+    html += '  } return result;';
+    html += '}';
+
+    html += 'function bollingerBands(data, period, stdDev) {';
+    html += '  var upper = [], lower = [], middle = [], width = [];';
+    html += '  for (var i = 0; i < data.length; i++) {';
+    html += '    if (i < period - 1) continue;';
+    html += '    var sum = 0; for (var j = 0; j < period; j++) sum += data[i - j].value;';
+    html += '    var avg = sum / period;';
+    html += '    var sqSum = 0; for (var j = 0; j < period; j++) sqSum += Math.pow(data[i - j].value - avg, 2);';
+    html += '    var std = Math.sqrt(sqSum / period);';
+    html += '    var u = avg + stdDev * std, l = avg - stdDev * std;';
+    html += '    upper.push({ time: data[i].time, value: Math.round(u * 100) / 100 });';
+    html += '    lower.push({ time: data[i].time, value: Math.round(Math.max(l, 0) * 100) / 100 });';
+    html += '    middle.push({ time: data[i].time, value: Math.round(avg * 100) / 100 });';
+    html += '    width.push({ time: data[i].time, value: avg > 0 ? Math.round((u - l) / avg * 10000) / 100 : 0 });';
+    html += '  } return { upper: upper, lower: lower, middle: middle, width: width };';
+    html += '}';
+
+    html += 'function calcRSI(data, period) {';
+    html += '  var result = []; var gains = 0, losses = 0;';
+    html += '  for (var i = 1; i < data.length; i++) {';
+    html += '    var diff = data[i].value - data[i-1].value;';
+    html += '    if (i <= period) { if (diff > 0) gains += diff; else losses -= diff; }';
+    html += '    if (i === period) { gains /= period; losses /= period; }';
+    html += '    if (i > period) {';
+    html += '      if (diff > 0) { gains = (gains * (period-1) + diff) / period; losses = (losses * (period-1)) / period; }';
+    html += '      else { gains = (gains * (period-1)) / period; losses = (losses * (period-1) - diff) / period; }';
+    html += '    }';
+    html += '    if (i >= period) {';
+    html += '      var rs = losses === 0 ? 100 : gains / losses;';
+    html += '      result.push({ time: data[i].time, value: Math.round((100 - 100 / (1 + rs)) * 100) / 100 });';
+    html += '    }';
+    html += '  } return result;';
+    html += '}';
+
+    html += 'function calcMACD(data) {';
+    html += '  var ema12 = ema(data, 12), ema26 = ema(data, 26);';
+    html += '  var macdLine = [], signal = [], histogram = [];';
+    html += '  for (var i = 0; i < ema26.length; i++) {';
+    html += '    var e12 = ema12.find(function(d) { return d.time === ema26[i].time; });';
+    html += '    if (e12) macdLine.push({ time: ema26[i].time, value: Math.round((e12.value - ema26[i].value) * 100) / 100 });';
+    html += '  }';
+    html += '  if (macdLine.length > 0) { signal = ema(macdLine, 9); }';
+    html += '  for (var i = 0; i < signal.length; i++) {';
+    html += '    var ml = macdLine.find(function(d) { return d.time === signal[i].time; });';
+    html += '    if (ml) histogram.push({ time: signal[i].time, value: Math.round((ml.value - signal[i].value) * 100) / 100, color: ml.value >= signal[i].value ? "#26a69a" : "#ef5350" });';
+    html += '  }';
+    html += '  return { macdLine: macdLine, signal: signal, histogram: histogram };';
+    html += '}';
+
+    // Chart setup
+    html += 'var mainChart, rsiChart, macdChart, bbwChart;';
+    html += 'var mainSeries, bbUpperSeries, bbLowerSeries, bbMiddleSeries;';
+    html += 'var sma20Series, sma50Series, ema12Series;';
+    html += 'var rsiSeries, macdLineSeries, macdSignalSeries, macdHistSeries, bbwSeries;';
+    html += 'var fibLines = [];';
+    html += 'var showBB = false, showSMA20 = false, showSMA50 = false, showEMA12 = false, showFib = false;';
+    html += 'var drawMode = null, drawStart = null, drawings = [];';
+
+    html += 'function createCharts() {';
+    html += '  var w = document.getElementById("main-chart").offsetWidth;';
+    html += '  var opts = { width: w, layout: { background: { color: "#050d18" }, textColor: "#4a6a8a", fontSize: 11 }, grid: { vertLines: { color: "#0a1520" }, horzLines: { color: "#0a1520" } }, crosshair: { mode: 0 }, timeScale: { borderColor: "#1a2a3a", timeVisible: false } };';
+
+    html += '  mainChart = LightweightCharts.createChart(document.getElementById("main-chart"), Object.assign({}, opts, { height: 400 }));';
+    html += '  mainSeries = mainChart.addLineSeries({ color: "#00d4ff", lineWidth: 2, title: "Calls" });';
+    html += '  bbUpperSeries = mainChart.addLineSeries({ color: "#ff9f4380", lineWidth: 1, lineStyle: 2, title: "BB Upper" });';
+    html += '  bbLowerSeries = mainChart.addLineSeries({ color: "#ff9f4380", lineWidth: 1, lineStyle: 2, title: "BB Lower" });';
+    html += '  bbMiddleSeries = mainChart.addLineSeries({ color: "#ff9f4340", lineWidth: 1, lineStyle: 1, title: "BB Mid" });';
+    html += '  sma20Series = mainChart.addLineSeries({ color: "#a855f7", lineWidth: 1, title: "SMA 20" });';
+    html += '  sma50Series = mainChart.addLineSeries({ color: "#00ff66", lineWidth: 1, title: "SMA 50" });';
+    html += '  ema12Series = mainChart.addLineSeries({ color: "#ffd700", lineWidth: 1, title: "EMA 12" });';
+
+    html += '  rsiChart = LightweightCharts.createChart(document.getElementById("rsi-chart"), Object.assign({}, opts, { height: 120 }));';
+    html += '  rsiSeries = rsiChart.addLineSeries({ color: "#a855f7", lineWidth: 1.5, title: "RSI" });';
+
+    html += '  macdChart = LightweightCharts.createChart(document.getElementById("macd-chart"), Object.assign({}, opts, { height: 120 }));';
+    html += '  macdLineSeries = macdChart.addLineSeries({ color: "#00d4ff", lineWidth: 1.5, title: "MACD" });';
+    html += '  macdSignalSeries = macdChart.addLineSeries({ color: "#ff9f43", lineWidth: 1, title: "Signal" });';
+    html += '  macdHistSeries = macdChart.addHistogramSeries({ title: "Histogram" });';
+
+    html += '  bbwChart = LightweightCharts.createChart(document.getElementById("bbw-chart"), Object.assign({}, opts, { height: 100 }));';
+    html += '  bbwSeries = bbwChart.addHistogramSeries({ color: "#00d4ff40", title: "BB Width" });';
+
+    // Sync crosshairs
+    html += '  function syncCrosshair(src, targets) {';
+    html += '    src.subscribeCrosshairMove(function(param) {';
+    html += '      targets.forEach(function(t) { if (param.time) t.timeScale().scrollToPosition(src.timeScale().scrollPosition(), false); });';
+    html += '    });';
+    html += '  }';
+    html += '  syncCrosshair(mainChart, [rsiChart, macdChart, bbwChart]);';
+
+    // Drawing on main chart
+    html += '  mainChart.subscribeClick(function(param) {';
+    html += '    if (!drawMode || !param.time) return;';
+    html += '    var price = mainSeries.coordinateToPrice(param.point.y);';
+    html += '    if (drawMode === "hline") {';
+    html += '      var line = mainSeries.createPriceLine({ price: price, color: "#ffd700", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: Math.round(price) + "" });';
+    html += '      drawings.push(line);';
+    html += '      setDrawMode(null);';
+    html += '    } else if (drawMode === "trendline") {';
+    html += '      if (!drawStart) { drawStart = { time: param.time, price: price }; }';
+    html += '      else {';
+    html += '        var markers = [{ time: drawStart.time, position: "belowBar", color: "#ffd700", shape: "circle" }, { time: param.time, position: "belowBar", color: "#ffd700", shape: "circle" }];';
+    html += '        mainSeries.setMarkers(markers);';
+    html += '        drawStart = null; setDrawMode(null);';
+    html += '      }';
+    html += '    }';
+    html += '  });';
+    html += '}';
+
+    // Update all indicators
+    html += 'function updateAll() {';
+    html += '  var market = document.getElementById("market-select").value;';
+    html += '  var raw = allData[market] || {};';
+    html += '  var months = Object.keys(raw).sort();';
+    html += '  var data = months.map(function(k) { return { time: k + "-01", value: raw[k] }; });';
+    html += '  if (data.length < 2) return;';
+
+    html += '  mainSeries.setData(data);';
+
+    // Bollinger Bands
+    html += '  var bbP = parseInt(document.getElementById("bb-period").value);';
+    html += '  var bbS = parseFloat(document.getElementById("bb-std").value);';
+    html += '  var bb = bollingerBands(data, bbP, bbS);';
+    html += '  if (showBB) { bbUpperSeries.setData(bb.upper); bbLowerSeries.setData(bb.lower); bbMiddleSeries.setData(bb.middle); }';
+    html += '  else { bbUpperSeries.setData([]); bbLowerSeries.setData([]); bbMiddleSeries.setData([]); }';
+
+    // SMAs
+    html += '  sma20Series.setData(showSMA20 ? sma(data, 20) : []);';
+    html += '  sma50Series.setData(showSMA50 ? sma(data, 50) : []);';
+    html += '  ema12Series.setData(showEMA12 ? ema(data, 12) : []);';
+
+    // RSI
+    html += '  rsiSeries.setData(calcRSI(data, 14));';
+
+    // MACD
+    html += '  var m = calcMACD(data);';
+    html += '  macdLineSeries.setData(m.macdLine);';
+    html += '  macdSignalSeries.setData(m.signal);';
+    html += '  macdHistSeries.setData(m.histogram);';
+
+    // BB Width (squeeze detector)
+    html += '  var bbw = bb.width.map(function(d) {';
+    html += '    var isSqueeze = d.value < 15;';
+    html += '    return { time: d.time, value: d.value, color: isSqueeze ? "#ff475780" : "#00d4ff40" };';
+    html += '  });';
+    html += '  bbwSeries.setData(bbw);';
+
+    // Fibonacci lines
+    html += '  fibLines.forEach(function(l) { try { mainChart.removePriceLine ? mainSeries.removePriceLine(l) : null; } catch(e) {} });';
+    html += '  fibLines = [];';
+    html += '  if (showFib && data.length >= 3) {';
+    html += '    var vals = data.map(function(d) { return d.value; });';
+    html += '    var hi = Math.max.apply(null, vals.slice(-6));';
+    html += '    var lo = Math.min.apply(null, vals.slice(-6));';
+    html += '    var range = hi - lo;';
+    html += '    [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0].forEach(function(lvl) {';
+    html += '      var price = lo + range * lvl;';
+    html += '      var line = mainSeries.createPriceLine({ price: price, color: "#00ff6640", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: (lvl * 100).toFixed(1) + "%" });';
+    html += '      fibLines.push(line);';
+    html += '    });';
+    html += '  }';
+
+    // Legend
+    html += '  var leg = "";';
+    html += '  if (showBB) leg += "<div class=\\"legend-item\\"><span class=\\"legend-dot\\" style=\\"background:#ff9f43;\\"></span>Bollinger Bands</div>";';
+    html += '  if (showSMA20) leg += "<div class=\\"legend-item\\"><span class=\\"legend-dot\\" style=\\"background:#a855f7;\\"></span>SMA 20</div>";';
+    html += '  if (showSMA50) leg += "<div class=\\"legend-item\\"><span class=\\"legend-dot\\" style=\\"background:#00ff66;\\"></span>SMA 50</div>";';
+    html += '  if (showEMA12) leg += "<div class=\\"legend-item\\"><span class=\\"legend-dot\\" style=\\"background:#ffd700;\\"></span>EMA 12</div>";';
+    html += '  if (showFib) leg += "<div class=\\"legend-item\\"><span class=\\"legend-dot\\" style=\\"background:#00ff66;\\"></span>Fibonacci</div>";';
+    html += '  document.getElementById("main-legend").innerHTML = leg;';
+
+    html += '  mainChart.timeScale().fitContent();';
+    html += '  rsiChart.timeScale().fitContent();';
+    html += '  macdChart.timeScale().fitContent();';
+    html += '  bbwChart.timeScale().fitContent();';
+    html += '}';
+
+    // Toggle functions
+    html += 'function toggleBB() { showBB = !showBB; document.getElementById("btn-bb").classList.toggle("active"); updateAll(); }';
+    html += 'function toggleSMA(p) { if (p===20) { showSMA20=!showSMA20; document.getElementById("btn-sma20").classList.toggle("active"); } else { showSMA50=!showSMA50; document.getElementById("btn-sma50").classList.toggle("active"); } updateAll(); }';
+    html += 'function toggleEMA() { showEMA12=!showEMA12; document.getElementById("btn-ema12").classList.toggle("active"); updateAll(); }';
+    html += 'function toggleFib() { showFib=!showFib; document.getElementById("btn-fib").classList.toggle("active"); updateAll(); }';
+    html += 'function setDrawMode(mode) { drawMode = mode; drawStart = null; document.getElementById("btn-trendline").classList.toggle("active", mode==="trendline"); document.getElementById("btn-hline").classList.toggle("active", mode==="hline"); document.body.style.cursor = mode ? "crosshair" : "default"; }';
+    html += 'function clearDrawings() { drawings.forEach(function(d) { try { mainSeries.removePriceLine(d); } catch(e) {} }); drawings = []; mainSeries.setMarkers([]); }';
+
+    // Market change
+    html += 'document.getElementById("market-select").addEventListener("change", updateAll);';
+
+    // Init
+    html += 'createCharts(); updateAll();';
+
+    // Resize
+    html += 'window.addEventListener("resize", function() {';
+    html += '  var w = document.getElementById("main-chart").parentElement.offsetWidth - 60;';
+    html += '  mainChart.applyOptions({ width: w }); rsiChart.applyOptions({ width: w }); macdChart.applyOptions({ width: w }); bbwChart.applyOptions({ width: w });';
+    html += '});';
+
+    html += '<\/script>';
+    html += '</div></body></html>';
+    res.send(html);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/tookan/json', async function(req, res) {
   try {
     var tk = await buildTookanContext();
@@ -7985,10 +8474,15 @@ app.listen(PORT, function() {
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
-  // Pre-fetch Tookan data on startup
-  buildTookanContext().then(function(d) {
-    console.log("Tookan startup fetch: " + d.totalTasks + " tasks, " + d.completed + " completed, " + d.agents.length + " agents");
+  // Pre-load business context, THEN Tookan (Tookan needs CRM job IDs)
+  buildBusinessContext().then(function() {
+    console.log("Business context loaded — now fetching Tookan data...");
+    return buildTookanContext();
+  }).then(function(d) {
+    console.log("Tookan startup: " + d.totalTasks + " tasks, " + d.completed + " completed, " + d.agents.length + " agents");
   }).catch(function(e) {
-    console.log("Tookan startup fetch failed: " + e.message);
+    console.log("Startup fetch error: " + e.message);
+    // Still try Tookan even if business failed
+    buildTookanContext().catch(function(e2) { console.log("Tookan fallback error: " + e2.message); });
   });
 });
