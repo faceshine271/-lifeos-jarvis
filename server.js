@@ -350,14 +350,176 @@ async function buildBusinessContext() {
 
   var context = "WILDWOOD SMALL ENGINE REPAIR — CRM DATA:\n\n";
 
+  // All 12 source spreadsheet IDs
+  var sourceSheetIds = [
+    "1kl72v4yIJrpD3U5pCYwtCiDhtdFZ_n4wUvZDxhPeIQk",
+    "1LlfhcfiQdXStpV1vRrZzSmaEjyTvd1nrk5sqnhxsRYU",
+    "1SDOqTxEMG8f81DtLwIu9ovz9mnxP_9Lpn6PH7OFBfBs",
+    "1fj6SZZx5YtLMU8ldsAEZ1yffK0rHhFQoFir0GAOCFNU",
+    "1ZITxT57ue2qSAbTUFRE_k1fJzKicPAO-BZMDSJOhJ7A",
+    "1CJ9nn7l_PAwXPVSXmUogXejt46bsimrJi5iLQFQuo3o",
+    "1KIulnemtmR6QpRbzEflNjvVOElNszuL9zClKhcbmOow",
+    "19ndlgop-P0KLwv6PiG8sPdtj83jKH3vlDHf5AgjgmC8",
+    "1A8oUmigHV6DsYcWF4hlDBC5KQDIHWMOh1Is6poCacx4",
+    "1vnNEZjdhhkFNpNkDXRINpS55Zfysb_MzuFLhjVw6A2g",
+    "1ZshCanMloF8uUlH39s2ZxvpCuvxjJQAONaSnN7590WA",
+    "1IK-T9O_-ozg7n-Fecn1DodEMuznbvVW-i0ClzCPfuOI"
+  ];
+
+  // Header mapping for standardization
+  var headerMap = {
+    "date called in":"Date Called In","date and time":"Date Called In",
+    "date and time ":"Date Called In","column 1":"Date Called In",
+    "first name":"First Name","first name ":"First Name",
+    "last name":"Last Name","last name ":"Last Name",
+    "start time":"Start Time","start time ":"Start Time",
+    "end time":"End Time"," end time":"End Time",
+    "date customer is available":"Service Date",
+    "time (3 hour window)":"Start Time",
+    "phone number":"Phone","phone number ":"Phone","phone":"Phone",
+    "email":"Email","email id":"Email",
+    "address":"Address","city":"City","state":"State","zip":"Zip",
+    "type equipment":"Equipment Type","type equipment ":"Equipment Type",
+    "type of equipment":"Equipment Type","type of equipment ":"Equipment Type",
+    "what brand of equipment":"Brand",
+    "issue with equipment":"Issue","issue with equipment ":"Issue",
+    "receptionist names":"Receptionist","receptionist names ":"Receptionist",
+    "notes tech needs to know":"Notes","notes tech needs to know ":"Notes",
+    "status":"Status","when booked":"When Booked",
+    "return/paid?":"Return/Paid",
+    "posted date and time":"Posted Date",
+    "tooka status and time":"Tookan Status",
+    "tookan job id":"Tookan Job ID","tech":"Tech",
+    "transfer":"Location Tab"
+  };
+
+  var standardFields = ["Date Called In","First Name","Last Name","Start Time","End Time",
+    "Service Date","Phone","Email","Address","City","State","Zip",
+    "Equipment Type","Brand","Issue","Receptionist","Notes","Status",
+    "When Booked","Return/Paid","Posted Date","Tookan Status",
+    "Tookan Job ID","Tech","Location Tab","Done Flag"];
+
+  var skipTabs = ["combined","tech numbers","mapping","dropdown","mail list",
+    "sample","test","location sheets","manual entry record",
+    "diagnostic sms reply","promotion customers reply","sops and contract",
+    "sheet1","location unavailable","return customers","unorganized customers"];
+
   try {
-    // Read Combined sheet — ALL data in one call
-    var combinedRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: BUSINESS_SPREADSHEET_ID,
-      range: "'Combined'!A1:Z",
+    // Read ALL source spreadsheets in parallel
+    var sheetMetaPromises = sourceSheetIds.map(function(id) {
+      return sheets.spreadsheets.get({ spreadsheetId: id, fields: 'properties.title,sheets.properties.title' }).catch(function(e) { return null; });
     });
-    var allRows = combinedRes.data.values || [];
-    if (allRows.length <= 1) {
+    var sheetMetas = await Promise.all(sheetMetaPromises);
+
+    // Build list of all tabs to read
+    var allTabRequests = [];
+    for (var si = 0; si < sourceSheetIds.length; si++) {
+      if (!sheetMetas[si]) continue;
+      var ssTitle = sheetMetas[si].data.properties.title;
+      var tabList = sheetMetas[si].data.sheets || [];
+      for (var ti = 0; ti < tabList.length; ti++) {
+        var tabTitle = tabList[ti].properties.title;
+        allTabRequests.push({
+          ssId: sourceSheetIds[si],
+          ssTitle: ssTitle,
+          tabTitle: tabTitle,
+        });
+      }
+    }
+
+    // Read all tabs in parallel (batched)
+    var BATCH_SIZE = 15;
+    var allTabData = []; // { ssTitle, tabTitle, headers, rows }
+    var allJobRows = []; // standardized job rows for CRM analysis
+
+    for (var batch = 0; batch < allTabRequests.length; batch += BATCH_SIZE) {
+      var batchItems = allTabRequests.slice(batch, batch + BATCH_SIZE);
+      var batchPromises = batchItems.map(function(item) {
+        return sheets.spreadsheets.values.get({
+          spreadsheetId: item.ssId,
+          range: "'" + item.tabTitle + "'!A1:ZZ",
+        }).catch(function(e) { return null; });
+      });
+      var batchResults = await Promise.all(batchPromises);
+
+      for (var bi = 0; bi < batchResults.length; bi++) {
+        if (!batchResults[bi]) continue;
+        var rows = batchResults[bi].data.values || [];
+        if (rows.length < 1) continue;
+        var item = batchItems[bi];
+
+        allTabData.push({
+          ssTitle: item.ssTitle,
+          tabTitle: item.tabTitle,
+          headers: rows[0],
+          rows: rows.slice(1),
+          rowCount: rows.length - 1,
+        });
+
+        // Check if this is a job/booking tab (has First Name header)
+        var isJobTab = false;
+        var tabSkip = skipTabs.indexOf(item.tabTitle.toLowerCase().trim()) >= 0;
+        if (!tabSkip) {
+          for (var hi = 0; hi < rows[0].length; hi++) {
+            var hdr = (rows[0][hi] || '').toString().trim().toLowerCase();
+            if (hdr === 'first name' || hdr === 'first name ') { isJobTab = true; break; }
+          }
+        }
+
+        if (isJobTab) {
+          // Build header field mapping for this tab
+          var fieldToCol = {};
+          for (var hh = 0; hh < rows[0].length; hh++) {
+            var rawH = (rows[0][hh] || '').toString().trim().toLowerCase();
+            if (headerMap[rawH] && !fieldToCol[headerMap[rawH]]) {
+              fieldToCol[headerMap[rawH]] = hh;
+            }
+          }
+
+          for (var jr = 1; jr < rows.length; jr++) {
+            var row = rows[jr];
+            // Skip empty rows
+            var hasData = false;
+            for (var cc = 0; cc < Math.min(row.length, 12); cc++) {
+              if (row[cc] && row[cc].toString().trim()) { hasData = true; break; }
+            }
+            if (!hasData) continue;
+
+            // Build standardized row
+            var stdRow = [];
+            for (var sf = 0; sf < standardFields.length; sf++) {
+              var field = standardFields[sf];
+              if (field === 'Location Tab') {
+                var tv = fieldToCol['Location Tab'] !== undefined ? (row[fieldToCol['Location Tab']] || '').toString().trim() : '';
+                stdRow.push(tv || item.tabTitle);
+              } else if (field === 'Done Flag') {
+                var doneFlag = '';
+                for (var dc = 0; dc < row.length; dc++) {
+                  if ((row[dc] || '').toString().trim().toUpperCase() === 'DONE') { doneFlag = 'DONE'; break; }
+                }
+                stdRow.push(doneFlag);
+              } else if (fieldToCol[field] !== undefined) {
+                stdRow.push((row[fieldToCol[field]] || '').toString());
+              } else {
+                stdRow.push('');
+              }
+            }
+
+            var firstName = stdRow[1].trim();
+            var phone = stdRow[6].trim();
+            if (firstName || phone) {
+              allJobRows.push(stdRow);
+            }
+          }
+        }
+      }
+    }
+
+    // Store all tab data globally for dashboard browsing
+    global.allSourceTabs = allTabData;
+
+    // Now run the same CRM analysis on allJobRows (replaces the old Combined tab logic)
+    if (allJobRows.length <= 0) {
       businessCache = { data: context + "No CRM data found.\n", time: Date.now() };
       return businessCache.data;
     }
@@ -379,8 +541,8 @@ async function buildBusinessContext() {
     var newLocationsThisMonth = {};
     var totalLeads = 0;
 
-    for (var r = 1; r < allRows.length; r++) {
-      var row = allRows[r];
+    for (var r = 0; r < allJobRows.length; r++) {
+      var row = allJobRows[r];
       if (!row[1] && !row[2]) continue; // skip empty rows
 
       var firstName = (row[1] || '').toString().trim();
@@ -478,7 +640,7 @@ async function buildBusinessContext() {
           } catch(e){}
         }
         // Recent jobs for this tech (last 5)
-        if (ts.recentJobs.length < 5 || r >= allRows.length - 50) {
+        if (ts.recentJobs.length < 5 || r >= allJobRows.length - 50) {
           if (ts.recentJobs.length >= 5) ts.recentJobs.shift();
           ts.recentJobs.push({ name: fullName, location: location, equip: equipType, status: status, date: createdAt });
         }
@@ -572,7 +734,7 @@ async function buildBusinessContext() {
       }
 
       // Recent bookings (last 20 rows)
-      if (r >= allRows.length - 20 && firstName) {
+      if (r >= allJobRows.length - 20 && firstName) {
         recentBookings.push({ name: fullName, location: location, status: status, equip: equipType, tech: tech, brand: brand, date: dateCalledIn });
       }
     }
@@ -716,6 +878,33 @@ async function buildBusinessContext() {
       monthGrowth: monthGrowth, techList: techList, newLocationsThisMonth: Object.keys(newLocationsThisMonth).length,
       seasonalData: seasonalData,
     };
+
+    // Add ALL source tab data to AI context (SOPs, stats, everything)
+    context += "ALL SOURCE SPREADSHEET DATA:\n";
+    context += "Total source tabs: " + allTabData.length + "\n";
+    context += "Total job rows across all tabs: " + allJobRows.length + "\n\n";
+
+    allTabData.forEach(function(tab) {
+      // Skip job tabs (already analyzed above) — include SOPs, stats, special tabs
+      var tabLower = tab.tabTitle.toLowerCase().trim();
+      var isJobTab = false;
+      for (var hx = 0; hx < tab.headers.length; hx++) {
+        var hdrx = (tab.headers[hx] || '').toString().trim().toLowerCase();
+        if (hdrx === 'first name' || hdrx === 'first name ') { isJobTab = true; break; }
+      }
+      if (isJobTab) return; // skip, already parsed into CRM stats
+
+      context += "--- " + tab.ssTitle + " / " + tab.tabTitle + " (" + tab.rowCount + " rows) ---\n";
+      context += "  Headers: " + tab.headers.join(', ') + "\n";
+      // Include up to 20 rows of data for non-job tabs
+      var maxRows = Math.min(tab.rows.length, 20);
+      for (var rx = 0; rx < maxRows; rx++) {
+        var rowStr = tab.rows[rx].map(function(c) { return (c || '').toString().trim(); }).filter(function(c) { return c; }).join(' | ');
+        if (rowStr) context += "  " + rowStr + "\n";
+      }
+      if (tab.rows.length > 20) context += "  ... and " + (tab.rows.length - 20) + " more rows\n";
+      context += "\n";
+    });
 
   } catch (e) {
     context += "Error loading CRM data: " + e.message + "\n";
@@ -5343,7 +5532,8 @@ app.get('/business', async function(req, res) {
     // Actions
     html += '<div class="actions">';
     html += '<a class="holo-btn" href="/dashboard">Personal Dashboard</a>';
-    html += '<a class="holo-btn green" href="/tabs" target="_blank">All Tabs</a>';
+    html += '<a class="holo-btn green" href="/business/tabs" target="_blank">Browse All Data</a>';
+    html += '<a class="holo-btn" href="/tabs" target="_blank">Personal Tabs</a>';
     html += '<a class="holo-btn" href="/search?q=booked" target="_blank">Search Bookings</a>';
     html += '<a class="holo-btn" href="/briefing" target="_blank">AI Briefing</a>';
     html += '</div>';
@@ -5801,14 +5991,112 @@ app.post('/email/send-reply', async function(req, res) {
 =========================== */
 
 /* ===========================
+   GET /business/tabs — Browse all source tabs
+=========================== */
+app.get('/business/tabs', async function(req, res) {
+  try {
+    await buildBusinessContext(); // ensure data is loaded
+    var tabs = global.allSourceTabs || [];
+    var tabName = req.query.tab || '';
+    
+    if (!tabName) {
+      // Return list of all tabs
+      var tabList = tabs.map(function(t) {
+        return { source: t.ssTitle, tab: t.tabTitle, rows: t.rowCount, headers: t.headers };
+      });
+      var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>ATHENA — All Tabs</title>';
+      html += '<style>body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;padding:20px;}';
+      html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+      html += 'h1{font-family:Orbitron;color:#a855f7;text-align:center;letter-spacing:5px;}';
+      html += '.source{margin:20px 0;border:1px solid #a855f720;padding:15px;}';
+      html += '.source-title{font-family:Orbitron;color:#ffd700;font-size:1.1em;letter-spacing:3px;margin-bottom:10px;}';
+      html += '.tab-link{display:inline-block;margin:4px;padding:8px 16px;border:1px solid #a855f730;color:#c0d8f0;text-decoration:none;cursor:pointer;transition:all 0.3s;}';
+      html += '.tab-link:hover{background:#a855f720;border-color:#a855f7;}';
+      html += '.row-count{color:#4a6a8a;font-size:0.8em;margin-left:5px;}';
+      html += 'a{color:#00d4ff;text-decoration:none;}';
+      html += '</style></head><body>';
+      html += '<h1>ALL SOURCE DATA</h1>';
+      html += '<div style="text-align:center;margin-bottom:20px;"><a href="/business">← Back to Dashboard</a></div>';
+      html += '<div style="text-align:center;color:#4a6a8a;margin-bottom:20px;">' + tabList.length + ' tabs across ' + new Set(tabList.map(function(t){return t.source;})).size + ' spreadsheets</div>';
+      
+      // Group by source
+      var sources = {};
+      tabList.forEach(function(t) {
+        if (!sources[t.source]) sources[t.source] = [];
+        sources[t.source].push(t);
+      });
+      
+      Object.entries(sources).forEach(function(s) {
+        html += '<div class="source">';
+        html += '<div class="source-title">' + s[0] + '</div>';
+        s[1].forEach(function(t) {
+          html += '<a class="tab-link" href="/business/tabs?tab=' + encodeURIComponent(s[0] + ' | ' + t.tab) + '">' + t.tab + '<span class="row-count">(' + t.rows + ')</span></a>';
+        });
+        html += '</div>';
+      });
+      
+      html += '</body></html>';
+      return res.send(html);
+    }
+    
+    // Show specific tab data
+    var parts = tabName.split(' | ');
+    var ssName = parts[0] || '';
+    var tName = parts[1] || '';
+    var found = tabs.find(function(t) { return t.ssTitle === ssName && t.tabTitle === tName; });
+    
+    if (!found) return res.status(404).json({ error: 'Tab not found' });
+    
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + tName + ' — ATHENA</title>';
+    html += '<style>body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;padding:20px;}';
+    html += '@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap");';
+    html += 'h1{font-family:Orbitron;color:#a855f7;letter-spacing:3px;font-size:1.3em;}';
+    html += 'h2{color:#ffd700;font-family:Orbitron;font-size:0.8em;letter-spacing:2px;}';
+    html += 'table{border-collapse:collapse;width:100%;margin-top:15px;}';
+    html += 'th{background:#0d1117;color:#a855f7;padding:8px 10px;text-align:left;font-family:Orbitron;font-size:0.65em;letter-spacing:1px;border:1px solid #a855f720;white-space:nowrap;}';
+    html += 'td{padding:6px 10px;border:1px solid #1a2a3a;font-size:0.9em;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}';
+    html += 'tr:nth-child(even){background:rgba(168,85,247,0.03);}';
+    html += 'tr:hover{background:rgba(168,85,247,0.08);}';
+    html += 'a{color:#00d4ff;text-decoration:none;}';
+    html += '</style></head><body>';
+    html += '<div style="margin-bottom:15px;"><a href="/business/tabs">← All Tabs</a> &nbsp;|&nbsp; <a href="/business">← Dashboard</a></div>';
+    html += '<h1>' + tName + '</h1>';
+    html += '<h2>Source: ' + ssName + ' — ' + found.rowCount + ' rows</h2>';
+    
+    html += '<table><thead><tr>';
+    found.headers.forEach(function(h) { html += '<th>' + (h || '').toString() + '</th>'; });
+    html += '</tr></thead><tbody>';
+    
+    var maxShow = Math.min(found.rows.length, 500);
+    for (var rr = 0; rr < maxShow; rr++) {
+      html += '<tr>';
+      for (var cc = 0; cc < found.headers.length; cc++) {
+        html += '<td>' + ((found.rows[rr][cc] || '').toString()) + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    if (found.rows.length > 500) html += '<div style="color:#4a6a8a;margin-top:10px;">Showing 500 of ' + found.rows.length + ' rows</div>';
+    html += '</body></html>';
+    res.send(html);
+    
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
    GET /business/search — Customer Lookup
 =========================== */
 app.get('/business/search', async function(req, res) {
   try {
     var q = (req.query.q || '').toLowerCase().trim();
     if (!q || q.length < 2) return res.json({ results: [] });
-    var combinedRes = await sheets.spreadsheets.values.get({ spreadsheetId: BUSINESS_SPREADSHEET_ID, range: "'Combined'!A1:Z" });
-    var rows = combinedRes.data.values || [];
+    await buildBusinessContext(); // ensure data loaded
+    var allJobRows = (global.allSourceTabs || []).reduce(function(acc, tab) { return acc; }, []);
+    // Use bizMetrics recentBookings for search
+    var bm = global.bizMetrics || {};
+    var recent = bm.recentBookings || [];
     var results = [];
     for (var i = 1; i < rows.length && results.length < 20; i++) {
       var row = rows[i];
