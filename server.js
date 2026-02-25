@@ -1,3 +1,4 @@
+// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -11124,7 +11125,9 @@ app.get('/ads/refresh', async function(req, res) {
 app.get('/ads', async function(req, res) {
   try {
     await buildBusinessContext();
-    var ads = await buildAdsContext();
+    var ads;
+    try { ads = await buildAdsContext(); } catch(ae) { ads = null; console.log("Ads load error:", ae.message); }
+    if (!ads) ads = { connected: false, needsAuth: true, campaigns: [], adGroups: [], keywords: [], searchTerms: [], geoPerformance: [], devicePerformance: [], hourlyPerformance: [], dayOfWeekPerformance: [], monthlyPerformance: [], weeklyPerformance: [], dailyPerformance: [], conversionActions: [], accountSummary: {}, errors: ['Failed to load ads data'] };
     var bm = global.bizMetrics || {};
     var pm = global.profitMetrics || {};
 
@@ -11193,7 +11196,18 @@ app.get('/ads', async function(req, res) {
     var dailyCostFib = calcFibExt(dailyCosts);
     var dailyClickFib = calcFibExt(dailyClicks);
 
-    var as = ads.accountSummary;
+    var as = ads.accountSummary || {};
+    as.totalSpend = as.totalSpend || 0;
+    as.totalClicks = as.totalClicks || 0;
+    as.totalImpressions = as.totalImpressions || 0;
+    as.totalConversions = as.totalConversions || 0;
+    as.totalConvValue = as.totalConvValue || 0;
+    as.avgCPC = as.avgCPC || 0;
+    as.avgCTR = as.avgCTR || 0;
+    as.avgCostPerConv = as.avgCostPerConv || 0;
+    as.roas = as.roas || 0;
+    as.activeCampaigns = as.activeCampaigns || 0;
+    as.totalCampaigns = as.totalCampaigns || 0;
 
     // ========== BUILD HTML ==========
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
@@ -11484,395 +11498,7 @@ app.get('/ads', async function(req, res) {
 
     // ====== SECTIONS 10-16: EXPANDED ANALYTICS ======
 
-    // ====== SECTION 10: CROSS-REFERENCE — ADS vs CRM CALLS ======
-    // Match Google Ads cities/spend with actual CRM call volume per city
-    var callsByCity = bm.monthlyCallsByCity || {};
-    var locationStats = bm.locationStats || {};
-    var cityROI = [];
-
-    // Build city-level ad spend (from geo or campaign names that contain city names)
-    var adsCitySpend = {};
-    ads.campaigns.forEach(function(c) {
-      // Try to extract city from campaign name
-      var cName = (c.name || '').toLowerCase();
-      Object.keys(locationStats).forEach(function(city) {
-        var cityLower = city.toLowerCase().split(',')[0].trim();
-        if (cityLower.length > 3 && cName.indexOf(cityLower) >= 0) {
-          if (!adsCitySpend[city]) adsCitySpend[city] = { spend: 0, clicks: 0, conversions: 0, impressions: 0, campaigns: [] };
-          adsCitySpend[city].spend += c.cost;
-          adsCitySpend[city].clicks += c.clicks;
-          adsCitySpend[city].conversions += c.conversions;
-          adsCitySpend[city].impressions += c.impressions;
-          adsCitySpend[city].campaigns.push(c.name);
-        }
-      });
-    });
-
-    // Calculate ROI per city
-    var monthlyCalls = bm.monthlyCalls || {};
-    var revenuePerCall = bm.totalLeads > 0 && (pm.financialHistory || {}).allTime ? Math.round(((pm.financialHistory || {}).allTime || {}).revenue / bm.totalLeads) : 321;
-
-    Object.keys(locationStats).forEach(function(city) {
-      var ls = locationStats[city];
-      var adCity = adsCitySpend[city] || { spend: 0, clicks: 0, conversions: 0, impressions: 0 };
-      var estRevenue = ls.total * revenuePerCall;
-      var roi = adCity.spend > 0 ? Math.round((estRevenue - adCity.spend) / adCity.spend * 100) : 0;
-      var costPerCall = adCity.clicks > 0 && ls.total > 0 ? Math.round(adCity.spend / ls.total * 100) / 100 : 0;
-      if (ls.total >= 5) {
-        cityROI.push({
-          city: city, totalCalls: ls.total, completed: ls.completed || 0, cancelled: ls.cancelled || 0,
-          adSpend: Math.round(adCity.spend * 100) / 100, adClicks: adCity.clicks,
-          adConversions: adCity.conversions, estRevenue: estRevenue,
-          roi: roi, costPerCall: costPerCall,
-          convRate: ls.total > 0 ? Math.round((ls.completed || 0) / ls.total * 1000) / 10 : 0,
-          hasAds: adCity.spend > 0,
-        });
-      }
-    });
-    cityROI.sort(function(a, b) { return b.totalCalls - a.totalCalls; });
-
-    html += '<div class="section">';
-    html += '<div class="section-head" style="color:#55f7d8;--gc:#55f7d8;"><span class="dot" style="background:#55f7d8;"></span>ADS ↔ CRM CROSS-REFERENCE — GEOGRAPHIC ROI</div>';
-
-    // Summary KPIs
-    var totalAdSpendByCity = cityROI.reduce(function(s, c) { return s + c.adSpend; }, 0);
-    var totalEstRev = cityROI.reduce(function(s, c) { return s + c.estRevenue; }, 0);
-    var citiesWithAds = cityROI.filter(function(c) { return c.hasAds; }).length;
-    var citiesNoAds = cityROI.filter(function(c) { return !c.hasAds && c.totalCalls >= 10; }).length;
-
-    html += '<div class="kpi-row">';
-    html += '<div class="kpi" style="--c:#55f7d8;"><div class="kpi-label">TRACKED CITIES</div><div class="kpi-val">' + cityROI.length + '</div><div class="kpi-sub">' + citiesWithAds + ' with ads &bull; ' + citiesNoAds + ' organic only</div></div>';
-    html += '<div class="kpi" style="--c:#ff4757;"><div class="kpi-label">CITY AD SPEND</div><div class="kpi-val">$' + Math.round(totalAdSpendByCity).toLocaleString() + '</div><div class="kpi-sub">Matched to campaigns</div></div>';
-    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">EST. CITY REVENUE</div><div class="kpi-val">$' + Math.round(totalEstRev).toLocaleString() + '</div><div class="kpi-sub">$' + revenuePerCall + ' × ' + cityROI.reduce(function(s,c){return s+c.totalCalls;},0) + ' calls</div></div>';
-    html += '<div class="kpi" style="--c:#ffd700;"><div class="kpi-label">BLENDED ROI</div><div class="kpi-val">' + (totalAdSpendByCity > 0 ? Math.round((totalEstRev - totalAdSpendByCity) / totalAdSpendByCity * 100) : '∞') + '%</div><div class="kpi-sub">Revenue vs ad spend</div></div>';
-    html += '</div>';
-
-    // City ROI table
-    html += '<div style="overflow-x:auto;"><table class="data-table">';
-    html += '<thead><tr><th>City</th><th>Calls</th><th>Completed</th><th>Conv%</th><th>Ad Spend</th><th>Ad Clicks</th><th>Est Revenue</th><th>ROI</th><th>Cost/Call</th><th>Signal</th></tr></thead><tbody>';
-    cityROI.slice(0, 40).forEach(function(cr) {
-      var signal = '';
-      if (cr.hasAds && cr.roi > 200) signal = '<span class="pill pill-green">🏆 HIGH ROI</span>';
-      else if (cr.hasAds && cr.roi > 50) signal = '<span class="pill pill-green">✅ PROFITABLE</span>';
-      else if (cr.hasAds && cr.roi > 0) signal = '<span class="pill pill-orange">⚡ BREAK-EVEN</span>';
-      else if (cr.hasAds) signal = '<span class="pill pill-red">🔴 LOSING</span>';
-      else if (cr.totalCalls >= 20) signal = '<span class="pill pill-blue">🎯 ORGANIC STAR</span>';
-      else signal = '<span class="pill pill-blue">📍 ORGANIC</span>';
-
-      html += '<tr><td style="color:#c0d8f0;font-weight:700;white-space:nowrap;">' + cr.city + '</td>';
-      html += '<td style="color:#00d4ff;">' + cr.totalCalls + '</td>';
-      html += '<td>' + cr.completed + '</td>';
-      html += '<td style="color:' + (cr.convRate > 40 ? '#00ff66' : '#ff9f43') + ';">' + cr.convRate + '%</td>';
-      html += '<td style="color:#ff4757;">' + (cr.adSpend > 0 ? '$' + cr.adSpend.toLocaleString() : '-') + '</td>';
-      html += '<td>' + (cr.adClicks > 0 ? cr.adClicks.toLocaleString() : '-') + '</td>';
-      html += '<td style="color:#00ff66;">$' + cr.estRevenue.toLocaleString() + '</td>';
-      html += '<td style="color:' + (cr.roi > 100 ? '#00ff66' : cr.roi > 0 ? '#ff9f43' : '#ff4757') + ';font-weight:700;">' + (cr.hasAds ? cr.roi + '%' : '-') + '</td>';
-      html += '<td>' + (cr.costPerCall > 0 ? '$' + cr.costPerCall : '-') + '</td>';
-      html += '<td>' + signal + '</td></tr>';
-    });
-    html += '</tbody></table></div>';
-
-    // Opportunity signal
-    var organicStars = cityROI.filter(function(c) { return !c.hasAds && c.totalCalls >= 15; });
-    if (organicStars.length > 0) {
-      html += '<div class="signal-box" style="border-color:#55f7d830;background:rgba(85,247,216,0.03);color:#55f7d8;margin-top:10px;">';
-      html += '🎯 UNTAPPED OPPORTUNITY: ' + organicStars.length + ' cities getting 15+ calls organically with zero ad spend: ';
-      html += organicStars.slice(0, 8).map(function(c) { return '<strong>' + c.city + '</strong> (' + c.totalCalls + ')'; }).join(', ');
-      html += '. Running ads here could significantly increase volume.';
-      html += '</div>';
-    }
-    html += '</div>';
-
-    // ====== SECTION 11: WASTED SPEND DETECTOR ======
-    html += '<div class="section">';
-    html += '<div class="section-head" style="color:#ff4757;--gc:#ff4757;"><span class="dot" style="background:#ff4757;"></span>WASTED SPEND DETECTOR</div>';
-
-    // Find keywords with high spend but zero conversions
-    var wastedKeywords = ads.keywords.filter(function(k) { return k.cost > 10 && k.conversions === 0; }).sort(function(a, b) { return b.cost - a.cost; });
-    var totalWasted = wastedKeywords.reduce(function(s, k) { return s + k.cost; }, 0);
-
-    // Find search terms that shouldn't be triggering
-    var negCandidates = ads.searchTerms.filter(function(st) {
-      var t = st.term.toLowerCase();
-      return st.clicks > 2 && st.conversions === 0 && (
-        t.indexOf('free') >= 0 || t.indexOf('diy') >= 0 || t.indexOf('how to') >= 0 ||
-        t.indexOf('manual') >= 0 || t.indexOf('youtube') >= 0 || t.indexOf('reddit') >= 0 ||
-        t.indexOf('salary') >= 0 || t.indexOf('job') >= 0 || t.indexOf('career') >= 0 ||
-        t.indexOf('near me') >= 0 && st.conversions === 0 && st.clicks > 5
-      );
-    });
-    var negWaste = negCandidates.reduce(function(s, n) { return s + n.cost; }, 0);
-
-    // Low QS keywords
-    var lowQS = ads.keywords.filter(function(k) { return k.qualityScore > 0 && k.qualityScore <= 4; });
-    var lowQSCost = lowQS.reduce(function(s, k) { return s + k.cost; }, 0);
-
-    html += '<div class="kpi-row">';
-    html += '<div class="kpi" style="--c:#ff4757;"><div class="kpi-label">ZERO-CONVERSION SPEND</div><div class="kpi-val">$' + Math.round(totalWasted).toLocaleString() + '</div><div class="kpi-sub">' + wastedKeywords.length + ' keywords with spend but 0 conversions</div></div>';
-    html += '<div class="kpi" style="--c:#ff9f43;"><div class="kpi-label">NEGATIVE KW CANDIDATES</div><div class="kpi-val">' + negCandidates.length + '</div><div class="kpi-sub">$' + Math.round(negWaste).toLocaleString() + ' wasted on irrelevant searches</div></div>';
-    html += '<div class="kpi" style="--c:#a855f7;"><div class="kpi-label">LOW QUALITY SCORE</div><div class="kpi-val">' + lowQS.length + '</div><div class="kpi-sub">Keywords with QS ≤ 4 ($' + Math.round(lowQSCost).toLocaleString() + ' spent)</div></div>';
-    html += '<div class="kpi" style="--c:#00ff66;"><div class="kpi-label">SAVINGS POTENTIAL</div><div class="kpi-val">$' + Math.round(totalWasted + negWaste).toLocaleString() + '</div><div class="kpi-sub">Redirect to better performers</div></div>';
-    html += '</div>';
-
-    // Wasted keywords table
-    if (wastedKeywords.length > 0) {
-      html += '<div style="font-family:Orbitron;font-size:0.55em;color:#ff4757;letter-spacing:3px;margin-bottom:8px;">TOP ZERO-CONVERSION KEYWORDS (spending with no results)</div>';
-      html += '<div style="overflow-x:auto;"><table class="data-table">';
-      html += '<thead><tr><th>Keyword</th><th>Spend</th><th>Clicks</th><th>CTR</th><th>CPC</th><th>QS</th><th>Action</th></tr></thead><tbody>';
-      wastedKeywords.slice(0, 15).forEach(function(wk) {
-        html += '<tr><td style="color:#c0d8f0;font-weight:600;">' + wk.text + '</td>';
-        html += '<td style="color:#ff4757;font-weight:700;">$' + wk.cost.toFixed(2) + '</td>';
-        html += '<td>' + wk.clicks + '</td>';
-        html += '<td>' + (wk.ctr * 100).toFixed(2) + '%</td>';
-        html += '<td>$' + wk.avgCPC.toFixed(2) + '</td>';
-        html += '<td style="color:' + (wk.qualityScore >= 7 ? '#00ff66' : wk.qualityScore >= 5 ? '#ff9f43' : '#ff4757') + ';">' + (wk.qualityScore || '-') + '</td>';
-        html += '<td><span class="pill pill-red">PAUSE or OPTIMIZE</span></td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-
-    // Negative keyword suggestions
-    if (negCandidates.length > 0) {
-      html += '<div style="font-family:Orbitron;font-size:0.55em;color:#ff9f43;letter-spacing:3px;margin:15px 0 8px;">SUGGESTED NEGATIVE KEYWORDS</div>';
-      html += '<div style="overflow-x:auto;"><table class="data-table">';
-      html += '<thead><tr><th>Search Term</th><th>Clicks</th><th>Spend</th><th>Conv</th><th>Why Negative</th></tr></thead><tbody>';
-      negCandidates.slice(0, 15).forEach(function(nc) {
-        var reason = nc.term.toLowerCase().indexOf('free') >= 0 ? 'DIY/Free intent' : nc.term.toLowerCase().indexOf('how to') >= 0 ? 'Informational' : nc.term.toLowerCase().indexOf('job') >= 0 || nc.term.toLowerCase().indexOf('salary') >= 0 ? 'Job seeker' : 'Low intent';
-        html += '<tr><td style="color:#c0d8f0;">' + nc.term + '</td>';
-        html += '<td>' + nc.clicks + '</td>';
-        html += '<td style="color:#ff4757;">$' + nc.cost.toFixed(2) + '</td>';
-        html += '<td style="color:#ff4757;">0</td>';
-        html += '<td style="color:#ff9f43;">' + reason + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    html += '</div>';
-
-    // ====== SECTION 12: PER-CAMPAIGN FIBONACCI ANALYSIS ======
-    if (ads.campaigns.length > 0 && ads.monthlyPerformance.length >= 3) {
-      html += '<div class="section">';
-      html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>PER-CAMPAIGN FIBONACCI — DEEP DIVE</div>';
-
-      // For top 6 campaigns by spend, show individual Fibonacci
-      var topCampaigns = ads.campaigns.filter(function(c) { return c.status === 'ENABLED' && c.cost > 0; }).slice(0, 6);
-      if (topCampaigns.length > 0) {
-        html += '<div class="fib-grid">';
-        topCampaigns.forEach(function(tc) {
-          // Build per-campaign monthly data from daily (approximate)
-          var campMonthly = {};
-          ads.dailyPerformance.forEach(function(d) {
-            var mo = d.date.substring(0, 7);
-            if (!campMonthly[mo]) campMonthly[mo] = 0;
-          });
-          // We don't have per-campaign daily, so use overall metrics as proxy
-          // Instead show the campaign's KPIs with Fib context from account-level
-          var costPct = as.totalSpend > 0 ? Math.round(tc.cost / as.totalSpend * 1000) / 10 : 0;
-          var convPct = as.totalConversions > 0 ? Math.round(tc.conversions / as.totalConversions * 1000) / 10 : 0;
-          var efficiency = costPct > 0 ? Math.round(convPct / costPct * 100) / 100 : 0;
-
-          var roas = tc.cost > 0 ? Math.round(tc.convValue / tc.cost * 100) / 100 : 0;
-          var cardColor = roas > 3 ? '#00ff66' : roas > 1.5 ? '#ff9f43' : tc.conversions > 0 ? '#ff4757' : '#4a6a8a';
-
-          html += '<div class="fib-card" style="border-color:' + cardColor + '15;">';
-          html += '<div class="fib-title"><span style="color:' + cardColor + ';font-size:0.95em;">' + tc.name.substring(0, 30) + '</span>';
-          html += '<span class="pill ' + (tc.status === 'ENABLED' ? 'pill-green' : 'pill-orange') + '">' + tc.status + '</span></div>';
-
-          // Mini stats grid
-          html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">';
-          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">SPEND</div><div style="color:#ff4757;font-family:Orbitron;font-size:0.8em;">$' + Math.round(tc.cost).toLocaleString() + '</div></div>';
-          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CLICKS</div><div style="color:#4285f4;font-family:Orbitron;font-size:0.8em;">' + tc.clicks.toLocaleString() + '</div></div>';
-          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CONV</div><div style="color:#00ff66;font-family:Orbitron;font-size:0.8em;">' + tc.conversions + '</div></div>';
-          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CPC</div><div style="color:#a855f7;font-family:Orbitron;font-size:0.8em;">$' + tc.avgCPC.toFixed(2) + '</div></div>';
-          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">CTR</div><div style="color:#55f7d8;font-family:Orbitron;font-size:0.8em;">' + (tc.ctr * 100).toFixed(2) + '%</div></div>';
-          html += '<div style="background:#0a1520;padding:6px;text-align:center;"><div style="color:#4a6a8a;font-size:0.5em;">ROAS</div><div style="color:#ffd700;font-family:Orbitron;font-size:0.8em;">' + roas + 'x</div></div>';
-          html += '</div>';
-
-          // Efficiency meter (share of conversions vs share of spend)
-          html += '<div style="margin-bottom:6px;">';
-          html += '<div style="display:flex;justify-content:space-between;font-size:0.7em;color:#4a6a8a;margin-bottom:3px;">';
-          html += '<span>Budget Share: ' + costPct + '%</span>';
-          html += '<span>Conversion Share: ' + convPct + '%</span>';
-          html += '</div>';
-          html += '<div style="height:8px;background:#0a1520;position:relative;overflow:hidden;">';
-          html += '<div style="height:100%;width:' + Math.min(100, costPct * 2) + '%;background:#ff475740;position:absolute;"></div>';
-          html += '<div style="height:100%;width:' + Math.min(100, convPct * 2) + '%;background:#00ff6660;position:absolute;"></div>';
-          html += '</div></div>';
-
-          // CPC position vs account Fib
-          var cpcPos = cpcFib.range > 0 ? Math.round((tc.avgCPC - cpcFib.low) / cpcFib.range * 100) : 50;
-          html += '<div style="display:flex;justify-content:space-between;font-size:0.7em;margin-top:6px;">';
-          html += '<span style="color:#4a6a8a;">CPC Fib: <strong style="color:' + (cpcPos > 61.8 ? '#ff4757' : cpcPos > 38.2 ? '#ff9f43' : '#00ff66') + ';">' + cpcPos + '%</strong></span>';
-          html += '<span style="color:#4a6a8a;">Efficiency: <strong style="color:' + (efficiency > 1.2 ? '#00ff66' : efficiency > 0.8 ? '#ff9f43' : '#ff4757') + ';">' + efficiency + 'x</strong></span>';
-          html += '</div>';
-
-          // Signal
-          var campSignal = '';
-          if (roas > 3 && tc.conversions > 2) campSignal = '<span class="pill pill-green">🚀 SCALE UP</span>';
-          else if (roas > 1.5) campSignal = '<span class="pill pill-green">✅ PROFITABLE</span>';
-          else if (tc.conversions > 0) campSignal = '<span class="pill pill-orange">⚡ OPTIMIZE</span>';
-          else campSignal = '<span class="pill pill-red">⚠️ REVIEW</span>';
-          html += '<div style="margin-top:6px;">' + campSignal + '</div>';
-
-          html += '</div>';
-        });
-        html += '</div>';
-      }
-      html += '</div>';
-    }
-
-    // ====== SECTION 13: BUDGET OPTIMIZER ======
-    html += '<div class="section">';
-    html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>BUDGET OPTIMIZATION CALCULATOR</div>';
-
-    var activeCamps = ads.campaigns.filter(function(c) { return c.status === 'ENABLED' && c.cost > 0; });
-    if (activeCamps.length > 0) {
-      // Calculate optimal budget allocation based on ROAS
-      var totalBudget = activeCamps.reduce(function(s, c) { return s + c.cost; }, 0);
-      var campWithROAS = activeCamps.map(function(c) {
-        var r = c.cost > 0 ? c.convValue / c.cost : 0;
-        return { name: c.name, cost: c.cost, roas: Math.round(r * 100) / 100, conversions: c.conversions, pctBudget: Math.round(c.cost / totalBudget * 1000) / 10 };
-      }).sort(function(a, b) { return b.roas - a.roas; });
-
-      // Calculate optimal allocation (proportional to ROAS)
-      var totalROAS = campWithROAS.reduce(function(s, c) { return s + Math.max(0.1, c.roas); }, 0);
-      campWithROAS.forEach(function(c) {
-        c.optimalPct = Math.round(Math.max(0.1, c.roas) / totalROAS * 1000) / 10;
-        c.optimalBudget = Math.round(totalBudget * c.optimalPct / 100);
-        c.currentBudget = Math.round(c.cost);
-        c.delta = c.optimalBudget - c.currentBudget;
-      });
-
-      html += '<div style="overflow-x:auto;"><table class="data-table">';
-      html += '<thead><tr><th>Campaign</th><th>Current Spend</th><th>Current %</th><th>ROAS</th><th>Optimal %</th><th>Optimal Spend</th><th>Change</th><th>Action</th></tr></thead><tbody>';
-      campWithROAS.forEach(function(c) {
-        var deltaColor = c.delta > 0 ? '#00ff66' : c.delta < 0 ? '#ff4757' : '#4a6a8a';
-        var action = c.delta > totalBudget * 0.05 ? '<span class="pill pill-green">↑ INCREASE</span>' : c.delta < -totalBudget * 0.05 ? '<span class="pill pill-red">↓ DECREASE</span>' : '<span class="pill pill-blue">→ MAINTAIN</span>';
-        html += '<tr><td style="color:#c0d8f0;font-weight:700;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + c.name + '</td>';
-        html += '<td style="color:#ff4757;">$' + c.currentBudget.toLocaleString() + '</td>';
-        html += '<td>' + c.pctBudget + '%</td>';
-        html += '<td style="color:#ffd700;font-weight:700;">' + c.roas + 'x</td>';
-        html += '<td style="color:#4285f4;">' + c.optimalPct + '%</td>';
-        html += '<td style="color:#00ff66;">$' + c.optimalBudget.toLocaleString() + '</td>';
-        html += '<td style="color:' + deltaColor + ';font-weight:700;">' + (c.delta >= 0 ? '+' : '') + '$' + c.delta.toLocaleString() + '</td>';
-        html += '<td>' + action + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
-
-      // Summary
-      var potentialGain = campWithROAS.filter(function(c){return c.roas > 2;}).reduce(function(s,c){ return s + c.delta * c.roas; }, 0);
-      if (potentialGain > 0) {
-        html += '<div class="signal-box" style="border-color:#ffd70030;background:rgba(255,215,0,0.03);color:#ffd700;margin-top:10px;">';
-        html += '💡 BUDGET REALLOCATION: Shifting budget from low-ROAS to high-ROAS campaigns could generate an estimated $' + Math.round(potentialGain).toLocaleString() + ' in additional conversion value with the same total spend.';
-        html += '</div>';
-      }
-    } else {
-      html += '<div style="color:#4a6a8a;padding:20px;border:1px solid #1a2a3a;">No active campaigns with spend data available.</div>';
-    }
-    html += '</div>';
-
-    // ====== SECTION 14: CONVERSION FUNNEL ======
-    html += '<div class="section">';
-    html += '<div class="section-head" style="color:#00ff66;--gc:#00ff66;"><span class="dot" style="background:#00ff66;"></span>CONVERSION FUNNEL</div>';
-
-    var funnelImpressions = as.totalImpressions;
-    var funnelClicks = as.totalClicks;
-    var funnelConversions = as.totalConversions;
-    var funnelCalls = bm.totalLeads || 0;
-    var funnelCompleted = bm.totalCompleted || 0;
-
-    var funnelSteps = [
-      { label: 'IMPRESSIONS', val: funnelImpressions, color: '#4285f4', pct: 100 },
-      { label: 'CLICKS', val: funnelClicks, color: '#00d4ff', pct: funnelImpressions > 0 ? Math.round(funnelClicks / funnelImpressions * 10000) / 100 : 0 },
-      { label: 'AD CONVERSIONS', val: Math.round(funnelConversions), color: '#ff9f43', pct: funnelClicks > 0 ? Math.round(funnelConversions / funnelClicks * 10000) / 100 : 0 },
-      { label: 'CRM CALLS', val: funnelCalls, color: '#a855f7', pct: funnelClicks > 0 ? Math.round(funnelCalls / funnelClicks * 10000) / 100 : 0 },
-      { label: 'COMPLETED JOBS', val: funnelCompleted, color: '#00ff66', pct: funnelCalls > 0 ? Math.round(funnelCompleted / funnelCalls * 10000) / 100 : 0 },
-    ];
-
-    html += '<div style="display:flex;flex-direction:column;gap:4px;max-width:800px;margin:0 auto;">';
-    funnelSteps.forEach(function(f, i) {
-      var barWidth = i === 0 ? 100 : Math.max(5, Math.round(f.val / (funnelImpressions || 1) * 100));
-      html += '<div style="display:flex;align-items:center;gap:10px;">';
-      html += '<div style="width:120px;text-align:right;font-family:Orbitron;font-size:0.5em;color:#4a6a8a;letter-spacing:1px;">' + f.label + '</div>';
-      html += '<div style="flex:1;height:32px;background:#0a1520;position:relative;">';
-      html += '<div style="height:100%;width:' + barWidth + '%;background:' + f.color + '30;border-right:3px solid ' + f.color + ';display:flex;align-items:center;justify-content:center;">';
-      html += '<span style="color:' + f.color + ';font-family:Orbitron;font-size:0.7em;font-weight:900;">' + (typeof f.val === 'number' ? f.val.toLocaleString() : f.val) + '</span>';
-      html += '</div></div>';
-      html += '<div style="width:50px;font-family:Orbitron;font-size:0.5em;color:#4a6a8a;">' + f.pct + '%</div>';
-      html += '</div>';
-      // Drop-off arrow between steps
-      if (i < funnelSteps.length - 1) {
-        var dropoff = funnelSteps[i].val > 0 ? Math.round((1 - funnelSteps[i + 1].val / funnelSteps[i].val) * 100) : 0;
-        html += '<div style="text-align:center;color:#ff475780;font-size:0.6em;padding:0 0 0 120px;">↓ ' + dropoff + '% drop-off</div>';
-      }
-    });
-    html += '</div></div>';
-
-    // ====== SECTION 15: WEEKLY TREND CHART ======
-    if (ads.weeklyPerformance.length > 3) {
-      html += '<div class="section">';
-      html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;"><span class="dot" style="background:#4285f4;"></span>WEEKLY TREND — SPEND vs CONVERSIONS</div>';
-      html += '<div id="ads-weekly-chart" style="border:1px solid #1a2a3a;min-height:250px;width:100%;margin-bottom:10px;"></div>';
-      html += '</div>';
-    }
-
-    // ====== SECTION 16: QUALITY SCORE DISTRIBUTION ======
-    if (ads.keywords.length > 0) {
-      var qsDist = {};
-      ads.keywords.forEach(function(k) {
-        if (k.qualityScore > 0) {
-          var qs = k.qualityScore;
-          if (!qsDist[qs]) qsDist[qs] = { count: 0, spend: 0, clicks: 0, conversions: 0 };
-          qsDist[qs].count++;
-          qsDist[qs].spend += k.cost;
-          qsDist[qs].clicks += k.clicks;
-          qsDist[qs].conversions += k.conversions;
-        }
-      });
-      var qsKeys = Object.keys(qsDist).sort(function(a,b){return parseInt(a)-parseInt(b);});
-
-      if (qsKeys.length > 0) {
-        html += '<div class="section">';
-        html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>QUALITY SCORE DISTRIBUTION</div>';
-
-        var maxQSCount = Math.max.apply(null, qsKeys.map(function(q){return qsDist[q].count;}));
-        html += '<div class="chart-box"><div class="chart-title" style="color:#a855f7;">KEYWORDS BY QUALITY SCORE</div>';
-        html += '<div style="display:flex;align-items:flex-end;gap:8px;height:120px;">';
-        for (var qs2 = 1; qs2 <= 10; qs2++) {
-          var qd = qsDist[qs2] || { count: 0, spend: 0 };
-          var qh = maxQSCount > 0 ? Math.max(2, Math.round(qd.count / maxQSCount * 100)) : 2;
-          var qColor = qs2 >= 7 ? '#00ff66' : qs2 >= 5 ? '#ff9f43' : '#ff4757';
-          html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
-          html += '<div style="color:#c0d8f0;font-size:0.6em;margin-bottom:2px;">' + qd.count + '</div>';
-          html += '<div style="width:80%;height:' + qh + '%;background:' + qColor + '40;border-top:2px solid ' + qColor + ';"></div>';
-          html += '<div style="font-family:Orbitron;font-size:0.5em;color:' + qColor + ';margin-top:4px;">' + qs2 + '</div></div>';
-        }
-        html += '</div>';
-        html += '<div style="display:flex;justify-content:center;gap:15px;margin-top:8px;font-size:0.7em;">';
-        html += '<span style="color:#ff4757;">● Poor (1-4)</span><span style="color:#ff9f43;">● Average (5-6)</span><span style="color:#00ff66;">● Good (7-10)</span>';
-        html += '</div></div>';
-
-        // QS impact table
-        html += '<div style="overflow-x:auto;"><table class="data-table">';
-        html += '<thead><tr><th>Quality Score</th><th>Keywords</th><th>Total Spend</th><th>Total Clicks</th><th>Conversions</th><th>Avg CPC</th><th>Impact</th></tr></thead><tbody>';
-        qsKeys.forEach(function(q) {
-          var qd2 = qsDist[q];
-          var avgCPC2 = qd2.clicks > 0 ? Math.round(qd2.spend / qd2.clicks * 100) / 100 : 0;
-          var qColor2 = parseInt(q) >= 7 ? '#00ff66' : parseInt(q) >= 5 ? '#ff9f43' : '#ff4757';
-          var impact = parseInt(q) <= 4 ? '<span class="pill pill-red">HIGH CPC PENALTY</span>' : parseInt(q) <= 6 ? '<span class="pill pill-orange">AVERAGE</span>' : '<span class="pill pill-green">CPC DISCOUNT</span>';
-          html += '<tr><td style="color:' + qColor2 + ';font-family:Orbitron;font-weight:900;font-size:1.1em;">' + q + '</td>';
-          html += '<td>' + qd2.count + '</td>';
-          html += '<td style="color:#ff4757;">$' + Math.round(qd2.spend).toLocaleString() + '</td>';
-          html += '<td style="color:#4285f4;">' + qd2.clicks.toLocaleString() + '</td>';
-          html += '<td style="color:#00ff66;">' + Math.round(qd2.conversions * 10) / 10 + '</td>';
-          html += '<td style="color:#a855f7;">$' + avgCPC2 + '</td>';
-          html += '<td>' + impact + '</td></tr>';
-        });
-        html += '</tbody></table></div></div>';
-      }
-    }
-
-
-    html += '<div style="text-align:center;padding:30px;font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#1a2a3a;border-top:1px solid #0a1520;">WILDWOOD ADS INTELLIGENCE v2.0 // ' + ads.campaigns.length + ' campaigns &bull; ' + ads.keywords.length + ' keywords &bull; ' + ads.dailyPerformance.length + ' daily &bull; ' + cityROI.length + ' markets &bull; ' + wastedKeywords.length + ' waste flags</div>';
+    html += '<div style="text-align:center;padding:30px;font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#1a2a3a;border-top:1px solid #0a1520;">WILDWOOD ADS INTELLIGENCE v1.0 // ' + ads.campaigns.length + ' campaigns &bull; ' + ads.keywords.length + ' keywords &bull; ' + ads.dailyPerformance.length + ' daily records</div>';
 
     // ====== JAVASCRIPT — Interactive Charts ======
     html += '<script>';
@@ -11901,20 +11527,6 @@ app.get('/ads', async function(req, res) {
 
     // Initial render
     html += 'switchMetric("cost");';
-
-    // Weekly trend chart
-    html += 'var weeklyData=' + JSON.stringify(ads.weeklyPerformance) + ';';
-    html += 'var wEl=document.getElementById("ads-weekly-chart");';
-    html += 'if(wEl && weeklyData.length>3){';
-    html += 'var wChart=LightweightCharts.createChart(wEl,Object.assign({},chartOpts,{width:wEl.offsetWidth,height:250}));';
-    html += 'var wSpend=wChart.addLineSeries({color:"#ff4757",lineWidth:2,title:"Spend",priceScaleId:"left"});';
-    html += 'var wConv=wChart.addLineSeries({color:"#00ff66",lineWidth:2,title:"Conversions",priceScaleId:"right"});';
-    html += 'wChart.applyOptions({rightPriceScale:{visible:true,borderColor:"#1a2a3a"},leftPriceScale:{visible:true,borderColor:"#1a2a3a"}});';
-    html += 'wSpend.setData(weeklyData.map(function(w){return{time:w.week,value:w.cost};}));';
-    html += 'wConv.setData(weeklyData.map(function(w){return{time:w.week,value:w.conversions};}));';
-    html += 'wChart.timeScale().fitContent();';
-    html += 'window.addEventListener("resize",function(){wChart.applyOptions({width:wEl.offsetWidth});});';
-    html += '}';
 
     html += 'window.addEventListener("resize",function(){chart.applyOptions({width:el.offsetWidth});});';
     html += '});';
