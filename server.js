@@ -22,6 +22,7 @@ console.log("Starting LifeOS Jarvis...");
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const BUSINESS_SPREADSHEET_ID = process.env.BUSINESS_SPREADSHEET_ID || SPREADSHEET_ID;
 const PROFIT_SPREADSHEET_ID = process.env.PROFIT_SPREADSHEET_ID || '';
+const FOLLOWUP_SPREADSHEET_ID = process.env.FOLLOWUP_SPREADSHEET_ID || '1A8oUmigHV6DsYcWF4hlDBC5KQDIHWMOh1Is6poCacx4';
 
 if (!SPREADSHEET_ID) {
   console.error("Missing SPREADSHEET_ID");
@@ -48,11 +49,19 @@ if (!fs.existsSync(keyfilePath)) {
 console.log("Using keyfile: " + keyfilePath);
 var auth = new google.auth.GoogleAuth({
   keyFile: keyfilePath,
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'],
 });
 
 var sheets = google.sheets({ version: 'v4', auth: auth });
+var drive = google.drive({ version: 'v3', auth: auth });
 console.log("Google Auth Ready");
+
+// Follow-up portal config
+const FOLLOWUP_PASSWORD_SHEET_ID = process.env.FOLLOWUP_PASSWORD_SHEET_ID || '19N-gYjjDUjQigQXk5fVzSkG_HYrpxQhuo9eXq2PvmVI';
+const FOLLOWUP_PASSWORD_TAB = 'Follow up password';
+const FOLLOWUP_ADMIN_EMAIL = 'aly@wildwoodsmallenginerepair.com';
+const FOLLOWUP_CC_EMAIL = 'trace@wildwoodsmallenginerepair.com';
+const FOLLOWUP_OPENAI_KEY = process.env.FOLLOWUP_OPENAI_KEY || '';
 
 /* ===========================
    TWILIO CLIENT
@@ -4094,6 +4103,8 @@ app.get('/dashboard', async function(req, res) {
     html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
+    html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
+    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -6391,6 +6402,8 @@ app.get('/business', async function(req, res) {
     html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
+    html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
+    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
@@ -8621,6 +8634,8 @@ app.get('/tookan', async function(req, res) {
     html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#00d4ff;border:1px solid #00d4ff40;text-decoration:none;background:rgba(0,212,255,0.1);box-shadow:0 0 15px rgba(0,212,255,0.1);">TOOKAN</a>';
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
+    html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
+    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
 
     // Status overview cards
@@ -9075,6 +9090,8 @@ app.get('/business/chart', async function(req, res) {
     html += '<a href="/tookan">TOOKAN</a>';
     html += '<a href="/business/chart" class="active">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
+    html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
+    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
@@ -9798,6 +9815,7 @@ app.get('/analytics', async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics" class="active">ANALYTICS</a>';
     html += '<a href="/ads">GOOGLE ADS</a>';
+    html += '<a href="/followup">FOLLOW UP</a>';
     html += '</div>';
 
     html += '<div class="title">PREDICTIVE ANALYTICS ENGINE</div>';
@@ -11313,6 +11331,7 @@ app.get('/ads', async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics">ANALYTICS</a>';
     html += '<a href="/ads" class="active">GOOGLE ADS</a>';
+    html += '<a href="/followup">FOLLOW UP</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:5px;">GOOGLE ADS INTELLIGENCE</div>';
@@ -11608,6 +11627,875 @@ app.get('/tookan/refresh', async function(req, res) {
   }
 });
 
+
+
+/* ===========================
+   FOLLOW UP PORTAL — FULL FEATURED
+   Features:
+   - Login from separate password sheet
+   - PDF upload to Google Drive
+   - Write to monthly "Follow ups of..." tabs
+   - ON TIME / LATE detection
+   - Admin email notification
+   - DropDown tracker update
+   - AI audit via OpenAI
+   - Performance chart (on-time vs late)
+   - Submission history
+   - Reminder checking (cron-like)
+   - Standalone nav (no JARVIS/ATHENA access)
+=========================== */
+
+var fuSessions = {};
+
+// ── HELPERS ──
+
+// Read any sheet by spreadsheet ID + range
+async function fuReadSheet(spreadsheetId, range) {
+  try {
+    var result = await sheets.spreadsheets.values.get({ spreadsheetId: spreadsheetId, range: range });
+    return result.data.values || [];
+  } catch (err) {
+    console.log("FU sheet read error (" + range + "):", err.message);
+    return [];
+  }
+}
+
+// Append to sheet
+async function fuAppendSheet(spreadsheetId, range, values) {
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: spreadsheetId,
+      range: range,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: values },
+    });
+    return true;
+  } catch (err) {
+    console.log("FU sheet append error:", err.message);
+    return false;
+  }
+}
+
+// Update specific cells
+async function fuUpdateSheet(spreadsheetId, range, values) {
+  try {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: spreadsheetId,
+      range: range,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: values },
+    });
+    return true;
+  } catch (err) {
+    console.log("FU sheet update error:", err.message);
+    return false;
+  }
+}
+
+// Get all tab names
+async function fuGetTabs(spreadsheetId) {
+  try {
+    var result = await sheets.spreadsheets.get({ spreadsheetId: spreadsheetId });
+    return result.data.sheets.map(function(s) { return s.properties.title; });
+  } catch (err) {
+    console.log("FU tabs error:", err.message);
+    return [];
+  }
+}
+
+// Get current month tab name
+function fuGetMonthTabName() {
+  var now = new Date();
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return 'Follow ups of ' + months[now.getMonth()] + ' ' + now.getFullYear();
+}
+
+// Check if upload was this week (Mon-Sun)
+function fuIsThisWeek(dateStr) {
+  if (!dateStr) return false;
+  var d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  var now = new Date();
+  var startOfWeek = new Date(now);
+  var day = startOfWeek.getDay() || 7;
+  if (day !== 1) startOfWeek.setDate(startOfWeek.getDate() - (day - 1));
+  startOfWeek.setHours(0, 0, 0, 0);
+  return d >= startOfWeek;
+}
+
+// Determine ON TIME vs LATE
+function fuGetSubmitStatus() {
+  var now = new Date();
+  var day = now.getDay(); // 0=Sun, 6=Sat
+  if (day === 6 || day === 0 || day === 1) {
+    return { status: 'LATE', color: '#ff4750' };
+  }
+  return { status: 'ON TIME', color: '#10b981' };
+}
+
+// Get users from password sheet
+async function fuGetUsers() {
+  var rows = await fuReadSheet(FOLLOWUP_PASSWORD_SHEET_ID, "'" + FOLLOWUP_PASSWORD_TAB + "'!A:B");
+  if (rows.length < 2) return [];
+  return rows.slice(1).map(function(r) {
+    return { name: (r[0] || '').trim(), password: (r[1] || '').trim() };
+  }).filter(function(u) { return u.name && u.password; });
+}
+
+// Get employees from DropDown tab
+async function fuGetEmployees() {
+  var rows = await fuReadSheet(FOLLOWUP_SPREADSHEET_ID, "'DropDown'!A:E");
+  if (rows.length < 2) return [];
+  return rows.slice(1).map(function(r, idx) {
+    return {
+      name: (r[0] || '').trim(),
+      email: (r[1] || '').trim(),
+      reminderEmail: (r[2] || '').trim(),
+      lastUpload: r[3] || '',
+      lastReminder: r[4] || '',
+      row: idx + 2
+    };
+  }).filter(function(e) { return e.name; });
+}
+
+// Get submission history
+async function fuGetHistory(userName, isAdmin) {
+  var tabs = await fuGetTabs(FOLLOWUP_SPREADSHEET_ID);
+  var followUpTabs = tabs.filter(function(t) { return t.toLowerCase().startsWith('follow ups of'); });
+  var allRows = [];
+
+  for (var i = 0; i < followUpTabs.length; i++) {
+    var tabName = followUpTabs[i];
+    try {
+      var rows = await fuReadSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A:G");
+      if (rows.length < 2) continue;
+      for (var j = 1; j < rows.length; j++) {
+        var r = rows[j];
+        var name = (r[1] || '').trim();
+        if (isAdmin || name.toLowerCase() === userName.toLowerCase()) {
+          allRows.push({
+            timestamp: r[0] || '',
+            name: name,
+            emailSentTo: r[2] || '',
+            fileName: r[3] || '',
+            fileLink: r[4] || '',
+            aiAudit: r[5] || '',
+            suggestions: r[6] || '',
+            tab: tabName
+          });
+        }
+      }
+    } catch (e) { /* skip */ }
+  }
+
+  allRows.sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+  return allRows;
+}
+
+// Get chart data
+async function fuGetChartData() {
+  var rows = await fuReadSheet(FOLLOWUP_SPREADSHEET_ID, "'Chart'!A:C");
+  if (rows.length < 2) return [];
+  return rows.slice(1).map(function(r) {
+    return { name: (r[0] || '').trim(), onTime: parseFloat(r[1]) || 0, late: parseFloat(r[2]) || 0 };
+  }).filter(function(c) { return c.name; });
+}
+
+// Upload PDF to Google Drive
+async function fuUploadToDrive(base64Data, fileName) {
+  try {
+    // Find or create the "Weekly Task PDFs" folder
+    var folderName = 'Weekly Task PDFs';
+    var folderRes = await drive.files.list({
+      q: "name='" + folderName + "' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+      fields: 'files(id, name)',
+    });
+
+    var folderId;
+    if (folderRes.data.files && folderRes.data.files.length > 0) {
+      folderId = folderRes.data.files[0].id;
+    } else {
+      var newFolder = await drive.files.create({
+        requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
+        fields: 'id',
+      });
+      folderId = newFolder.data.id;
+    }
+
+    // Upload the PDF
+    var buffer = Buffer.from(base64Data, 'base64');
+    var { Readable } = require('stream');
+    var stream = new Readable();
+    stream.push(buffer);
+    stream.push(null);
+
+    var fileRes = await drive.files.create({
+      requestBody: {
+        name: fileName,
+        parents: [folderId],
+      },
+      media: {
+        mimeType: 'application/pdf',
+        body: stream,
+      },
+      fields: 'id, webViewLink',
+    });
+
+    // Make it viewable by anyone with link
+    await drive.permissions.create({
+      fileId: fileRes.data.id,
+      requestBody: { role: 'reader', type: 'anyone' },
+    });
+
+    return {
+      id: fileRes.data.id,
+      url: fileRes.data.webViewLink || ('https://drive.google.com/file/d/' + fileRes.data.id + '/view'),
+    };
+  } catch (err) {
+    console.log("Drive upload error:", err.message);
+    throw err;
+  }
+}
+
+// Update DropDown tracker (Column D = last upload, Column E = clear)
+async function fuUpdateTracker(userName) {
+  try {
+    var employees = await fuGetEmployees();
+    for (var i = 0; i < employees.length; i++) {
+      if (employees[i].name.toLowerCase() === userName.toLowerCase()) {
+        var row = employees[i].row;
+        await fuUpdateSheet(FOLLOWUP_SPREADSHEET_ID, "'DropDown'!D" + row + ":E" + row, [[new Date().toISOString(), '']]);
+        return true;
+      }
+    }
+  } catch (err) {
+    console.log("Tracker update error:", err.message);
+  }
+  return false;
+}
+
+// Update Chart tab
+async function fuUpdateChart(userName, isOnTime) {
+  try {
+    var chartData = await fuReadSheet(FOLLOWUP_SPREADSHEET_ID, "'Chart'!A:C");
+    var found = false;
+    for (var i = 1; i < chartData.length; i++) {
+      if ((chartData[i][0] || '').trim().toLowerCase() === userName.toLowerCase()) {
+        var onTime = parseFloat(chartData[i][1]) || 0;
+        var late = parseFloat(chartData[i][2]) || 0;
+        if (isOnTime) onTime++; else late++;
+        await fuUpdateSheet(FOLLOWUP_SPREADSHEET_ID, "'Chart'!B" + (i + 1) + ":C" + (i + 1), [[onTime, late]]);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'Chart'!A:C", [[userName, isOnTime ? 1 : 0, isOnTime ? 0 : 1]]);
+    }
+  } catch (err) {
+    console.log("Chart update error:", err.message);
+  }
+}
+
+// Send admin notification email via Gmail API (best effort)
+async function fuSendAdminEmail(name, fileName, fileUrl, statusMsg, statusColor) {
+  try {
+    // Try to use first available Gmail account
+    var accounts = Object.keys(global.gmailTokens || {});
+    if (!accounts.length) {
+      console.log("FU Email: No Gmail accounts configured, skipping email notification");
+      return false;
+    }
+
+    var account = accounts[0];
+    var tokens = global.gmailTokens[account];
+    if (!tokens || !tokens.access_token) {
+      console.log("FU Email: No valid token for " + account);
+      return false;
+    }
+
+    // Refresh token if needed
+    if (tokens.expiry_date && Date.now() > tokens.expiry_date) {
+      try {
+        var refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(tokens.refresh_token) +
+                '&client_id=' + encodeURIComponent(process.env.GMAIL_CLIENT_ID || '') +
+                '&client_secret=' + encodeURIComponent(process.env.GMAIL_CLIENT_SECRET || '')
+        });
+        var refreshData = await refreshRes.json();
+        if (refreshData.access_token) {
+          tokens.access_token = refreshData.access_token;
+          tokens.expiry_date = Date.now() + (refreshData.expires_in * 1000);
+        }
+      } catch (re) { /* use existing token */ }
+    }
+
+    var subject = 'Weekly Report: ' + name + ' - ' + statusMsg;
+    var htmlBody = '<h3>Weekly Report Submitted</h3>' +
+      '<p><b>Staff Name:</b> ' + name + '</p>' +
+      '<p><b>File Name:</b> ' + fileName + '</p>' +
+      '<p><b>Submission Status:</b> <span style="color:' + statusColor + '; font-weight:bold;">' + statusMsg + '</span></p>' +
+      '<p><b>File Link:</b> <a href="' + fileUrl + '">' + fileUrl + '</a></p>' +
+      '<br><p><i>Submitted via Follow Up Portal</i></p>';
+
+    var to = FOLLOWUP_ADMIN_EMAIL;
+    var cc = FOLLOWUP_CC_EMAIL;
+    var rawEmail = 'From: ' + account + '\r\n' +
+      'To: ' + to + '\r\n' +
+      'Cc: ' + cc + '\r\n' +
+      'Subject: ' + subject + '\r\n' +
+      'MIME-Version: 1.0\r\n' +
+      'Content-Type: text/html; charset=UTF-8\r\n\r\n' +
+      htmlBody;
+
+    var encoded = Buffer.from(rawEmail).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    var sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + tokens.access_token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ raw: encoded }),
+    });
+
+    if (sendRes.ok) {
+      console.log("FU Email sent to " + to + " about " + name);
+      return true;
+    } else {
+      var errBody = await sendRes.text();
+      console.log("FU Email send error:", errBody.substring(0, 200));
+      return false;
+    }
+  } catch (err) {
+    console.log("FU Email error:", err.message);
+    return false;
+  }
+}
+
+// Run AI audit on a PDF (OpenAI)
+async function fuRunAIAudit(pdfText) {
+  if (!FOLLOWUP_OPENAI_KEY) return { audit: '', suggestions: '' };
+
+  try {
+    var prompt = 'You are a Senior Project Manager validating billing hours.\n' +
+      'GOAL: The worker claims 40 hours/week.\n' +
+      'CONTEXT: The worker is HUMAN. The work involves manual data entry, reading, cross-referencing, and formatting.\n' +
+      'The Iceberg Rule: The text below is just a summary. Actual work involved opening hundreds of tabs, waiting for loads, fixing formatting, double-checking data.\n' +
+      'TASK:\n' +
+      '1. AUDIT WITH EMPATHY: assume 3x multiplier on every task. If work looks substantial, default to "40 Hours Justified". Only reject if document is almost empty.\n' +
+      '2. SUGGEST: Only if work is truly <20h, suggest complex tasks to add.\n\n' +
+      'INPUT SUMMARY:\n"' + pdfText.substring(0, 15000) + '"\n\n' +
+      'OUTPUT FORMAT (JSON Only):\n{"audit": "Verdict", "suggestions": "Advice or empty string"}';
+
+    var res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + FOLLOWUP_OPENAI_KEY,
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: 'You are a realistic estimator. Manual human work is slow and prone to delays. Value thoroughness over speed.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.4,
+      }),
+    });
+
+    var data = await res.json();
+    if (data.choices && data.choices[0]) {
+      var content = JSON.parse(data.choices[0].message.content);
+      return { audit: content.audit || '', suggestions: content.suggestions || '' };
+    }
+    return { audit: '', suggestions: '' };
+  } catch (err) {
+    console.log("FU AI audit error:", err.message);
+    return { audit: 'ERROR: AI Audit Failed: ' + err.message, suggestions: '' };
+  }
+}
+
+// ── ROUTES ──
+
+// Login
+app.post('/followup/login', express.json(), async function(req, res) {
+  try {
+    var name = (req.body.name || '').trim();
+    var password = (req.body.password || '').trim();
+    if (!name || !password) return res.json({ success: false, message: 'Name and password required' });
+
+    var users = await fuGetUsers();
+    var user = users.find(function(u) {
+      return u.name.toLowerCase() === name.toLowerCase() && u.password === password;
+    });
+
+    if (!user) return res.json({ success: false, message: 'Invalid credentials' });
+
+    var token = 'fu_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    // Check if user is admin (name matches Trace or specific admin names)
+    var isAdmin = name.toLowerCase() === 'trace' || name.toLowerCase() === 'aly';
+    fuSessions[token] = { name: user.name, role: isAdmin ? 'admin' : 'user', created: Date.now() };
+
+    // Clean old sessions
+    var now = Date.now();
+    Object.keys(fuSessions).forEach(function(k) {
+      if (now - fuSessions[k].created > 86400000) delete fuSessions[k];
+    });
+
+    res.json({ success: true, token: token, name: user.name, role: fuSessions[token].role });
+  } catch (err) {
+    console.log("FU login error:", err.message);
+    res.json({ success: false, message: 'Server error' });
+  }
+});
+
+// Submit follow-up (with PDF upload)
+app.post('/followup/submit', express.json({ limit: '50mb' }), async function(req, res) {
+  try {
+    var token = req.body.token;
+    var session = fuSessions[token];
+    if (!session) return res.json({ success: false, message: 'Not logged in' });
+
+    var fileName = (req.body.fileName || '').trim();
+    var fileData = (req.body.fileData || '').trim(); // base64 PDF data
+    var fileLink = (req.body.fileLink || '').trim(); // manual link fallback
+    var emailSentTo = (req.body.emailSentTo || FOLLOWUP_ADMIN_EMAIL).trim();
+
+    if (!fileName) return res.json({ success: false, message: 'File name is required' });
+
+    var fileUrl = fileLink;
+
+    // If base64 PDF data provided, upload to Google Drive
+    if (fileData) {
+      try {
+        var driveResult = await fuUploadToDrive(fileData, fileName);
+        fileUrl = driveResult.url;
+        console.log("FU: Uploaded " + fileName + " to Drive: " + fileUrl);
+      } catch (uploadErr) {
+        console.log("FU: Drive upload failed, using manual link. Error:", uploadErr.message);
+        if (!fileLink) return res.json({ success: false, message: 'File upload failed: ' + uploadErr.message });
+      }
+    }
+
+    if (!fileUrl) return res.json({ success: false, message: 'No file link provided and upload failed' });
+
+    // Determine ON TIME / LATE
+    var submitStatus = fuGetSubmitStatus();
+
+    // Get/create monthly tab
+    var tabName = fuGetMonthTabName();
+    var tabs = await fuGetTabs(FOLLOWUP_SPREADSHEET_ID);
+    if (tabs.indexOf(tabName) === -1) {
+      try {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: FOLLOWUP_SPREADSHEET_ID,
+          requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] }
+        });
+        await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A1:G1",
+          [['Timestamp', 'Name', 'Email Sent To', 'File Name', 'File Link', 'AI Audit', 'Suggestions']]);
+      } catch (tabErr) {
+        console.log("FU tab creation error:", tabErr.message);
+      }
+    }
+
+    // Write to monthly sheet
+    var timestamp = new Date().toISOString();
+    var success = await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A:G",
+      [[timestamp, session.name, emailSentTo, fileName, fileUrl, '', '']]);
+
+    if (success) {
+      // Update DropDown tracker
+      await fuUpdateTracker(session.name);
+
+      // Update Chart
+      var isOnTime = submitStatus.status === 'ON TIME';
+      await fuUpdateChart(session.name, isOnTime);
+
+      // Send admin email (best effort)
+      fuSendAdminEmail(session.name, fileName, fileUrl, submitStatus.status, submitStatus.color).catch(function(e) {});
+    }
+
+    res.json({
+      success: success,
+      message: success ? ('Report submitted — ' + submitStatus.status) : 'Error saving to sheet',
+      status: submitStatus.status
+    });
+  } catch (err) {
+    console.log("FU submit error:", err.message);
+    res.json({ success: false, message: 'Server error: ' + err.message });
+  }
+});
+
+// History API
+app.get('/followup/api/history', async function(req, res) {
+  try {
+    var token = req.query.token;
+    var session = fuSessions[token];
+    if (!session) return res.json({ success: false, message: 'Not logged in' });
+
+    var isAdmin = session.role === 'admin';
+    var history = await fuGetHistory(session.name, isAdmin);
+    var chartData = await fuGetChartData();
+    var employees = await fuGetEmployees();
+
+    // Get who has submitted this week
+    var weekStatus = {};
+    employees.forEach(function(e) {
+      weekStatus[e.name] = fuIsThisWeek(e.lastUpload);
+    });
+
+    res.json({
+      success: true,
+      history: history,
+      chartData: chartData,
+      employees: employees.map(function(e) { return { name: e.name, submittedThisWeek: weekStatus[e.name] }; }),
+      user: session.name,
+      role: session.role
+    });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
+// Logout
+app.post('/followup/logout', express.json(), function(req, res) {
+  var token = req.body.token;
+  if (token && fuSessions[token]) delete fuSessions[token];
+  res.json({ success: true });
+});
+
+// ── MAIN PAGE ──
+app.get('/followup', async function(req, res) {
+  try {
+    var employees = await fuGetEmployees();
+    var employeeNames = employees.map(function(e) { return e.name; });
+
+    // Also get password sheet names for login dropdown
+    var users = await fuGetUsers();
+    var loginNames = users.map(function(u) { return u.name; });
+
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>Follow Up Portal — Wildwood</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">';
+    html += '<style>';
+
+    // Base
+    html += '* { margin:0; padding:0; box-sizing:border-box; }';
+    html += 'body { background:#0a0e17; color:#c8d6e5; font-family:Rajdhani,sans-serif; min-height:100vh; }';
+
+    // Nav — standalone (no JARVIS/ATHENA for employees)
+    html += '.nav { display:flex; justify-content:center; gap:0; padding:20px 20px 0; flex-wrap:wrap; }';
+    html += '.nav a { font-family:Orbitron; font-size:0.7em; letter-spacing:4px; padding:12px 30px; text-decoration:none; transition:all 0.3s; }';
+    html += '.nav a.active { color:#10b981; border:1px solid #10b98140; background:rgba(16,185,129,0.1); box-shadow:0 0 15px rgba(16,185,129,0.1); }';
+
+    html += '.container { max-width:900px; margin:0 auto; padding:30px 40px; }';
+
+    // Login
+    html += '.login-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:70vh; }';
+    html += '.login-box { background:rgba(16,185,129,0.05); border:1px solid #10b98130; border-radius:16px; padding:50px 40px; width:100%; max-width:420px; }';
+    html += '.login-box h1 { font-family:Orbitron; color:#10b981; font-size:1.3em; letter-spacing:6px; text-align:center; margin-bottom:8px; }';
+    html += '.login-box .subtitle { color:#4a6a8a; text-align:center; margin-bottom:30px; font-size:0.95em; }';
+    html += '.form-group { margin-bottom:18px; }';
+    html += '.form-group label { display:block; font-family:Orbitron; font-size:0.6em; letter-spacing:3px; color:#10b981; margin-bottom:8px; }';
+    html += '.form-group select, .form-group input[type="text"], .form-group input[type="password"] { width:100%; padding:12px 16px; background:rgba(5,10,20,0.8); border:1px solid #1a2a3a; color:#c8d6e5; font-family:Rajdhani; font-size:1em; border-radius:8px; outline:none; }';
+    html += '.form-group select:focus, .form-group input:focus { border-color:#10b981; }';
+    html += '.form-group select option { background:#0a0e17; }';
+    html += 'input[type="file"] { width:100%; padding:10px; background:rgba(5,10,20,0.8); border:1px solid #1a2a3a; color:#c8d6e5; border-radius:8px; font-family:Rajdhani; font-size:0.95em; cursor:pointer; }';
+    html += 'input[type="file"]::file-selector-button { background:rgba(16,185,129,0.2); border:1px solid #10b98140; color:#10b981; padding:6px 16px; border-radius:6px; cursor:pointer; font-family:Rajdhani; font-weight:600; margin-right:10px; }';
+
+    // Buttons
+    html += '.btn { display:block; width:100%; padding:14px; font-family:Orbitron; font-size:0.75em; letter-spacing:4px; border:1px solid #10b98150; background:rgba(16,185,129,0.15); color:#10b981; cursor:pointer; border-radius:8px; transition:all 0.3s; }';
+    html += '.btn:hover { background:rgba(16,185,129,0.3); box-shadow:0 0 20px rgba(16,185,129,0.2); }';
+    html += '.btn:disabled { opacity:0.5; cursor:not-allowed; }';
+    html += '.btn-submit { border-color:#00d4ff50; background:rgba(0,212,255,0.15); color:#00d4ff; }';
+    html += '.btn-submit:hover { background:rgba(0,212,255,0.3); }';
+    html += '.btn-danger { border-color:#ff475050; background:rgba(255,71,80,0.1); color:#ff4750; font-size:0.65em; padding:10px; width:auto; display:inline-block; }';
+    html += '.error-msg { color:#ff4750; text-align:center; font-size:0.9em; margin-top:10px; min-height:20px; }';
+
+    // Portal
+    html += '.portal { display:none; }';
+    html += '.portal.active { display:block; }';
+    html += '.welcome-bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:25px; padding:15px 20px; background:rgba(16,185,129,0.05); border:1px solid #10b98120; border-radius:10px; flex-wrap:wrap; gap:10px; }';
+    html += '.welcome-bar .user-name { font-family:Orbitron; color:#10b981; font-size:0.85em; letter-spacing:3px; }';
+    html += '.section-title { font-family:Orbitron; font-size:0.8em; letter-spacing:5px; color:#10b981; margin:28px 0 12px; padding-bottom:8px; border-bottom:1px solid #10b98120; }';
+    html += '.section-title.blue { color:#00d4ff; border-color:#00d4ff20; }';
+    html += '.section-title.purple { color:#a855f7; border-color:#a855f720; }';
+    html += '.section-title.orange { color:#ff9f43; border-color:#ff9f4320; }';
+
+    // Submit form
+    html += '.submit-form { background:rgba(0,212,255,0.03); border:1px solid #00d4ff15; border-radius:12px; padding:25px; margin-bottom:20px; }';
+    html += '.form-row { display:grid; grid-template-columns:1fr 1fr; gap:15px; }';
+    html += '.or-divider { text-align:center; color:#4a6a8a; font-family:Orbitron; font-size:0.6em; letter-spacing:3px; margin:10px 0; }';
+
+    // Weekly status cards
+    html += '.status-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:20px; }';
+    html += '.status-card { background:rgba(10,14,23,0.6); border:1px solid #1a2a3a; border-radius:8px; padding:12px; text-align:center; }';
+    html += '.status-card .name { font-family:Orbitron; font-size:0.6em; letter-spacing:2px; color:#c8d6e5; margin-bottom:6px; }';
+    html += '.status-card .badge { display:inline-block; padding:3px 12px; border-radius:12px; font-size:0.8em; font-weight:700; }';
+    html += '.badge.done { background:rgba(16,185,129,0.15); color:#10b981; border:1px solid #10b98130; }';
+    html += '.badge.pending { background:rgba(255,165,0,0.15); color:#ffa500; border:1px solid #ffa50030; }';
+
+    // Chart
+    html += '.chart-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; margin-bottom:25px; }';
+    html += '.chart-card { background:rgba(16,185,129,0.03); border:1px solid #10b98115; border-radius:10px; padding:15px; text-align:center; }';
+    html += '.chart-card .cname { font-family:Orbitron; font-size:0.6em; letter-spacing:2px; color:#c8d6e5; margin-bottom:8px; }';
+    html += '.chart-bar-wrap { display:flex; gap:8px; justify-content:center; align-items:flex-end; height:55px; }';
+    html += '.chart-bar { width:28px; border-radius:4px 4px 0 0; position:relative; }';
+    html += '.chart-bar.green { background:rgba(16,185,129,0.6); }';
+    html += '.chart-bar.red { background:rgba(255,71,80,0.6); }';
+    html += '.chart-bar span { position:absolute; top:-16px; left:50%; transform:translateX(-50%); font-size:0.7em; }';
+
+    // History table
+    html += '.history-table { width:100%; border-collapse:collapse; font-size:0.85em; }';
+    html += '.history-table th { font-family:Orbitron; font-size:0.55em; letter-spacing:3px; color:#10b981; text-align:left; padding:10px 8px; border-bottom:1px solid #10b98130; background:rgba(16,185,129,0.05); }';
+    html += '.history-table td { padding:8px; border-bottom:1px solid #0d1520; vertical-align:top; }';
+    html += '.history-table tr:hover td { background:rgba(16,185,129,0.03); }';
+    html += '.history-table a { color:#00d4ff; text-decoration:none; }';
+    html += '.history-table a:hover { text-decoration:underline; }';
+    html += '.pill { display:inline-block; padding:2px 10px; border-radius:12px; font-size:0.8em; font-weight:600; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }';
+    html += '.pill.ok { background:rgba(16,185,129,0.12); color:#10b981; }';
+    html += '.pill.warn { background:rgba(255,165,0,0.12); color:#ffa500; }';
+    html += '.pill.err { background:rgba(255,71,80,0.12); color:#ff4750; }';
+
+    // Toast
+    html += '.toast { position:fixed; top:20px; right:20px; padding:15px 25px; border-radius:10px; font-family:Orbitron; font-size:0.65em; letter-spacing:2px; z-index:9999; transform:translateX(120%); transition:transform 0.3s; }';
+    html += '.toast.show { transform:translateX(0); }';
+    html += '.toast.success { background:rgba(16,185,129,0.95); color:#fff; }';
+    html += '.toast.error { background:rgba(255,71,80,0.95); color:#fff; }';
+    html += '.toast.info { background:rgba(0,212,255,0.95); color:#fff; }';
+
+    // Progress bar
+    html += '.progress-bar { width:100%; height:4px; background:#1a2a3a; border-radius:2px; margin-top:10px; overflow:hidden; display:none; }';
+    html += '.progress-bar .fill { height:100%; background:linear-gradient(90deg,#10b981,#00d4ff); width:0%; transition:width 0.3s; animation:progress-pulse 2s infinite; }';
+    html += '@keyframes progress-pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }';
+
+    // Responsive
+    html += '@media(max-width:768px) { .container { padding:15px 12px; } .form-row { grid-template-columns:1fr; } .nav a { padding:8px 14px; font-size:0.6em; letter-spacing:2px; } .login-box { padding:30px 20px; } .history-table { font-size:0.75em; } .status-grid { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); } .welcome-bar { flex-direction:column; text-align:center; } }';
+
+    html += '</style></head><body>';
+
+    // Nav — only FOLLOW UP shown
+    html += '<div class="nav">';
+    html += '<a href="/followup" class="active">FOLLOW UP</a>';
+    html += '</div>';
+
+    html += '<div class="container">';
+
+    // ── LOGIN SCREEN ──
+    html += '<div id="loginScreen" class="login-screen">';
+    html += '<div class="login-box">';
+    html += '<h1>📋 FOLLOW UP</h1>';
+    html += '<div class="subtitle">Weekly Report Submission Portal</div>';
+    html += '<div class="form-group"><label>YOUR NAME</label><select id="loginName"><option value="">Select your name...</option>';
+    for (var i = 0; i < loginNames.length; i++) {
+      html += '<option value="' + loginNames[i] + '">' + loginNames[i] + '</option>';
+    }
+    html += '</select></div>';
+    html += '<div class="form-group"><label>PASSWORD</label><input type="password" id="loginPassword" placeholder="Enter your password"></div>';
+    html += '<button class="btn" id="loginBtn" onclick="doLogin()">SIGN IN →</button>';
+    html += '<div class="error-msg" id="loginError"></div>';
+    html += '</div></div>';
+
+    // ── PORTAL ──
+    html += '<div id="portal" class="portal">';
+
+    // Welcome bar
+    html += '<div class="welcome-bar"><span class="user-name" id="welcomeName">—</span>';
+    html += '<button class="btn btn-danger" onclick="doLogout()">SIGN OUT</button></div>';
+
+    // Submit section
+    html += '<div class="section-title blue">📤 SUBMIT WEEKLY REPORT</div>';
+    html += '<div class="submit-form">';
+    html += '<div class="form-group"><label>UPLOAD PDF FILE</label><input type="file" id="submitFile" accept="application/pdf"></div>';
+    html += '<div class="or-divider">— OR PASTE LINK —</div>';
+    html += '<div class="form-group"><label>GOOGLE DRIVE LINK (optional if uploading)</label><input type="text" id="submitFileLink" placeholder="Paste Google Drive share link"></div>';
+    html += '<div class="form-group"><label>FILE NAME (auto-filled from upload)</label><input type="text" id="submitFileName" placeholder="e.g. Follow Up Report.pdf"></div>';
+    html += '<button class="btn btn-submit" id="submitBtn" onclick="doSubmit()">SUBMIT REPORT →</button>';
+    html += '<div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>';
+    html += '</div>';
+
+    // Weekly status
+    html += '<div class="section-title orange">📅 THIS WEEK\'S STATUS</div>';
+    html += '<div id="weekStatus" class="status-grid"></div>';
+
+    // Performance chart
+    html += '<div class="section-title purple">📊 PERFORMANCE — ON TIME vs LATE</div>';
+    html += '<div id="chartArea" class="chart-grid"></div>';
+    html += '<div style="display:flex;gap:15px;justify-content:center;margin-bottom:20px;font-size:0.8em;">';
+    html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-right:4px;vertical-align:middle;"></span> On Time</span>';
+    html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff4750;margin-right:4px;vertical-align:middle;"></span> Late</span>';
+    html += '</div>';
+
+    // History
+    html += '<div class="section-title">📋 SUBMISSION HISTORY</div>';
+    html += '<div id="historyArea"></div>';
+
+    html += '</div>'; // portal
+    html += '</div>'; // container
+
+    html += '<div class="toast" id="toast"></div>';
+
+    // ── JAVASCRIPT ──
+    html += '<script>';
+
+    // State
+    html += 'var sessionToken=localStorage.getItem("fu_token")||"";';
+    html += 'var sessionUser=localStorage.getItem("fu_user")||"";';
+    html += 'var sessionRole=localStorage.getItem("fu_role")||"";';
+    html += 'if(sessionToken){showPortal();loadData();}';
+
+    // Auto-fill file name from file input
+    html += 'document.getElementById("submitFile").addEventListener("change",function(){';
+    html += '  if(this.files.length>0) document.getElementById("submitFileName").value=this.files[0].name;';
+    html += '});';
+
+    // Enter key
+    html += 'document.getElementById("loginPassword").addEventListener("keydown",function(e){if(e.key==="Enter")doLogin();});';
+
+    // Login
+    html += 'function doLogin(){';
+    html += '  var name=document.getElementById("loginName").value,pw=document.getElementById("loginPassword").value;';
+    html += '  if(!name||!pw){document.getElementById("loginError").textContent="Select name and enter password";return;}';
+    html += '  var btn=document.getElementById("loginBtn");btn.disabled=true;btn.textContent="SIGNING IN...";';
+    html += '  fetch("/followup/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name,password:pw})})';
+    html += '  .then(function(r){return r.json()}).then(function(d){';
+    html += '    if(d.success){sessionToken=d.token;sessionUser=d.name;sessionRole=d.role;';
+    html += '      localStorage.setItem("fu_token",d.token);localStorage.setItem("fu_user",d.name);localStorage.setItem("fu_role",d.role);';
+    html += '      showPortal();loadData();}';
+    html += '    else{document.getElementById("loginError").textContent=d.message||"Login failed";btn.disabled=false;btn.textContent="SIGN IN →";}';
+    html += '  }).catch(function(){document.getElementById("loginError").textContent="Network error";btn.disabled=false;btn.textContent="SIGN IN →";});';
+    html += '}';
+
+    // Show portal
+    html += 'function showPortal(){';
+    html += '  document.getElementById("loginScreen").style.display="none";';
+    html += '  document.getElementById("portal").classList.add("active");';
+    html += '  document.getElementById("welcomeName").textContent="👋 "+sessionUser;';
+    html += '}';
+
+    // Load data
+    html += 'function loadData(){';
+    html += '  fetch("/followup/api/history?token="+encodeURIComponent(sessionToken))';
+    html += '  .then(function(r){return r.json()}).then(function(d){';
+    html += '    if(!d.success){doLogout();return;}';
+    html += '    renderWeekStatus(d.employees);renderChart(d.chartData);renderHistory(d.history);';
+    html += '  }).catch(function(e){console.log("Load error:",e);});';
+    html += '}';
+
+    // Weekly status
+    html += 'function renderWeekStatus(emps){';
+    html += '  var area=document.getElementById("weekStatus");if(!emps||!emps.length){area.innerHTML="";return;}';
+    html += '  var h="";emps.forEach(function(e){';
+    html += '    h+="<div class=\\"status-card\\">";';
+    html += '    h+="<div class=\\"name\\">"+e.name+"</div>";';
+    html += '    h+=e.submittedThisWeek?"<span class=\\"badge done\\">✅ SUBMITTED</span>":"<span class=\\"badge pending\\">⏳ PENDING</span>";';
+    html += '    h+="</div>";';
+    html += '  });area.innerHTML=h;';
+    html += '}';
+
+    // Chart
+    html += 'function renderChart(data){';
+    html += '  var area=document.getElementById("chartArea");';
+    html += '  if(!data||!data.length){area.innerHTML="<div style=\\"text-align:center;padding:20px;color:#4a6a8a\\">No chart data yet</div>";return;}';
+    html += '  var mx=1;data.forEach(function(d){if(d.onTime>mx)mx=d.onTime;if(d.late>mx)mx=d.late;});';
+    html += '  var h="";data.forEach(function(d){';
+    html += '    var oH=Math.max(4,(d.onTime/mx)*50),lH=d.late>0?Math.max(4,(d.late/mx)*50):0;';
+    html += '    h+="<div class=\\"chart-card\\"><div class=\\"cname\\">"+d.name+"</div><div class=\\"chart-bar-wrap\\">";';
+    html += '    h+="<div class=\\"chart-bar green\\" style=\\"height:"+oH+"px\\"><span>"+d.onTime+"</span></div>";';
+    html += '    if(d.late>0)h+="<div class=\\"chart-bar red\\" style=\\"height:"+lH+"px\\"><span>"+d.late+"</span></div>";';
+    html += '    h+="</div></div>";';
+    html += '  });area.innerHTML=h;';
+    html += '}';
+
+    // History
+    html += 'function renderHistory(rows){';
+    html += '  var area=document.getElementById("historyArea");';
+    html += '  if(!rows||!rows.length){area.innerHTML="<div style=\\"text-align:center;padding:30px;color:#4a6a8a\\">📋 No submissions yet — submit your first report above!</div>";return;}';
+    html += '  var h="<div style=\\"overflow-x:auto;-webkit-overflow-scrolling:touch\\"><table class=\\"history-table\\">";';
+    html += '  h+="<thead><tr><th>DATE</th><th>NAME</th><th>FILE</th><th>STATUS</th><th>AI AUDIT</th></tr></thead><tbody>";';
+    html += '  rows.forEach(function(r){';
+    html += '    var dt=r.timestamp?new Date(r.timestamp):null;';
+    html += '    var ds=dt?((dt.getMonth()+1)+"/"+dt.getDate()+"/"+dt.getFullYear()):"—";';
+    html += '    var day=dt?dt.getDay():-1;';
+    html += '    var isLate=(day===0||day===6||day===1);';
+    html += '    var statusPill=isLate?"<span class=\\"pill err\\">LATE</span>":"<span class=\\"pill ok\\">ON TIME</span>";';
+    html += '    var audit=r.aiAudit||"—";';
+    html += '    var auditPill="—";';
+    html += '    if(audit&&audit!=="—"){';
+    html += '      if(audit.indexOf("ERROR")>-1)auditPill="<span class=\\"pill err\\" title=\\""+audit.replace(/"/g,"&quot;")+"\\">"+audit.substring(0,40)+"...</span>";';
+    html += '      else if(audit.indexOf("40 Hours")>-1)auditPill="<span class=\\"pill ok\\" title=\\""+audit.replace(/"/g,"&quot;")+"\\">✅ "+audit.substring(0,35)+"</span>";';
+    html += '      else auditPill="<span class=\\"pill warn\\" title=\\""+audit.replace(/"/g,"&quot;")+"\\">"+audit.substring(0,40)+"</span>";';
+    html += '    }';
+    html += '    h+="<tr><td>"+ds+"</td><td>"+(r.name||"—")+"</td>";';
+    html += '    h+="<td>"+(r.fileLink?"<a href=\\""+r.fileLink+"\\" target=\\"_blank\\">"+(r.fileName||"View")+"</a>":(r.fileName||"—"))+"</td>";';
+    html += '    h+="<td>"+statusPill+"</td><td>"+auditPill+"</td></tr>";';
+    html += '  });h+="</tbody></table></div>";area.innerHTML=h;';
+    html += '}';
+
+    // Submit
+    html += 'function doSubmit(){';
+    html += '  var fileInput=document.getElementById("submitFile");';
+    html += '  var fileLink=document.getElementById("submitFileLink").value.trim();';
+    html += '  var fileName=document.getElementById("submitFileName").value.trim();';
+    html += '  if(!fileInput.files.length&&!fileLink){showToast("Upload a PDF or paste a Drive link","error");return;}';
+    html += '  if(!fileName){showToast("File name is required","error");return;}';
+    html += '  var btn=document.getElementById("submitBtn");btn.disabled=true;btn.textContent="UPLOADING...";';
+    html += '  var bar=document.getElementById("progressBar");bar.style.display="block";';
+    html += '  document.getElementById("progressFill").style.width="30%";';
+
+    // If file selected, read as base64
+    html += '  if(fileInput.files.length>0){';
+    html += '    var reader=new FileReader();';
+    html += '    reader.onload=function(e){';
+    html += '      var b64=e.target.result.split(",")[1];';
+    html += '      document.getElementById("progressFill").style.width="60%";';
+    html += '      sendSubmission({token:sessionToken,fileName:fileName,fileData:b64,fileLink:fileLink,emailSentTo:"' + FOLLOWUP_ADMIN_EMAIL + '"});';
+    html += '    };';
+    html += '    reader.readAsDataURL(fileInput.files[0]);';
+    html += '  } else {';
+    html += '    sendSubmission({token:sessionToken,fileName:fileName,fileData:"",fileLink:fileLink,emailSentTo:"' + FOLLOWUP_ADMIN_EMAIL + '"});';
+    html += '  }';
+    html += '}';
+
+    html += 'function sendSubmission(payload){';
+    html += '  document.getElementById("progressFill").style.width="80%";';
+    html += '  fetch("/followup/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})';
+    html += '  .then(function(r){return r.json()}).then(function(d){';
+    html += '    document.getElementById("progressFill").style.width="100%";';
+    html += '    setTimeout(function(){document.getElementById("progressBar").style.display="none";document.getElementById("progressFill").style.width="0%";},500);';
+    html += '    var btn=document.getElementById("submitBtn");btn.disabled=false;btn.textContent="SUBMIT REPORT →";';
+    html += '    if(d.success){showToast(d.message||"Submitted!","success");';
+    html += '      document.getElementById("submitFile").value="";document.getElementById("submitFileName").value="";document.getElementById("submitFileLink").value="";';
+    html += '      loadData();}';
+    html += '    else{showToast(d.message||"Error","error");}';
+    html += '  }).catch(function(e){';
+    html += '    document.getElementById("progressBar").style.display="none";';
+    html += '    document.getElementById("submitBtn").disabled=false;document.getElementById("submitBtn").textContent="SUBMIT REPORT →";';
+    html += '    showToast("Network error","error");});';
+    html += '}';
+
+    // Logout
+    html += 'function doLogout(){';
+    html += '  fetch("/followup/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:sessionToken})});';
+    html += '  sessionToken="";sessionUser="";sessionRole="";';
+    html += '  localStorage.removeItem("fu_token");localStorage.removeItem("fu_user");localStorage.removeItem("fu_role");';
+    html += '  location.reload();';
+    html += '}';
+
+    // Toast
+    html += 'function showToast(msg,type){var t=document.getElementById("toast");t.textContent=msg;t.className="toast "+type+" show";setTimeout(function(){t.classList.remove("show");},4000);}';
+
+    html += '</script></body></html>';
+    res.send(html);
+  } catch (err) {
+    console.log("Follow-up page error:", err.message);
+    res.status(500).send("Error loading Follow Up portal: " + err.message);
+  }
+});
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
   console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload");
