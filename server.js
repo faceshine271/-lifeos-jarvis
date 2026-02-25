@@ -381,7 +381,7 @@ var SOURCE_SHEETS = [
 var SKIP_TABS = [
   "combined","combined_all","tech numbers","mapping","dropdown","mail list",
   "sample","test","location sheets","manual entry record",
-  "diagnostic sms reply","promotion customers reply","sops and contract",
+  "diagnostic sms reply","promotion customers reply",
   "sheet1","location unavailable","return customers","unorganized customers",
   "main","receptionist names","discord reviews"
 ];
@@ -1677,9 +1677,9 @@ async function buildBusinessContext() {
       var allFuRows = [];
       for (var ft = 0; ft < fuTabs.length; ft++) {
         try {
-          var fuRes = await sheets.spreadsheets.values.get({ spreadsheetId: FOLLOWUP_SPREADSHEET_ID, range: "'" + fuTabs[ft] + "'!A:G" });
+          var fuRes = await sheets.spreadsheets.values.get({ spreadsheetId: FOLLOWUP_SPREADSHEET_ID, range: "'" + fuTabs[ft] + "'!A:H" });
           var fuRows = (fuRes.data.values || []).slice(1);
-          fuRows.forEach(function(r) { allFuRows.push({ timestamp: r[0]||'', name: (r[1]||'').trim(), file: r[3]||'', link: r[4]||'', audit: r[5]||'', suggestions: r[6]||'', tab: fuTabs[ft] }); });
+          fuRows.forEach(function(r) { allFuRows.push({ timestamp: r[0]||'', name: (r[1]||'').trim(), file: r[3]||'', link: r[4]||'', audit: r[5]||'', suggestions: r[6]||'', reason: r[7]||'', tab: fuTabs[ft] }); });
         } catch(fte) {}
       }
 
@@ -4711,6 +4711,87 @@ app.get('/dashboard', async function(req, res) {
     // Load voices
     html += 'if(synth.onvoiceschanged!==undefined)synth.onvoiceschanged=function(){synth.getVoices();};';
 
+    // ====== ATHENA VOICE CHAT JAVASCRIPT ======
+    html += 'var athenaVoiceOpen=false;var athenaListening=false;var athenaSpeaking=false;var athenaRecog=null;var athenaSessionId="a"+Date.now();';
+
+    // Create waveform bars for Athena
+    html += '(function(){var wf=document.getElementById("athena-waveform");if(wf){for(var i=0;i<30;i++){var bar=document.createElement("div");bar.className="athena-wave-bar";bar.style.height="4px";wf.appendChild(bar);}}})();';
+
+    // Toggle Athena voice panel
+    html += 'function toggleAthenaVoice(){athenaVoiceOpen=!athenaVoiceOpen;document.getElementById("athena-voice-panel").style.display=athenaVoiceOpen?"block":"none";var btn=document.getElementById("athena-voice-btn");btn.textContent=athenaVoiceOpen?"Close Voice":"Talk to Athena";btn.style.borderColor=athenaVoiceOpen?"#ff4757":"#a855f740";btn.style.color=athenaVoiceOpen?"#ff4757":"#a855f7";if(!athenaVoiceOpen&&athenaListening)stopAthenaListening();}';
+
+    // Athena wave animation
+    html += 'var athenaWaveInt=null;';
+    html += 'function startAthenaWave(color){var bars=document.querySelectorAll(".athena-wave-bar");bars.forEach(function(b){b.style.background=color;});athenaWaveInt=setInterval(function(){bars.forEach(function(b){b.style.height=Math.floor(Math.random()*30+4)+"px";});},100);}';
+    html += 'function stopAthenaWave(){if(athenaWaveInt)clearInterval(athenaWaveInt);var bars=document.querySelectorAll(".athena-wave-bar");bars.forEach(function(b){b.style.height="4px";b.style.background="#a855f740";});}';
+
+    // Athena speech recognition
+    html += 'function toggleAthenaListening(){if(athenaSpeaking)return;if(athenaListening){stopAthenaListening();}else{startAthenaListening();}}';
+
+    html += 'function startAthenaListening(){';
+    html += '  if(!("webkitSpeechRecognition" in window)&&!("SpeechRecognition" in window)){alert("Speech recognition not supported. Use Chrome.");return;}';
+    html += '  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;';
+    html += '  athenaRecog=new SR();athenaRecog.continuous=false;athenaRecog.interimResults=false;athenaRecog.lang="en-US";';
+    html += '  athenaRecog.onstart=function(){athenaListening=true;document.getElementById("athena-mic-btn").classList.add("listening");document.getElementById("athena-voice-status").textContent="LISTENING...";document.getElementById("athena-voice-status").style.color="#a855f7";startAthenaWave("#a855f780");};';
+    html += '  athenaRecog.onresult=function(e){var text=e.results[0][0].transcript;stopAthenaListening();addAthenaMsg("user",text);sendToAthena(text);};';
+    html += '  athenaRecog.onerror=function(e){stopAthenaListening();document.getElementById("athena-voice-status").textContent="ERROR: "+e.error;document.getElementById("athena-voice-status").style.color="#ff4757";};';
+    html += '  athenaRecog.onend=function(){if(athenaListening)stopAthenaListening();};';
+    html += '  athenaRecog.start();';
+    html += '}';
+
+    html += 'function stopAthenaListening(){athenaListening=false;if(athenaRecog)try{athenaRecog.stop();}catch(e){}document.getElementById("athena-mic-btn").classList.remove("listening");document.getElementById("athena-voice-status").textContent="CLICK MIC TO SPEAK";document.getElementById("athena-voice-status").style.color="#4a6a8a";stopAthenaWave();}';
+
+    // Send typed text
+    html += 'function sendAthenaText(){var inp=document.getElementById("athena-text-input");var text=inp.value.trim();if(!text)return;inp.value="";addAthenaMsg("user",text);sendToAthena(text);}';
+
+    // Send to Athena endpoint
+    html += 'function sendToAthena(text){';
+    html += '  document.getElementById("athena-voice-status").textContent="ATHENA PROCESSING...";document.getElementById("athena-voice-status").style.color="#c084fc";startAthenaWave("#c084fc80");';
+    html += '  fetch("/chat/athena",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sessionId:athenaSessionId,message:text})})';
+    html += '    .then(function(r){return r.json()})';
+    html += '    .then(function(data){';
+    html += '      stopAthenaWave();';
+    html += '      if(data.error){addAthenaMsg("athena","Error: "+data.error);return;}';
+    html += '      addAthenaMsg("athena",data.response);';
+    html += '      speakAthena(data.response);';
+    html += '    })';
+    html += '    .catch(function(e){stopAthenaWave();addAthenaMsg("athena","Connection error.");});';
+    html += '}';
+
+    // Athena TTS (uses female voice)
+    html += 'var athenaAudio=null;';
+    html += 'function speakAthena(text){';
+    html += '  athenaSpeaking=true;document.getElementById("athena-voice-status").textContent="ATHENA SPEAKING...";document.getElementById("athena-voice-status").style.color="#a855f7";startAthenaWave("#a855f780");';
+    html += '  fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text,voice:"athena"})})';
+    html += '    .then(function(r){if(!r.ok)throw new Error("TTS failed");return r.blob();})';
+    html += '    .then(function(blob){';
+    html += '      if(blob.size<1000)throw new Error("Audio too small");';
+    html += '      var url=URL.createObjectURL(blob);';
+    html += '      athenaAudio=new Audio(url);';
+    html += '      athenaAudio.onended=function(){athenaSpeaking=false;stopAthenaWave();document.getElementById("athena-voice-status").textContent="CLICK MIC TO SPEAK";document.getElementById("athena-voice-status").style.color="#4a6a8a";URL.revokeObjectURL(url);};';
+    html += '      athenaAudio.onerror=function(){URL.revokeObjectURL(url);athenaBrowserSpeak(text);};';
+    html += '      athenaAudio.play().catch(function(){athenaBrowserSpeak(text);});';
+    html += '    })';
+    html += '    .catch(function(e){';
+    html += '      console.log("Athena ElevenLabs failed: "+e.message);';
+    html += '      athenaBrowserSpeak(text);';
+    html += '    });';
+    html += '}';
+    html += 'function athenaBrowserSpeak(text){';
+    html += '  var utter=new SpeechSynthesisUtterance(text);utter.rate=1.0;utter.pitch=1.1;';
+    html += '  var voices=synth.getVoices();for(var v=0;v<voices.length;v++){if(voices[v].name.includes("Samantha")||voices[v].name.includes("Google UK English Female")||voices[v].name.includes("Female")){utter.voice=voices[v];break;}}';
+    html += '  utter.onend=function(){athenaSpeaking=false;stopAthenaWave();document.getElementById("athena-voice-status").textContent="CLICK MIC TO SPEAK";document.getElementById("athena-voice-status").style.color="#4a6a8a";};';
+    html += '  synth.speak(utter);';
+    html += '}';
+
+    // Add message to Athena log
+    html += 'function addAthenaMsg(who,text){';
+    html += '  var log=document.getElementById("athena-voice-log");';
+    html += '  var div=document.createElement("div");div.className="athena-msg "+who;';
+    html += '  div.innerHTML="<div class=\\"sender\\">"+(who==="user"?"TRACE":"ATHENA")+"</div><div class=\\"text\\">"+text+"</div>";';
+    html += '  log.appendChild(div);log.scrollTop=log.scrollHeight;';
+    html += '}';
+
     // Email action functions
     html += 'async function deleteEmail(id,account){';
     html += '  if(!confirm("Delete this email?"))return;';
@@ -4778,6 +4859,57 @@ app.get('/dashboard', async function(req, res) {
     html += '<div class="status-item"><div class="status-dot" style="background:' + (bizReschedule.length > 0 ? '#ff9f43' : '#00ff66') + ';box-shadow:0 0 10px ' + (bizReschedule.length > 0 ? '#ff9f43' : '#00ff66') + '"></div>' + bizReschedule.length + ' RESCHEDULE</div>';
     html += '</div>';
     html += '</div>';
+
+    // Athena Voice Chat Button
+    html += '<div style="text-align:center;margin:20px 0;">';
+    html += '<div class="holo-btn" onclick="toggleAthenaVoice()" id="athena-voice-btn" style="cursor:pointer;color:#a855f7;border-color:#a855f740;font-family:Orbitron;font-size:0.75em;letter-spacing:4px;padding:12px 30px;border:1px solid #a855f740;background:rgba(168,85,247,0.05);display:inline-block;transition:all 0.3s;">Talk to Athena</div>';
+    html += '</div>';
+
+    // Athena Voice Panel
+    html += '<div id="athena-voice-panel" style="display:none;max-width:800px;margin:0 auto 30px;padding:0 40px;">';
+    html += '<div style="background:rgba(10,12,25,0.9);border:1px solid #a855f730;padding:30px;position:relative;overflow:hidden;">';
+    html += '<div style="position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#a855f7,transparent);animation:borderScan 3s linear infinite;"></div>';
+
+    // Status
+    html += '<div style="text-align:center;margin-bottom:20px;">';
+    html += '<div id="athena-voice-status" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#4a6a8a;">CLICK MIC TO SPEAK</div>';
+    html += '<div id="athena-waveform" style="height:40px;display:flex;align-items:center;justify-content:center;gap:3px;margin:15px 0;"></div>';
+    html += '</div>';
+
+    // Mic
+    html += '<div style="text-align:center;margin-bottom:20px;">';
+    html += '<div id="athena-mic-btn" onclick="toggleAthenaListening()" style="width:80px;height:80px;border-radius:50%;border:2px solid #a855f740;background:rgba(168,85,247,0.05);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.3s;position:relative;">';
+    html += '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+    html += '<div id="athena-mic-pulse" style="position:absolute;top:0;left:0;width:100%;height:100%;border-radius:50%;border:2px solid #a855f7;opacity:0;"></div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Text input for typing too
+    html += '<div style="display:flex;gap:10px;margin-bottom:20px;">';
+    html += '<input id="athena-text-input" type="text" placeholder="Or type your question..." style="flex:1;padding:12px 16px;background:rgba(10,20,35,0.8);border:1px solid #a855f730;color:#c0d8f0;font-family:Rajdhani;font-size:1em;outline:none;" onkeypress="if(event.key===\'Enter\')sendAthenaText()">';
+    html += '<button onclick="sendAthenaText()" style="padding:12px 20px;background:rgba(168,85,247,0.15);border:1px solid #a855f750;color:#a855f7;font-family:Orbitron;font-size:0.7em;letter-spacing:3px;cursor:pointer;">SEND</button>';
+    html += '</div>';
+
+    // Conversation log
+    html += '<div id="athena-voice-log" style="max-height:400px;overflow-y:auto;font-size:0.95em;"></div>';
+
+    html += '</div></div>';
+
+    // Athena voice CSS
+    html += '<style>';
+    html += '#athena-mic-btn:hover { background: rgba(168,85,247,0.15); border-color: #a855f7; box-shadow: 0 0 30px rgba(168,85,247,0.2); }';
+    html += '#athena-mic-btn.listening { background: rgba(168,85,247,0.2); border-color: #a855f7; box-shadow: 0 0 40px rgba(168,85,247,0.3); }';
+    html += '#athena-mic-btn.listening #athena-mic-pulse { animation: athenaPulse 1.5s ease-out infinite; }';
+    html += '@keyframes athenaPulse { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(1.8); opacity: 0; } }';
+    html += '.athena-msg { padding: 12px 0; border-bottom: 1px solid #0a1020; }';
+    html += '.athena-msg .sender { font-family: Orbitron; font-size: 0.6em; letter-spacing: 3px; margin-bottom: 5px; }';
+    html += '.athena-msg .text { color: #7a9ab0; line-height: 1.6; }';
+    html += '.athena-msg.athena .sender { color: #a855f7; }';
+    html += '.athena-msg.athena .text { color: #c0b8e0; }';
+    html += '.athena-msg.user .sender { color: #00d4ff; }';
+    html += '.athena-wave-bar { width: 3px; background: #a855f740; border-radius: 2px; transition: height 0.1s; }';
+    html += '#athena-voice-btn:hover { background: rgba(168,85,247,0.15); border-color: #a855f7; box-shadow: 0 0 20px rgba(168,85,247,0.2); }';
+    html += '</style>';
 
     // ====== ROW 1: Core Stats ======
     html += '<div class="grid">';
@@ -7994,6 +8126,235 @@ app.post('/chat', async function(req, res) {
 });
 
 /* ===========================
+   POST /chat/athena — Athena Voice Chat
+=========================== */
+
+var athenaChatHistory = {};
+
+app.post('/chat/athena', async function(req, res) {
+  var sessionId = req.body.sessionId || 'default';
+  var userMessage = req.body.message || '';
+
+  try {
+    var history = athenaChatHistory[sessionId];
+    if (!history) {
+      var bizContext = '';
+      try { bizContext = await buildBusinessContext(); } catch (e) {}
+
+      // Build comprehensive Athena context with all analytics
+      var athenaContext = bizContext;
+
+      // Add Google Ads data if available
+      if (global.adsData) {
+        athenaContext += '\n\nGOOGLE ADS DATA:\n' + JSON.stringify(global.adsData).substring(0, 5000);
+      }
+
+      // Add Profit & Financial data
+      if (global.profitMetrics) {
+        var pm = global.profitMetrics;
+        athenaContext += '\n\nFINANCIAL DATA (Current Month: ' + (pm.currentMonth || '') + '):\n';
+        athenaContext += 'Revenue: $' + (pm.revenue || 0).toLocaleString() + '\n';
+        athenaContext += 'Expenses: $' + (pm.expenses || 0).toLocaleString() + '\n';
+        athenaContext += 'Profit: $' + (pm.profit || 0).toLocaleString() + '\n';
+        athenaContext += 'Margin: ' + (pm.margin || 0) + '%\n';
+        athenaContext += 'Avg Daily Revenue: $' + (pm.avgDailyRev || 0) + '\n';
+        athenaContext += 'Avg Daily Ad Spend: $' + (pm.avgDailyAds || 0) + '\n';
+        if (pm.expenseBreakdown) {
+          athenaContext += 'Expense Breakdown: ';
+          Object.keys(pm.expenseBreakdown).forEach(function(cat) {
+            athenaContext += cat + ': $' + pm.expenseBreakdown[cat] + ', ';
+          });
+          athenaContext += '\n';
+        }
+        if (pm.techPayouts) {
+          athenaContext += 'Tech Payouts This Month: ';
+          Object.keys(pm.techPayouts).forEach(function(t) {
+            athenaContext += t + ': $' + pm.techPayouts[t] + ', ';
+          });
+          athenaContext += '\n';
+        }
+      }
+
+      // Add detailed CRM metrics
+      if (global.bizMetrics) {
+        var bm = global.bizMetrics;
+        athenaContext += '\n\nDETAILED CRM METRICS:\n';
+        athenaContext += 'Total Leads: ' + bm.totalLeads + ', Booked: ' + bm.totalBooked + ', Completed: ' + bm.totalCompleted + ', Cancelled: ' + bm.totalCancelled + '\n';
+        athenaContext += 'Conversion Rate: ' + bm.conversionRate + '%, Avg Days to Service: ' + bm.avgBookingDays + '\n';
+        athenaContext += 'This Month Calls: ' + bm.thisMonthCalls + ', Last Month: ' + bm.lastMonthCalls + ', Growth: ' + bm.monthGrowth + '%\n';
+        athenaContext += 'This Week: ' + bm.weeklyCalls + ' bookings, Return Customers: ' + bm.totalReturn + ', Promo Replies: ' + bm.promoReplies + '\n';
+        athenaContext += 'New Markets This Month: ' + bm.newLocationsThisMonth + '\n';
+
+        // Equipment breakdown
+        if (bm.equipStats) {
+          var eqSorted = Object.entries(bm.equipStats).sort(function(a,b){return b[1]-a[1];}).slice(0, 10);
+          athenaContext += '\nTOP EQUIPMENT TYPES: ';
+          eqSorted.forEach(function(e) { athenaContext += e[0] + ': ' + e[1] + ', '; });
+          athenaContext += '\n';
+        }
+
+        // Brand breakdown
+        if (bm.brandStats) {
+          var brSorted = Object.entries(bm.brandStats).sort(function(a,b){return b[1]-a[1];}).slice(0, 10);
+          athenaContext += 'TOP BRANDS: ';
+          brSorted.forEach(function(b) { athenaContext += b[0] + ': ' + b[1] + ', '; });
+          athenaContext += '\n';
+        }
+
+        // Technician stats
+        if (bm.techStats) {
+          athenaContext += '\nTECHNICIAN PERFORMANCE:\n';
+          Object.keys(bm.techStats).forEach(function(t) {
+            var ts = bm.techStats[t];
+            athenaContext += t + ': ' + (ts.completed || 0) + ' completed, ' + (ts.total || 0) + ' total, ' + (ts.cancelled || 0) + ' cancelled';
+            if (ts.equipment) {
+              var topEq = Object.entries(ts.equipment).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+              athenaContext += ', specialties: ' + topEq.map(function(e){return e[0];}).join('/');
+            }
+            athenaContext += '\n';
+          });
+        }
+
+        // Location stats (top 15)
+        if (bm.locationStats) {
+          var locSorted = Object.entries(bm.locationStats).sort(function(a,b){return (b[1].total||0)-(a[1].total||0);}).slice(0, 15);
+          athenaContext += '\nTOP LOCATIONS:\n';
+          locSorted.forEach(function(l) {
+            athenaContext += l[0] + ': ' + l[1].total + ' leads, ' + (l[1].booked||0) + ' booked, ' + (l[1].cancelled||0) + ' cancelled\n';
+          });
+        }
+
+        // Call volume patterns (monthly)
+        if (bm.monthlyCalls) {
+          athenaContext += '\nMONTHLY CALL VOLUME TREND:\n';
+          Object.keys(bm.monthlyCalls).sort().slice(-6).forEach(function(m) {
+            athenaContext += m + ': ' + bm.monthlyCalls[m] + ' calls, ';
+          });
+          athenaContext += '\n';
+        }
+
+        // Seasonal data
+        if (bm.seasonalData) {
+          athenaContext += '\nSEASONAL PATTERNS: ';
+          Object.keys(bm.seasonalData).forEach(function(m) {
+            athenaContext += m + ': ' + bm.seasonalData[m] + ', ';
+          });
+          athenaContext += '\n';
+        }
+      }
+
+      // Add Reviews/Ops data (includes SOPs)
+      if (global.bizOpsData) {
+        var ops = global.bizOpsData;
+        var opsKeys = Object.keys(ops);
+        if (opsKeys.length > 0) {
+          athenaContext += '\n\nOPERATIONAL DATA & SOPs:\n';
+          opsKeys.forEach(function(key) {
+            var section = ops[key];
+            var rows = section.rows || section;
+            var isSOP = key.toLowerCase().includes('sop') || key.toLowerCase().includes('contract') || key.toLowerCase().includes('procedure') || key.toLowerCase().includes('checklist');
+            if (isSOP && rows && rows.length > 0) {
+              // Give SOPs full depth
+              athenaContext += '\n=== SOP: ' + key + ' ===\n';
+              rows.forEach(function(r) {
+                athenaContext += r + '\n';
+              });
+            } else if (rows && rows.length > 0 && rows.length < 50) {
+              athenaContext += key + ': ' + rows.length + ' rows. ';
+              (Array.isArray(rows) ? rows : []).slice(0, 5).forEach(function(r) {
+                athenaContext += (typeof r === 'string' ? r : JSON.stringify(r)).substring(0, 200) + ' | ';
+              });
+              athenaContext += '\n';
+            } else if (rows) {
+              athenaContext += key + ': ' + (rows.length || 0) + ' rows\n';
+            }
+          });
+        }
+      }
+
+      // Add team roles from profit sheet
+      if (global.profitMetrics) {
+        var pm2 = global.profitMetrics;
+        athenaContext += '\n\nTEAM ROLES:\n';
+        if (pm2.techPayouts) {
+          athenaContext += 'TECHNICIANS (field work): ' + Object.keys(pm2.techPayouts).join(', ') + '\n';
+        }
+        if (pm2.receptionistPayouts) {
+          athenaContext += 'RECEPTIONISTS (phones/scheduling): ' + Object.keys(pm2.receptionistPayouts).join(', ') + '\n';
+        }
+        if (pm2.adminPayouts) {
+          athenaContext += 'ADMIN/MANAGEMENT: ' + Object.keys(pm2.adminPayouts).join(', ') + '\n';
+        }
+      }
+
+      // Add smart task assignments context
+      if (global.bizMetrics) {
+        var bm2 = global.bizMetrics;
+        if (bm2.todayBookings && bm2.todayBookings.length > 0) {
+          athenaContext += '\n\nTODAY\'S JOBS:\n';
+          bm2.todayBookings.forEach(function(j) {
+            athenaContext += j.name + ' — ' + (j.equip || 'unknown') + ' in ' + (j.location || 'unknown') + ' — Tech: ' + (j.tech || 'UNASSIGNED') + ' — Status: ' + (j.status || '') + '\n';
+          });
+        }
+        if (bm2.needsReschedule && bm2.needsReschedule.length > 0) {
+          athenaContext += '\nNEEDS RESCHEDULE:\n';
+          bm2.needsReschedule.forEach(function(j) {
+            athenaContext += j.name + ' — ' + (j.equip || '') + ' in ' + (j.location || '') + '\n';
+          });
+        }
+      }
+
+      // Add follow-up metrics
+      if (global.followUpMetrics) {
+        var fm = global.followUpMetrics;
+        athenaContext += '\n\nFOLLOW-UP PORTAL DATA:\n';
+        athenaContext += 'Employees: ' + fm.employeeCount + '\n';
+        athenaContext += 'Submitted this week: ' + fm.submittedThisWeek + '/' + fm.employeeCount + '\n';
+        if (fm.pendingThisWeek && fm.pendingThisWeek.length) athenaContext += 'Pending: ' + fm.pendingThisWeek.join(', ') + '\n';
+        Object.keys(fm.stats || {}).forEach(function(name) {
+          var s = fm.stats[name];
+          athenaContext += name + ': ' + s.totalSubmissions + ' total, ' + s.onTime + ' on-time, ' + s.late + ' late';
+          if (s.lateStreak > 0) athenaContext += ', late streak: ' + s.lateStreak;
+          if (s.auditScores.length > 0) {
+            var avg = Math.round(s.auditScores.reduce(function(a,b){return a+b;},0) / s.auditScores.length);
+            athenaContext += ', avg audit: ' + avg + 'h/40h';
+          }
+          athenaContext += '\n';
+        });
+      }
+
+      // Add Tookan live data
+      if (global.tookanData) {
+        var tk = global.tookanData;
+        athenaContext += '\n\nTOOKAN DISPATCH DATA:\n';
+        athenaContext += 'Active tasks: ' + (tk.activeTasks || 0) + '\n';
+        athenaContext += 'Completed today: ' + (tk.completedToday || 0) + '\n';
+        if (tk.tasksByTech) {
+          Object.keys(tk.tasksByTech).forEach(function(tech) {
+            athenaContext += tech + ': ' + tk.tasksByTech[tech] + ' tasks\n';
+          });
+        }
+      }
+
+      history = {
+        systemPrompt: "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. You are speaking through a voice interface to Trace, the owner.\n\nRULES:\n- You are ATHENA, not Jarvis. You are the business intelligence brain.\n- You know EVERYTHING about the business across every dashboard:\n  * CRM: bookings, conversion rates, cancellations, growth trends, monthly/weekly volume\n  * FINANCIAL: revenue, expenses, profit, margins, tech payouts, daily averages, ad spend\n  * GOOGLE ADS: spend, clicks, conversions, ROAS, cost per lead, campaign performance\n  * TECHNICIANS: job counts, completion rates, equipment specialties, workload balance\n  * EMPLOYEES: follow-up submissions, on-time rates, late streaks, AI audit scores\n  * DISPATCH: active Tookan tasks, completed today, tech assignments\n  * EQUIPMENT & BRANDS: what you fix most, brand trends\n  * LOCATIONS: top markets, calls by city, new expansion areas\n  * CALL PATTERNS: monthly trends, seasonal patterns, busiest periods\n  * REVIEWS & OPS: customer feedback, operational data\n  * SOPs: Standard Operating Procedures, contracts, checklists for each role\n  * TEAM ROLES: who is a tech, receptionist, or admin and their current performance\n- You can recommend WHAT NEEDS FOCUS based on the data: low conversion areas, high cancellation locations, underperforming techs, late follow-ups, missed SOPs.\n- You can recommend WHO SHOULD DO IT by matching the task to the right team member role. Techs handle field work. Receptionists handle phones and scheduling. Admins handle oversight and strategy.\n- When asked about SOPs or what someone should be doing, reference the actual SOP content and match it to the person's role and current performance.\n- When asked about priorities or focus areas, analyze the data: what metrics are weak? What needs immediate attention? Who is best suited to fix it?\n- Give specific numbers when asked. Be precise.\n- Keep responses to 2-5 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound confident, analytical, and sharp.\n- If asked to compare or analyze, do the math and give insights.\n\nBUSINESS DATA:\n" + athenaContext,
+        messages: [],
+      };
+    }
+
+    history.messages.push({ role: 'user', content: userMessage });
+    var response = await askClaude(history.systemPrompt, history.messages);
+    history.messages.push({ role: 'assistant', content: response });
+    if (history.messages.length > 20) history.messages = history.messages.slice(-10);
+    athenaChatHistory[sessionId] = history;
+
+    res.json({ response: response });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ===========================
    POST /tts — ElevenLabs Text to Speech
 =========================== */
 
@@ -8004,7 +8365,9 @@ app.post('/tts', async function(req, res) {
 
   try {
     // Selected voice from ElevenLabs library
-    var voiceId = 'jP5jSWhfXz3nfQENMtf4';
+    // Default: Jarvis male voice; 'athena' = female voice
+    var voiceParam = req.body.voice || 'jarvis';
+    var voiceId = voiceParam === 'athena' ? '21m00Tcm4TlvDq8ikWAM' : 'jP5jSWhfXz3nfQENMtf4';
     var url = 'https://api.elevenlabs.io/v1/text-to-speech/' + voiceId;
 
     var https = require('https');
@@ -11889,7 +12252,7 @@ async function fuGetHistory(userName, isAdmin) {
   for (var i = 0; i < followUpTabs.length; i++) {
     var tabName = followUpTabs[i];
     try {
-      var rows = await fuReadSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A:G");
+      var rows = await fuReadSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A:H");
       if (rows.length < 2) continue;
       for (var j = 1; j < rows.length; j++) {
         var r = rows[j];
@@ -11903,6 +12266,7 @@ async function fuGetHistory(userName, isAdmin) {
             fileLink: r[4] || '',
             aiAudit: r[5] || '',
             suggestions: r[6] || '',
+            reason: r[7] || '',
             tab: tabName
           });
         }
@@ -12108,9 +12472,10 @@ async function fuRunAIAudit(pdfText) {
       'The Iceberg Rule: The text below is just a summary. Actual work involved opening hundreds of tabs, waiting for loads, fixing formatting, double-checking data.\n' +
       'TASK:\n' +
       '1. AUDIT WITH EMPATHY: assume 3x multiplier on every task. If work looks substantial, default to "40 Hours Justified". Only reject if document is almost empty.\n' +
-      '2. SUGGEST: Only if work is truly <20h, suggest complex tasks to add.\n\n' +
+      '2. SUGGEST: Only if work is truly <20h, suggest complex tasks to add.\n' +
+      '3. REASON: If hours do NOT add up to 40, explain WHY in 1-2 sentences. What was missing? What tasks seemed too light? Where did the time gap come from? If 40 Hours Justified, say "All hours accounted for.".\n\n' +
       'INPUT SUMMARY:\n"' + pdfText.substring(0, 15000) + '"\n\n' +
-      'OUTPUT FORMAT (JSON Only):\n{"audit": "Verdict", "suggestions": "Advice or empty string"}';
+      'OUTPUT FORMAT (JSON Only):\n{"audit": "Verdict (e.g. 40 Hours Justified or Realistically 28 Hours)", "reason": "Why it did or did not add up to 40", "suggestions": "Advice or empty string"}';
 
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -12132,12 +12497,12 @@ async function fuRunAIAudit(pdfText) {
     var data = await res.json();
     if (data.choices && data.choices[0]) {
       var content = JSON.parse(data.choices[0].message.content);
-      return { audit: content.audit || '', suggestions: content.suggestions || '' };
+      return { audit: content.audit || '', reason: content.reason || '', suggestions: content.suggestions || '' };
     }
-    return { audit: '', suggestions: '' };
+    return { audit: '', reason: '', suggestions: '' };
   } catch (err) {
     console.log("FU AI audit error:", err.message);
-    return { audit: 'ERROR: AI Audit Failed: ' + err.message, suggestions: '' };
+    return { audit: 'ERROR: AI Audit Failed: ' + err.message, reason: '', suggestions: '' };
   }
 }
 
@@ -12217,8 +12582,8 @@ app.post('/followup/submit', express.json({ limit: '50mb' }), async function(req
           spreadsheetId: FOLLOWUP_SPREADSHEET_ID,
           requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] }
         });
-        await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A1:G1",
-          [['Timestamp', 'Name', 'Email Sent To', 'File Name', 'File Link', 'AI Audit', 'Suggestions']]);
+        await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A1:H1",
+          [['Timestamp', 'Name', 'Email Sent To', 'File Name', 'File Link', 'AI Audit', 'Suggestions', 'Reason']]);
       } catch (tabErr) {
         console.log("FU tab creation error:", tabErr.message);
       }
@@ -12226,8 +12591,42 @@ app.post('/followup/submit', express.json({ limit: '50mb' }), async function(req
 
     // Write to monthly sheet
     var timestamp = new Date().toISOString();
-    var success = await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A:G",
-      [[timestamp, session.name, emailSentTo, fileName, fileUrl, '', '']]);
+
+    // Run AI audit on PDF text if available
+    var auditResult = { audit: '', reason: '', suggestions: '' };
+    if (fileData && FOLLOWUP_OPENAI_KEY) {
+      try {
+        // Extract readable text from base64 PDF
+        var pdfBuf = Buffer.from(fileData, 'base64');
+        var pdfStr = pdfBuf.toString('latin1');
+        // Extract text between BT/ET markers and parentheses
+        var textParts = [];
+        var parenRegex = /\(([^)]{2,})\)/g;
+        var match;
+        while ((match = parenRegex.exec(pdfStr)) !== null) {
+          var t = match[1].replace(/\\n/g, ' ').replace(/\\r/g, '').replace(/[^\x20-\x7E]/g, ' ').trim();
+          if (t.length > 2 && !/^[\d.]+$/.test(t)) textParts.push(t);
+        }
+        // Also try extracting plain text streams
+        var streamRegex = /stream\r?\n([\s\S]*?)endstream/g;
+        while ((match = streamRegex.exec(pdfStr)) !== null) {
+          var clean = match[1].replace(/[^\x20-\x7E\n]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (clean.length > 20) textParts.push(clean);
+        }
+        var extractedText = textParts.join(' ').substring(0, 15000);
+        if (extractedText.length > 50) {
+          auditResult = await fuRunAIAudit(extractedText);
+          console.log("FU: AI audit complete — " + auditResult.audit);
+        } else {
+          console.log("FU: Could not extract enough text from PDF for audit");
+        }
+      } catch (auditErr) {
+        console.log("FU: AI audit error:", auditErr.message);
+      }
+    }
+
+    var success = await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + tabName + "'!A:H",
+      [[timestamp, session.name, emailSentTo, fileName, fileUrl, auditResult.audit, auditResult.suggestions, auditResult.reason]]);
 
     if (success) {
       // Update DropDown tracker
@@ -12243,8 +12642,10 @@ app.post('/followup/submit', express.json({ limit: '50mb' }), async function(req
 
     res.json({
       success: success,
-      message: success ? ('Report submitted — ' + submitStatus.status) : 'Error saving to sheet',
-      status: submitStatus.status
+      message: success ? ('Report submitted — ' + submitStatus.status + (auditResult.audit ? ' | AI Audit: ' + auditResult.audit : '')) : 'Error saving to sheet',
+      status: submitStatus.status,
+      audit: auditResult.audit || '',
+      reason: auditResult.reason || ''
     });
   } catch (err) {
     console.log("FU submit error:", err.message);
@@ -12695,6 +13096,16 @@ app.get('/followup', async function(req, res) {
     html += '  var greet=h<12?"Good Morning":h<17?"Good Afternoon":"Good Evening";';
     html += '  document.getElementById("welcomeName").textContent=greet+", "+sessionUser+" 👋";';
     html += '  if(sessionRole==="admin"){var els=document.querySelectorAll(".admin-only");for(var i=0;i<els.length;i++)els[i].style.display="block";}';
+    html += '  var voiceText=greet+", "+sessionUser;';
+    html += '  fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:voiceText})})';
+    html += '  .then(function(r){if(!r.ok)throw new Error("TTS failed");return r.blob();})';
+    html += '  .then(function(b){var a=new Audio(URL.createObjectURL(b));a.play();})';
+    html += '  .catch(function(e){';
+    html += '    console.log("ElevenLabs unavailable, using browser voice");';
+    html += '    var synth=window.speechSynthesis;var u=new SpeechSynthesisUtterance(voiceText);u.rate=1.0;u.pitch=0.9;';
+    html += '    var voices=synth.getVoices();for(var v=0;v<voices.length;v++){if(voices[v].name.includes("Samantha")||voices[v].name.includes("Google UK English Male")||voices[v].name.includes("Male")){u.voice=voices[v];break;}}';
+    html += '    synth.speak(u);';
+    html += '  });';
     html += '}';
 
     // Load data
@@ -12821,11 +13232,13 @@ app.get('/followup', async function(req, res) {
     html += '    var isLate=(day===0||day===6||day===1);';
     html += '    var statusPill=isLate?"<span class=\\"pill err\\">LATE</span>":"<span class=\\"pill ok\\">ON TIME</span>";';
     html += '    var audit=r.aiAudit||"—";';
+    html += '    var reason=r.reason||"";';
     html += '    var auditPill="—";';
     html += '    if(audit&&audit!=="—"){';
     html += '      if(audit.indexOf("ERROR")>-1)auditPill="<span class=\\"pill err\\" title=\\""+audit.replace(/"/g,"&quot;")+"\\">"+audit.substring(0,40)+"...</span>";';
     html += '      else if(audit.indexOf("40 Hours")>-1)auditPill="<span class=\\"pill ok\\" title=\\""+audit.replace(/"/g,"&quot;")+"\\">✅ "+audit.substring(0,35)+"</span>";';
     html += '      else auditPill="<span class=\\"pill warn\\" title=\\""+audit.replace(/"/g,"&quot;")+"\\">"+audit.substring(0,40)+"</span>";';
+    html += '      if(reason&&audit.indexOf("40 Hours")===-1)auditPill+="<div style=\\"font-size:0.75em;color:#ff9;margin-top:4px;line-height:1.3;\\">⚠️ "+reason.replace(/"/g,"&quot;")+"</div>";';
     html += '    }';
     html += '    h+="<tr><td>"+ds+"</td><td>"+(r.name||"—")+"</td>";';
     html += '    h+="<td>"+(r.fileLink?"<a href=\\""+r.fileLink+"\\" target=\\"_blank\\">"+(r.fileName||"View")+"</a>":(r.fileName||"—"))+"</td>";';
@@ -12867,6 +13280,20 @@ app.get('/followup', async function(req, res) {
     html += '    var btn=document.getElementById("submitBtn");btn.disabled=false;btn.textContent="SUBMIT REPORT →";';
     html += '    if(d.success){showToast(d.message||"Submitted!","success");';
     html += '      document.getElementById("submitFile").value="";document.getElementById("submitFileName").value="";document.getElementById("submitFileLink").value="";';
+    html += '      if(d.audit){';
+    html += '        var voiceMsg="Thank you for your submission, "+sessionUser+". "+d.audit;';
+    html += '        if(d.reason&&d.audit.indexOf("40 Hours")===-1)voiceMsg+=". "+d.reason;';
+    html += '        fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:voiceMsg})})';
+    html += '        .then(function(r){if(!r.ok)throw new Error("TTS");return r.blob();})';
+    html += '        .then(function(b){var a=new Audio(URL.createObjectURL(b));a.play();})';
+    html += '        .catch(function(){var s=window.speechSynthesis;var u=new SpeechSynthesisUtterance(voiceMsg);u.rate=1.0;u.pitch=0.9;s.speak(u);});';
+    html += '      }else{';
+    html += '        var tyMsg="Thank you for your submission, "+sessionUser+".";';
+    html += '        fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:tyMsg})})';
+    html += '        .then(function(r){if(!r.ok)throw new Error("TTS");return r.blob();})';
+    html += '        .then(function(b){var a=new Audio(URL.createObjectURL(b));a.play();})';
+    html += '        .catch(function(){var s=window.speechSynthesis;var u=new SpeechSynthesisUtterance(tyMsg);u.rate=1.0;u.pitch=0.9;s.speak(u);});';
+    html += '      }';
     html += '      loadData();}';
     html += '    else{showToast(d.message||"Error","error");}';
     html += '  }).catch(function(e){';
