@@ -57,7 +57,7 @@ var drive = google.drive({ version: 'v3', auth: auth });
 console.log("Google Auth Ready");
 
 // Follow-up portal config
-const FOLLOWUP_PASSWORD_SHEET_ID = process.env.FOLLOWUP_PASSWORD_SHEET_ID || '19N-gYjjDUjQigQXk5fVzSkG_HYrpxQhuo9eXq2PvmVI';
+const FOLLOWUP_PASSWORD_SHEET_ID = process.env.FOLLOWUP_PASSWORD_SHEET_ID || '1zXJPcJsKgoY8zY921mfzz0KSphQWFYF74hX9_M54v4A';
 const FOLLOWUP_PASSWORD_TAB = 'Follow up password';
 const FOLLOWUP_ADMIN_EMAIL = 'aly@wildwoodsmallenginerepair.com';
 const FOLLOWUP_CC_EMAIL = 'trace@wildwoodsmallenginerepair.com';
@@ -1659,6 +1659,122 @@ async function buildBusinessContext() {
         context += "    " + (i+1) + ". " + t[0] + ": " + t[1].completed + "/" + t[1].total + " (" + rate + "%)\n";
       });
     }
+  }
+
+  // ====== PHASE 6: Follow-Up Portal Data (for Athena memory) ======
+  try {
+    var fuEmployees = [];
+    try {
+      var fuDropDown = await sheets.spreadsheets.values.get({ spreadsheetId: FOLLOWUP_SPREADSHEET_ID, range: "'DropDown'!A:E" });
+      fuEmployees = (fuDropDown.data.values || []).slice(1).filter(function(r) { return r[0]; });
+    } catch(fe) {}
+
+    if (fuEmployees.length > 0) {
+      // Get all follow-up tabs
+      var fuTabsRes = await sheets.spreadsheets.get({ spreadsheetId: FOLLOWUP_SPREADSHEET_ID });
+      var fuTabs = fuTabsRes.data.sheets.map(function(s) { return s.properties.title; }).filter(function(t) { return t.toLowerCase().startsWith('follow ups of'); });
+
+      var allFuRows = [];
+      for (var ft = 0; ft < fuTabs.length; ft++) {
+        try {
+          var fuRes = await sheets.spreadsheets.values.get({ spreadsheetId: FOLLOWUP_SPREADSHEET_ID, range: "'" + fuTabs[ft] + "'!A:G" });
+          var fuRows = (fuRes.data.values || []).slice(1);
+          fuRows.forEach(function(r) { allFuRows.push({ timestamp: r[0]||'', name: (r[1]||'').trim(), file: r[3]||'', link: r[4]||'', audit: r[5]||'', suggestions: r[6]||'', tab: fuTabs[ft] }); });
+        } catch(fte) {}
+      }
+
+      // Build per-employee analytics
+      var fuStats = {};
+      var fuNow = new Date();
+      var fuStartOfWeek = new Date(fuNow);
+      var fuDow = fuStartOfWeek.getDay() || 7;
+      if (fuDow !== 1) fuStartOfWeek.setDate(fuStartOfWeek.getDate() - (fuDow - 1));
+      fuStartOfWeek.setHours(0,0,0,0);
+
+      fuEmployees.forEach(function(emp) {
+        var empName = (emp[0] || '').trim();
+        fuStats[empName] = { submissions: [], onTime: 0, late: 0, totalSubmissions: 0, submittedThisWeek: false, lateStreak: 0, weeksMissed: 0, avgDay: 0, avgHour: 0, auditScores: [] };
+      });
+
+      allFuRows.forEach(function(r) {
+        if (!fuStats[r.name]) return;
+        var d = new Date(r.timestamp);
+        if (isNaN(d.getTime())) return;
+        var stat = fuStats[r.name];
+        stat.totalSubmissions++;
+        stat.submissions.push({ date: d, day: d.getDay(), hour: d.getHours(), audit: r.audit });
+
+        var dayNum = d.getDay();
+        if (dayNum === 0 || dayNum === 6 || dayNum === 1) stat.late++; else stat.onTime++;
+        if (d >= fuStartOfWeek) stat.submittedThisWeek = true;
+
+        // AI audit tracking
+        if (r.audit && r.audit.indexOf('ERROR') === -1) {
+          if (r.audit.indexOf('40 Hours') > -1) stat.auditScores.push(40);
+          else {
+            var hoursMatch = r.audit.match(/(\d+)\s*Hours?/i);
+            if (hoursMatch) stat.auditScores.push(parseInt(hoursMatch[1]));
+          }
+        }
+      });
+
+      // Calculate streaks, avg day/hour, weeks missed
+      Object.keys(fuStats).forEach(function(empName) {
+        var stat = fuStats[empName];
+        if (stat.submissions.length > 0) {
+          // Average submission day and hour
+          var daySum = 0, hourSum = 0;
+          stat.submissions.forEach(function(s) { daySum += s.day; hourSum += s.hour; });
+          stat.avgDay = Math.round(daySum / stat.submissions.length);
+          stat.avgHour = Math.round(hourSum / stat.submissions.length);
+
+          // Late streak (consecutive recent late submissions)
+          var sorted = stat.submissions.sort(function(a,b) { return b.date - a.date; });
+          stat.lateStreak = 0;
+          for (var ls = 0; ls < sorted.length; ls++) {
+            var ld = sorted[ls].day;
+            if (ld === 0 || ld === 6 || ld === 1) stat.lateStreak++; else break;
+          }
+
+          // Weeks missed: estimate from total weeks since first submission vs total submissions
+          var firstSub = sorted[sorted.length - 1].date;
+          var weeksSinceFirst = Math.max(1, Math.ceil((fuNow - firstSub) / (7 * 86400000)));
+          stat.weeksMissed = Math.max(0, weeksSinceFirst - stat.totalSubmissions);
+        }
+      });
+
+      // Build context string for Athena
+      var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      context += "\n\n=== WEEKLY FOLLOW-UP REPORT STATUS ===\n";
+      var submittedCount = 0, pendingNames = [], lateNames = [];
+      Object.keys(fuStats).forEach(function(empName) {
+        var s = fuStats[empName];
+        if (s.submittedThisWeek) submittedCount++;
+        else pendingNames.push(empName);
+        if (s.lateStreak >= 2) lateNames.push(empName + ' (' + s.lateStreak + ' weeks late streak)');
+      });
+      context += "This week: " + submittedCount + "/" + Object.keys(fuStats).length + " submitted.\n";
+      if (pendingNames.length) context += "PENDING (not yet submitted): " + pendingNames.join(', ') + "\n";
+      if (lateNames.length) context += "⚠️ LATE STREAKS: " + lateNames.join(', ') + "\n";
+
+      context += "\nPer-employee follow-up stats:\n";
+      Object.keys(fuStats).forEach(function(empName) {
+        var s = fuStats[empName];
+        context += "- " + empName + ": " + s.totalSubmissions + " total submissions, " + s.onTime + " on-time, " + s.late + " late, " + s.weeksMissed + " missed weeks";
+        if (s.avgDay >= 0 && s.submissions.length > 0) context += ", avg submit " + dayNames[s.avgDay] + " ~" + s.avgHour + ":00";
+        if (s.auditScores.length > 0) {
+          var avgAudit = Math.round(s.auditScores.reduce(function(a,b){return a+b;},0) / s.auditScores.length);
+          context += ", avg audit: " + avgAudit + "h/40h";
+        }
+        context += "\n";
+      });
+
+      // Store globally for dashboard/portal use
+      global.followUpMetrics = { stats: fuStats, allRows: allFuRows, employeeCount: Object.keys(fuStats).length, submittedThisWeek: submittedCount, pendingThisWeek: pendingNames };
+      console.log("Follow-up context: " + Object.keys(fuStats).length + " employees, " + allFuRows.length + " total submissions");
+    }
+  } catch (fuErr) {
+    console.log("Follow-up context error:", fuErr.message);
   }
 
   console.log("Business context built: " + context.length + " chars (" + allJobRows.length + " jobs from " + sheetsRead + " sheets)");
@@ -11735,11 +11851,17 @@ function fuGetSubmitStatus() {
 
 // Get users from password sheet
 async function fuGetUsers() {
-  var rows = await fuReadSheet(FOLLOWUP_PASSWORD_SHEET_ID, "'" + FOLLOWUP_PASSWORD_TAB + "'!A:B");
-  if (rows.length < 2) return [];
-  return rows.slice(1).map(function(r) {
-    return { name: (r[0] || '').trim(), password: (r[1] || '').trim() };
-  }).filter(function(u) { return u.name && u.password; });
+  try {
+    var rows = await fuReadSheet(FOLLOWUP_PASSWORD_SHEET_ID, "'" + FOLLOWUP_PASSWORD_TAB + "'!A:B");
+    console.log("FU Users: read " + rows.length + " rows from password sheet");
+    if (rows.length < 2) return [];
+    return rows.slice(1).map(function(r) {
+      return { name: (r[0] || '').trim(), password: (r[1] || '').trim() };
+    }).filter(function(u) { return u.name && u.password; });
+  } catch (err) {
+    console.log("FU Users ERROR: " + err.message + " — Make sure sheet " + FOLLOWUP_PASSWORD_SHEET_ID + " is shared with service account");
+    return [];
+  }
 }
 
 // Get employees from DropDown tab
@@ -12148,11 +12270,106 @@ app.get('/followup/api/history', async function(req, res) {
       weekStatus[e.name] = fuIsThisWeek(e.lastUpload);
     });
 
+    // Build per-employee analytics from history
+    var empAnalytics = {};
+    var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    var heatmapData = {}; // hour -> day -> count
+
+    employees.forEach(function(e) {
+      empAnalytics[e.name] = { totalSubmissions: 0, onTime: 0, late: 0, lateStreak: 0, weeksMissed: 0, avgDay: '', avgHour: '', auditScores: [], submissions: [] };
+    });
+
+    // Process ALL submissions (not just visible ones)
+    var allHistory = await fuGetHistory('', true); // get all
+
+    allHistory.forEach(function(r) {
+      if (!empAnalytics[r.name]) empAnalytics[r.name] = { totalSubmissions: 0, onTime: 0, late: 0, lateStreak: 0, weeksMissed: 0, avgDay: '', avgHour: '', auditScores: [], submissions: [] };
+      var stat = empAnalytics[r.name];
+      var d = new Date(r.timestamp);
+      if (isNaN(d.getTime())) return;
+
+      stat.totalSubmissions++;
+      stat.submissions.push({ date: d, day: d.getDay(), hour: d.getHours() });
+      var dayNum = d.getDay();
+      if (dayNum === 0 || dayNum === 6 || dayNum === 1) stat.late++; else stat.onTime++;
+
+      // AI audit hours
+      if (r.aiAudit && r.aiAudit.indexOf('ERROR') === -1) {
+        if (r.aiAudit.indexOf('40 Hours') > -1) stat.auditScores.push(40);
+        else {
+          var hm = r.aiAudit.match(/(\d+)\s*Hours?/i);
+          if (hm) stat.auditScores.push(parseInt(hm[1]));
+        }
+      }
+
+      // Heatmap
+      var hKey = d.getHours();
+      var dKey = d.getDay();
+      if (!heatmapData[hKey]) heatmapData[hKey] = {};
+      heatmapData[hKey][dKey] = (heatmapData[hKey][dKey] || 0) + 1;
+    });
+
+    // Post-process: streaks, avg, missed
+    Object.keys(empAnalytics).forEach(function(name) {
+      var s = empAnalytics[name];
+      if (s.submissions.length > 0) {
+        var daySum = 0, hourSum = 0;
+        s.submissions.forEach(function(sub) { daySum += sub.day; hourSum += sub.hour; });
+        s.avgDay = dayNames[Math.round(daySum / s.submissions.length)];
+        s.avgHour = Math.round(hourSum / s.submissions.length) + ':00';
+
+        // Late streak
+        var sorted = s.submissions.sort(function(a,b) { return b.date - a.date; });
+        s.lateStreak = 0;
+        for (var i = 0; i < sorted.length; i++) {
+          var ld = sorted[i].day;
+          if (ld === 0 || ld === 6 || ld === 1) s.lateStreak++; else break;
+        }
+
+        // Weeks missed
+        var first = sorted[sorted.length - 1].date;
+        var weeksSince = Math.max(1, Math.ceil((Date.now() - first) / (7 * 86400000)));
+        s.weeksMissed = Math.max(0, weeksSince - s.totalSubmissions);
+      }
+      // Clean up submissions array for JSON (don't send raw dates)
+      delete s.submissions;
+    });
+
+    // Deadline countdown
+    var now = new Date();
+    var dayOfWeek = now.getDay();
+    var hoursUntilDeadline = null;
+    var deadlineText = '';
+    // Deadline is Friday 11:59 PM
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      var friday = new Date(now);
+      friday.setDate(friday.getDate() + (5 - dayOfWeek));
+      friday.setHours(23, 59, 59, 0);
+      var msLeft = friday - now;
+      if (msLeft > 0) {
+        hoursUntilDeadline = Math.floor(msLeft / 3600000);
+        var minsLeft = Math.floor((msLeft % 3600000) / 60000);
+        if (hoursUntilDeadline > 24) {
+          var daysLeft = Math.floor(hoursUntilDeadline / 24);
+          deadlineText = daysLeft + 'd ' + (hoursUntilDeadline % 24) + 'h until Friday deadline';
+        } else {
+          deadlineText = hoursUntilDeadline + 'h ' + minsLeft + 'm until deadline';
+        }
+      }
+    }
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      deadlineText = '⚠️ OVERDUE — Past Friday deadline';
+      hoursUntilDeadline = -1;
+    }
+
     res.json({
       success: true,
       history: history,
       chartData: chartData,
       employees: employees.map(function(e) { return { name: e.name, submittedThisWeek: weekStatus[e.name] }; }),
+      analytics: empAnalytics,
+      heatmap: heatmapData,
+      deadline: { text: deadlineText, hoursLeft: hoursUntilDeadline },
       user: session.name,
       role: session.role
     });
@@ -12168,15 +12385,64 @@ app.post('/followup/logout', express.json(), function(req, res) {
   res.json({ success: true });
 });
 
+// Names API (loads login names dynamically)
+app.get('/followup/api/names', async function(req, res) {
+  try {
+    // Try password sheet first
+    var users = await fuGetUsers();
+    if (users.length > 0) {
+      return res.json({ success: true, names: users.map(function(u) { return u.name; }), source: 'password_sheet' });
+    }
+
+    // Fall back to DropDown tab
+    var employees = await fuGetEmployees();
+    if (employees.length > 0) {
+      return res.json({ success: true, names: employees.map(function(e) { return e.name; }), source: 'dropdown_fallback' });
+    }
+
+    res.json({ success: false, names: [], message: 'No users found. Share password sheet (' + FOLLOWUP_PASSWORD_SHEET_ID + ') with service account.' });
+  } catch (err) {
+    res.json({ success: false, names: [], message: err.message });
+  }
+});
+
+// Debug endpoint
+app.get('/followup/debug', async function(req, res) {
+  try {
+    var passwordUsers = [];
+    try {
+      var pwRows = await sheets.spreadsheets.values.get({ spreadsheetId: FOLLOWUP_PASSWORD_SHEET_ID, range: "'" + FOLLOWUP_PASSWORD_TAB + "'!A:B" });
+      passwordUsers = (pwRows.data.values || []).map(function(r) { return (r[0]||'').trim(); });
+    } catch(e) {
+      passwordUsers = ['ERROR: ' + e.message];
+    }
+
+    var dropdownNames = [];
+    try {
+      var ddRows = await sheets.spreadsheets.values.get({ spreadsheetId: FOLLOWUP_SPREADSHEET_ID, range: "'DropDown'!A:A" });
+      dropdownNames = (ddRows.data.values || []).map(function(r) { return (r[0]||'').trim(); });
+    } catch(e) {
+      dropdownNames = ['ERROR: ' + e.message];
+    }
+
+    res.json({
+      passwordSheetId: FOLLOWUP_PASSWORD_SHEET_ID,
+      passwordTab: FOLLOWUP_PASSWORD_TAB,
+      passwordUsers: passwordUsers,
+      followupSheetId: FOLLOWUP_SPREADSHEET_ID,
+      dropdownNames: dropdownNames,
+      openaiKeySet: !!FOLLOWUP_OPENAI_KEY,
+    });
+  } catch(err) {
+    res.json({ error: err.message });
+  }
+});
+
 // ── MAIN PAGE ──
 app.get('/followup', async function(req, res) {
   try {
     var employees = await fuGetEmployees();
     var employeeNames = employees.map(function(e) { return e.name; });
-
-    // Also get password sheet names for login dropdown
-    var users = await fuGetUsers();
-    var loginNames = users.map(function(u) { return u.name; });
 
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>Follow Up Portal — Wildwood</title>';
@@ -12195,10 +12461,17 @@ app.get('/followup', async function(req, res) {
     html += '.container { max-width:900px; margin:0 auto; padding:30px 40px; }';
 
     // Login
-    html += '.login-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:70vh; }';
-    html += '.login-box { background:rgba(16,185,129,0.05); border:1px solid #10b98130; border-radius:16px; padding:50px 40px; width:100%; max-width:420px; }';
-    html += '.login-box h1 { font-family:Orbitron; color:#10b981; font-size:1.3em; letter-spacing:6px; text-align:center; margin-bottom:8px; }';
-    html += '.login-box .subtitle { color:#4a6a8a; text-align:center; margin-bottom:30px; font-size:0.95em; }';
+    html += '.login-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:85vh; position:relative; overflow:hidden; }';
+    html += '.login-bg { position:absolute; top:0; left:0; width:100%; height:100%; z-index:0; }';
+    html += '.login-bg canvas { width:100%; height:100%; }';
+    html += '.login-content { position:relative; z-index:1; text-align:center; width:100%; max-width:480px; }';
+    html += '.brand-logo { font-family:Orbitron; font-size:2.2em; font-weight:900; letter-spacing:8px; color:#10b981; text-shadow:0 0 40px rgba(16,185,129,0.4),0 0 80px rgba(16,185,129,0.15); margin-bottom:4px; line-height:1.1; }';
+    html += '.brand-sub { font-family:Orbitron; font-size:0.7em; letter-spacing:10px; color:#4a6a8a; margin-bottom:5px; }';
+    html += '.brand-tagline { font-family:Rajdhani; font-size:0.85em; color:#2a4a6a; margin-bottom:35px; letter-spacing:2px; }';
+    html += '.login-card { background:rgba(10,14,23,0.85); backdrop-filter:blur(20px); border:1px solid #10b98125; border-radius:16px; padding:40px 35px; box-shadow:0 20px 60px rgba(0,0,0,0.4),0 0 40px rgba(16,185,129,0.05); }';
+    html += '.login-card h2 { font-family:Orbitron; color:#10b981; font-size:0.85em; letter-spacing:5px; margin-bottom:25px; }';
+    html += '.divider-glow { height:1px; background:linear-gradient(90deg,transparent,#10b98140,transparent); margin:20px 0; }';
+    html += '.powered-by { font-family:Orbitron; font-size:0.45em; letter-spacing:4px; color:#1a3a4a; margin-top:20px; }';
     html += '.form-group { margin-bottom:18px; }';
     html += '.form-group label { display:block; font-family:Orbitron; font-size:0.6em; letter-spacing:3px; color:#10b981; margin-bottom:8px; }';
     html += '.form-group select, .form-group input[type="text"], .form-group input[type="password"] { width:100%; padding:12px 16px; background:rgba(5,10,20,0.8); border:1px solid #1a2a3a; color:#c8d6e5; font-family:Rajdhani; font-size:1em; border-radius:8px; outline:none; }';
@@ -12274,7 +12547,7 @@ app.get('/followup', async function(req, res) {
     html += '@keyframes progress-pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }';
 
     // Responsive
-    html += '@media(max-width:768px) { .container { padding:15px 12px; } .form-row { grid-template-columns:1fr; } .nav a { padding:8px 14px; font-size:0.6em; letter-spacing:2px; } .login-box { padding:30px 20px; } .history-table { font-size:0.75em; } .status-grid { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); } .welcome-bar { flex-direction:column; text-align:center; } }';
+    html += '@media(max-width:768px) { .container { padding:15px 12px; } .form-row { grid-template-columns:1fr; } .nav a { padding:8px 14px; font-size:0.6em; letter-spacing:2px; } .login-card { padding:30px 20px; } .brand-logo { font-size:1.5em; letter-spacing:5px; } .brand-sub { font-size:0.55em; letter-spacing:6px; } .history-table { font-size:0.75em; } .status-grid { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); } .welcome-bar { flex-direction:column; text-align:center; } }';
 
     html += '</style></head><body>';
 
@@ -12287,18 +12560,32 @@ app.get('/followup', async function(req, res) {
 
     // ── LOGIN SCREEN ──
     html += '<div id="loginScreen" class="login-screen">';
-    html += '<div class="login-box">';
-    html += '<h1>📋 FOLLOW UP</h1>';
-    html += '<div class="subtitle">Weekly Report Submission Portal</div>';
-    html += '<div class="form-group"><label>YOUR NAME</label><select id="loginName"><option value="">Select your name...</option>';
-    for (var i = 0; i < loginNames.length; i++) {
-      html += '<option value="' + loginNames[i] + '">' + loginNames[i] + '</option>';
-    }
+
+    // Animated background canvas
+    html += '<div class="login-bg"><canvas id="bgCanvas"></canvas></div>';
+
+    html += '<div class="login-content">';
+
+    // Wildwood branding
+    html += '<div class="brand-logo">WILDWOOD</div>';
+    html += '<div class="brand-sub">SMALL ENGINE REPAIR</div>';
+    html += '<div class="brand-tagline">—— EMPLOYEE PORTAL ——</div>';
+
+    // Login card
+    html += '<div class="login-card">';
+    html += '<h2>WEEKLY FOLLOW UP</h2>';
+    html += '<div class="divider-glow"></div>';
+
+    html += '<div class="form-group"><label>YOUR NAME</label><select id="loginName"><option value="">Loading users...</option>';
     html += '</select></div>';
     html += '<div class="form-group"><label>PASSWORD</label><input type="password" id="loginPassword" placeholder="Enter your password"></div>';
     html += '<button class="btn" id="loginBtn" onclick="doLogin()">SIGN IN →</button>';
     html += '<div class="error-msg" id="loginError"></div>';
-    html += '</div></div>';
+
+    html += '<div class="powered-by">POWERED BY JARVIS AI</div>';
+    html += '</div>'; // login-card
+    html += '</div>'; // login-content
+    html += '</div>'; // loginScreen
 
     // ── PORTAL ──
     html += '<div id="portal" class="portal">';
@@ -12306,6 +12593,9 @@ app.get('/followup', async function(req, res) {
     // Welcome bar
     html += '<div class="welcome-bar"><span class="user-name" id="welcomeName">—</span>';
     html += '<button class="btn btn-danger" onclick="doLogout()">SIGN OUT</button></div>';
+
+    // Deadline countdown
+    html += '<div id="deadlineBar" style="display:none;text-align:center;padding:14px;margin-bottom:20px;border-radius:10px;font-family:Orbitron;font-size:0.75em;letter-spacing:3px;"></div>';
 
     // Submit section
     html += '<div class="section-title blue">📤 SUBMIT WEEKLY REPORT</div>';
@@ -12322,6 +12612,10 @@ app.get('/followup', async function(req, res) {
     html += '<div class="section-title orange">📅 THIS WEEK\'S STATUS</div>';
     html += '<div id="weekStatus" class="status-grid"></div>';
 
+    // Employee Analytics (admin sees all, user sees themselves)
+    html += '<div class="section-title" style="color:#f472b6;border-color:#f472b620;">📈 EMPLOYEE ANALYTICS</div>';
+    html += '<div id="analyticsArea" style="overflow-x:auto;-webkit-overflow-scrolling:touch;"></div>';
+
     // Performance chart
     html += '<div class="section-title purple">📊 PERFORMANCE — ON TIME vs LATE</div>';
     html += '<div id="chartArea" class="chart-grid"></div>';
@@ -12329,6 +12623,14 @@ app.get('/followup', async function(req, res) {
     html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-right:4px;vertical-align:middle;"></span> On Time</span>';
     html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff4750;margin-right:4px;vertical-align:middle;"></span> Late</span>';
     html += '</div>';
+
+    // Submission Heatmap
+    html += '<div class="section-title" style="color:#fbbf24;border-color:#fbbf2420;">🔥 SUBMISSION HEATMAP</div>';
+    html += '<div id="heatmapArea" style="overflow-x:auto;margin-bottom:25px;"></div>';
+
+    // Leaderboard
+    html += '<div class="section-title" style="color:#34d399;border-color:#34d39920;">🏆 CONSISTENCY LEADERBOARD</div>';
+    html += '<div id="leaderboardArea"></div>';
 
     // History
     html += '<div class="section-title">📋 SUBMISSION HISTORY</div>';
@@ -12347,6 +12649,21 @@ app.get('/followup', async function(req, res) {
     html += 'var sessionUser=localStorage.getItem("fu_user")||"";';
     html += 'var sessionRole=localStorage.getItem("fu_role")||"";';
     html += 'if(sessionToken){showPortal();loadData();}';
+
+    // Load login names from API
+    html += '(function(){';
+    html += '  fetch("/followup/api/names").then(function(r){return r.json()}).then(function(d){';
+    html += '    var sel=document.getElementById("loginName");';
+    html += '    sel.innerHTML="<option value=\\"\\">Select your name...</option>";';
+    html += '    if(d.names&&d.names.length>0){';
+    html += '      d.names.forEach(function(n){sel.innerHTML+="<option value=\\""+n+"\\">"+n+"</option>";});';
+    html += '    } else {';
+    html += '      sel.innerHTML="<option value=\\"\\">⚠️ No users found — check sheet sharing</option>";';
+    html += '    }';
+    html += '  }).catch(function(){';
+    html += '    document.getElementById("loginName").innerHTML="<option value=\\"\\">⚠️ Network error</option>";';
+    html += '  });';
+    html += '})();';
 
     // Auto-fill file name from file input
     html += 'document.getElementById("submitFile").addEventListener("change",function(){';
@@ -12382,8 +12699,17 @@ app.get('/followup', async function(req, res) {
     html += '  fetch("/followup/api/history?token="+encodeURIComponent(sessionToken))';
     html += '  .then(function(r){return r.json()}).then(function(d){';
     html += '    if(!d.success){doLogout();return;}';
-    html += '    renderWeekStatus(d.employees);renderChart(d.chartData);renderHistory(d.history);';
+    html += '    renderDeadline(d.deadline);renderWeekStatus(d.employees);renderAnalytics(d.analytics);renderChart(d.chartData);renderHeatmap(d.heatmap);renderLeaderboard(d.analytics);renderHistory(d.history);';
     html += '  }).catch(function(e){console.log("Load error:",e);});';
+    html += '}';
+
+    // Deadline countdown
+    html += 'function renderDeadline(dl){';
+    html += '  var bar=document.getElementById("deadlineBar");if(!dl||!dl.text){bar.style.display="none";return;}';
+    html += '  bar.style.display="block";bar.textContent=dl.text;';
+    html += '  if(dl.hoursLeft<0){bar.style.background="rgba(255,71,80,0.15)";bar.style.border="1px solid #ff475040";bar.style.color="#ff4750";}';
+    html += '  else if(dl.hoursLeft<24){bar.style.background="rgba(255,165,0,0.15)";bar.style.border="1px solid #ffa50040";bar.style.color="#ffa500";}';
+    html += '  else{bar.style.background="rgba(16,185,129,0.08)";bar.style.border="1px solid #10b98130";bar.style.color="#10b981";}';
     html += '}';
 
     // Weekly status
@@ -12409,6 +12735,68 @@ app.get('/followup', async function(req, res) {
     html += '    if(d.late>0)h+="<div class=\\"chart-bar red\\" style=\\"height:"+lH+"px\\"><span>"+d.late+"</span></div>";';
     html += '    h+="</div></div>";';
     html += '  });area.innerHTML=h;';
+    html += '}';
+
+    // Employee Analytics Table
+    html += 'function renderAnalytics(analytics){';
+    html += '  var area=document.getElementById("analyticsArea");if(!analytics){area.innerHTML="";return;}';
+    html += '  var keys=Object.keys(analytics);if(!keys.length){area.innerHTML="<div style=\\"text-align:center;padding:20px;color:#4a6a8a\\">No analytics yet</div>";return;}';
+    html += '  var h="<table class=\\"history-table\\"><thead><tr><th>EMPLOYEE</th><th>TOTAL</th><th>ON TIME</th><th>LATE</th><th>LATE STREAK</th><th>MISSED WEEKS</th><th>AVG DAY</th><th>AVG HOUR</th><th>AUDIT AVG</th></tr></thead><tbody>";';
+    html += '  keys.forEach(function(name){';
+    html += '    var s=analytics[name];';
+    html += '    var streakBadge=s.lateStreak>=3?"<span class=\\"pill err\\">🔥 "+s.lateStreak+"</span>":s.lateStreak>=2?"<span class=\\"pill warn\\">"+s.lateStreak+"</span>":"<span style=\\"color:#4a6a8a\\">0</span>";';
+    html += '    var missedBadge=s.weeksMissed>=3?"<span class=\\"pill err\\">"+s.weeksMissed+"</span>":s.weeksMissed>=1?"<span class=\\"pill warn\\">"+s.weeksMissed+"</span>":"<span style=\\"color:#4a6a8a\\">0</span>";';
+    html += '    var auditAvg="—";';
+    html += '    if(s.auditScores&&s.auditScores.length>0){var sum=s.auditScores.reduce(function(a,b){return a+b},0);var avg=Math.round(sum/s.auditScores.length);';
+    html += '      auditAvg=avg>=38?"<span class=\\"pill ok\\">"+avg+"h</span>":avg>=30?"<span class=\\"pill warn\\">"+avg+"h</span>":"<span class=\\"pill err\\">"+avg+"h</span>";}';
+    html += '    h+="<tr><td style=\\"font-weight:600\\">"+name+"</td><td>"+s.totalSubmissions+"</td><td style=\\"color:#10b981\\">"+s.onTime+"</td><td style=\\"color:#ff4750\\">"+s.late+"</td><td>"+streakBadge+"</td><td>"+missedBadge+"</td><td>"+(s.avgDay||"—")+"</td><td>"+(s.avgHour||"—")+"</td><td>"+auditAvg+"</td></tr>";';
+    html += '  });';
+    html += '  h+="</tbody></table>";area.innerHTML=h;';
+    html += '}';
+
+    // Submission Heatmap
+    html += 'function renderHeatmap(heatmap){';
+    html += '  var area=document.getElementById("heatmapArea");if(!heatmap||!Object.keys(heatmap).length){area.innerHTML="<div style=\\"text-align:center;padding:20px;color:#4a6a8a\\">Not enough data yet</div>";return;}';
+    html += '  var days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];';
+    html += '  var maxCount=0;';
+    html += '  Object.keys(heatmap).forEach(function(h){Object.keys(heatmap[h]).forEach(function(d){if(heatmap[h][d]>maxCount)maxCount=heatmap[h][d];});});';
+    html += '  if(maxCount===0)maxCount=1;';
+    html += '  var h="<table style=\\"border-collapse:collapse;width:100%;font-size:0.8em;\\"><thead><tr><th style=\\"font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:#fbbf24;padding:6px;\\">HOUR</th>";';
+    html += '  days.forEach(function(d){h+="<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:1px;color:#4a6a8a;padding:6px;text-align:center;\\">"+d+"</th>";});';
+    html += '  h+="</tr></thead><tbody>";';
+    html += '  for(var hr=6;hr<=23;hr++){';
+    html += '    h+="<tr><td style=\\"font-family:Orbitron;font-size:0.6em;color:#4a6a8a;padding:4px 8px;\\">"+(hr<10?"0":"")+hr+":00</td>";';
+    html += '    for(var dy=0;dy<7;dy++){';
+    html += '      var count=(heatmap[hr]&&heatmap[hr][dy])||0;';
+    html += '      var intensity=count/maxCount;';
+    html += '      var bg=count===0?"rgba(10,14,23,0.4)":"rgba(251,191,36,"+Math.max(0.1,intensity*0.8)+")";';
+    html += '      h+="<td style=\\"text-align:center;padding:4px;\\"><div style=\\"width:28px;height:22px;border-radius:4px;background:"+bg+";display:inline-flex;align-items:center;justify-content:center;font-size:0.75em;color:"+(count>0?"#fff":"#333")+";\\">"+(count>0?count:"")+"</div></td>";';
+    html += '    }h+="</tr>";';
+    html += '  }h+="</tbody></table>";area.innerHTML=h;';
+    html += '}';
+
+    // Consistency Leaderboard
+    html += 'function renderLeaderboard(analytics){';
+    html += '  var area=document.getElementById("leaderboardArea");if(!analytics){area.innerHTML="";return;}';
+    html += '  var entries=Object.keys(analytics).map(function(name){';
+    html += '    var s=analytics[name];var total=s.onTime+s.late;';
+    html += '    var pct=total>0?Math.round((s.onTime/total)*100):0;';
+    html += '    return{name:name,pct:pct,onTime:s.onTime,total:total,streak:s.lateStreak,missed:s.weeksMissed};';
+    html += '  }).sort(function(a,b){return b.pct-a.pct||b.total-a.total;});';
+    html += '  var medals=["🥇","🥈","🥉"];';
+    html += '  var h="<div style=\\"display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:25px;\\">";';
+    html += '  entries.forEach(function(e,i){';
+    html += '    var medal=i<3?medals[i]:"";';
+    html += '    var barColor=e.pct>=80?"#10b981":e.pct>=50?"#ffa500":"#ff4750";';
+    html += '    h+="<div style=\\"background:rgba(16,185,129,0.03);border:1px solid #10b98115;border-radius:10px;padding:14px;\\">";';
+    html += '    h+="<div style=\\"font-family:Orbitron;font-size:0.65em;letter-spacing:2px;margin-bottom:8px;\\">"+medal+" "+e.name+"</div>";';
+    html += '    h+="<div style=\\"display:flex;align-items:center;gap:8px;margin-bottom:4px;\\">";';
+    html += '    h+="<div style=\\"flex:1;height:6px;background:#1a2a3a;border-radius:3px;overflow:hidden;\\">";';
+    html += '    h+="<div style=\\"width:"+e.pct+"%;height:100%;background:"+barColor+";border-radius:3px;\\"></div></div>";';
+    html += '    h+="<span style=\\"font-family:Orbitron;font-size:0.65em;color:"+barColor+"\\">"+e.pct+"%</span></div>";';
+    html += '    h+="<div style=\\"font-size:0.8em;color:#4a6a8a;\\">"+e.onTime+"/"+e.total+" on time</div>";';
+    html += '    h+="</div>";';
+    html += '  });h+="</div>";area.innerHTML=h;';
     html += '}';
 
     // History
@@ -12488,6 +12876,38 @@ app.get('/followup', async function(req, res) {
 
     // Toast
     html += 'function showToast(msg,type){var t=document.getElementById("toast");t.textContent=msg;t.className="toast "+type+" show";setTimeout(function(){t.classList.remove("show");},4000);}';
+
+    // Animated background (particles/grid effect)
+    html += '(function(){';
+    html += '  var c=document.getElementById("bgCanvas");if(!c)return;';
+    html += '  var ctx=c.getContext("2d");';
+    html += '  function resize(){c.width=c.parentElement.offsetWidth;c.height=c.parentElement.offsetHeight;}';
+    html += '  resize();window.addEventListener("resize",resize);';
+    html += '  var particles=[];';
+    html += '  for(var i=0;i<60;i++){particles.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-0.5)*0.4,vy:(Math.random()-0.5)*0.4,r:Math.random()*2+0.5});}';
+    html += '  function draw(){';
+    html += '    ctx.clearRect(0,0,c.width,c.height);';
+    // Grid lines
+    html += '    ctx.strokeStyle="rgba(16,185,129,0.03)";ctx.lineWidth=1;';
+    html += '    for(var gx=0;gx<c.width;gx+=60){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,c.height);ctx.stroke();}';
+    html += '    for(var gy=0;gy<c.height;gy+=60){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(c.width,gy);ctx.stroke();}';
+    // Particles
+    html += '    particles.forEach(function(p){';
+    html += '      p.x+=p.vx;p.y+=p.vy;';
+    html += '      if(p.x<0)p.x=c.width;if(p.x>c.width)p.x=0;';
+    html += '      if(p.y<0)p.y=c.height;if(p.y>c.height)p.y=0;';
+    html += '      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle="rgba(16,185,129,0.3)";ctx.fill();';
+    html += '    });';
+    // Connection lines
+    html += '    for(var a=0;a<particles.length;a++){for(var b=a+1;b<particles.length;b++){';
+    html += '      var dx=particles[a].x-particles[b].x,dy=particles[a].y-particles[b].y,dist=Math.sqrt(dx*dx+dy*dy);';
+    html += '      if(dist<120){ctx.beginPath();ctx.moveTo(particles[a].x,particles[a].y);ctx.lineTo(particles[b].x,particles[b].y);';
+    html += '        ctx.strokeStyle="rgba(16,185,129,"+(0.08*(1-dist/120))+")";ctx.lineWidth=0.5;ctx.stroke();}';
+    html += '    }}';
+    html += '    requestAnimationFrame(draw);';
+    html += '  }';
+    html += '  draw();';
+    html += '})();';
 
     html += '</script></body></html>';
     res.send(html);
