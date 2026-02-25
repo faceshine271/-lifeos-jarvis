@@ -12691,7 +12691,9 @@ app.get('/followup', async function(req, res) {
     html += 'function showPortal(){';
     html += '  document.getElementById("loginScreen").style.display="none";';
     html += '  document.getElementById("portal").classList.add("active");';
-    html += '  document.getElementById("welcomeName").textContent="👋 "+sessionUser;';
+    html += '  var h=new Date().getHours();';
+    html += '  var greet=h<12?"Good Morning":h<17?"Good Afternoon":"Good Evening";';
+    html += '  document.getElementById("welcomeName").textContent=greet+", "+sessionUser+" 👋";';
     html += '  if(sessionRole==="admin"){var els=document.querySelectorAll(".admin-only");for(var i=0;i<els.length;i++)els[i].style.display="block";}';
     html += '}';
 
