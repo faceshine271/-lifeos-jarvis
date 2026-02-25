@@ -11852,11 +11852,11 @@ function fuGetSubmitStatus() {
 // Get users from password sheet
 async function fuGetUsers() {
   try {
-    var rows = await fuReadSheet(FOLLOWUP_PASSWORD_SHEET_ID, "'" + FOLLOWUP_PASSWORD_TAB + "'!A:B");
+    var rows = await fuReadSheet(FOLLOWUP_PASSWORD_SHEET_ID, "'" + FOLLOWUP_PASSWORD_TAB + "'!A:C");
     console.log("FU Users: read " + rows.length + " rows from password sheet");
     if (rows.length < 2) return [];
     return rows.slice(1).map(function(r) {
-      return { name: (r[0] || '').trim(), password: (r[1] || '').trim() };
+      return { name: (r[0] || '').trim(), password: (r[1] || '').trim(), role: (r[2] || 'employee').trim().toLowerCase() };
     }).filter(function(u) { return u.name && u.password; });
   } catch (err) {
     console.log("FU Users ERROR: " + err.message + " — Make sure sheet " + FOLLOWUP_PASSWORD_SHEET_ID + " is shared with service account");
@@ -12158,8 +12158,8 @@ app.post('/followup/login', express.json(), async function(req, res) {
     if (!user) return res.json({ success: false, message: 'Invalid credentials' });
 
     var token = 'fu_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
-    // Check if user is admin (name matches Trace or specific admin names)
-    var isAdmin = name.toLowerCase() === 'trace' || name.toLowerCase() === 'aly';
+    // Role comes from column C of password sheet
+    var isAdmin = user.role === 'admin';
     fuSessions[token] = { name: user.name, role: isAdmin ? 'admin' : 'user', created: Date.now() };
 
     // Clean old sessions
@@ -12270,70 +12270,68 @@ app.get('/followup/api/history', async function(req, res) {
       weekStatus[e.name] = fuIsThisWeek(e.lastUpload);
     });
 
-    // Build per-employee analytics from history
-    var empAnalytics = {};
-    var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    var heatmapData = {}; // hour -> day -> count
+    // Build per-employee analytics from history (ADMIN ONLY)
+    var empAnalytics = null;
+    var heatmapData = null;
 
-    employees.forEach(function(e) {
-      empAnalytics[e.name] = { totalSubmissions: 0, onTime: 0, late: 0, lateStreak: 0, weeksMissed: 0, avgDay: '', avgHour: '', auditScores: [], submissions: [] };
-    });
+    if (isAdmin) {
+      empAnalytics = {};
+      var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      heatmapData = {};
 
-    // Process ALL submissions (not just visible ones)
-    var allHistory = await fuGetHistory('', true); // get all
+      employees.forEach(function(e) {
+        empAnalytics[e.name] = { totalSubmissions: 0, onTime: 0, late: 0, lateStreak: 0, weeksMissed: 0, avgDay: '', avgHour: '', auditScores: [], submissions: [] };
+      });
 
-    allHistory.forEach(function(r) {
-      if (!empAnalytics[r.name]) empAnalytics[r.name] = { totalSubmissions: 0, onTime: 0, late: 0, lateStreak: 0, weeksMissed: 0, avgDay: '', avgHour: '', auditScores: [], submissions: [] };
-      var stat = empAnalytics[r.name];
-      var d = new Date(r.timestamp);
-      if (isNaN(d.getTime())) return;
+      var allHistory = await fuGetHistory('', true);
 
-      stat.totalSubmissions++;
-      stat.submissions.push({ date: d, day: d.getDay(), hour: d.getHours() });
-      var dayNum = d.getDay();
-      if (dayNum === 0 || dayNum === 6 || dayNum === 1) stat.late++; else stat.onTime++;
+      allHistory.forEach(function(r) {
+        if (!empAnalytics[r.name]) empAnalytics[r.name] = { totalSubmissions: 0, onTime: 0, late: 0, lateStreak: 0, weeksMissed: 0, avgDay: '', avgHour: '', auditScores: [], submissions: [] };
+        var stat = empAnalytics[r.name];
+        var d = new Date(r.timestamp);
+        if (isNaN(d.getTime())) return;
 
-      // AI audit hours
-      if (r.aiAudit && r.aiAudit.indexOf('ERROR') === -1) {
-        if (r.aiAudit.indexOf('40 Hours') > -1) stat.auditScores.push(40);
-        else {
-          var hm = r.aiAudit.match(/(\d+)\s*Hours?/i);
-          if (hm) stat.auditScores.push(parseInt(hm[1]));
-        }
-      }
+        stat.totalSubmissions++;
+        stat.submissions.push({ date: d, day: d.getDay(), hour: d.getHours() });
+        var dayNum = d.getDay();
+        if (dayNum === 0 || dayNum === 6 || dayNum === 1) stat.late++; else stat.onTime++;
 
-      // Heatmap
-      var hKey = d.getHours();
-      var dKey = d.getDay();
-      if (!heatmapData[hKey]) heatmapData[hKey] = {};
-      heatmapData[hKey][dKey] = (heatmapData[hKey][dKey] || 0) + 1;
-    });
-
-    // Post-process: streaks, avg, missed
-    Object.keys(empAnalytics).forEach(function(name) {
-      var s = empAnalytics[name];
-      if (s.submissions.length > 0) {
-        var daySum = 0, hourSum = 0;
-        s.submissions.forEach(function(sub) { daySum += sub.day; hourSum += sub.hour; });
-        s.avgDay = dayNames[Math.round(daySum / s.submissions.length)];
-        s.avgHour = Math.round(hourSum / s.submissions.length) + ':00';
-
-        // Late streak
-        var sorted = s.submissions.sort(function(a,b) { return b.date - a.date; });
-        s.lateStreak = 0;
-        for (var i = 0; i < sorted.length; i++) {
-          var ld = sorted[i].day;
-          if (ld === 0 || ld === 6 || ld === 1) s.lateStreak++; else break;
+        if (r.aiAudit && r.aiAudit.indexOf('ERROR') === -1) {
+          if (r.aiAudit.indexOf('40 Hours') > -1) stat.auditScores.push(40);
+          else {
+            var hm = r.aiAudit.match(/(\d+)\s*Hours?/i);
+            if (hm) stat.auditScores.push(parseInt(hm[1]));
+          }
         }
 
-        // Weeks missed
-        var first = sorted[sorted.length - 1].date;
-        var weeksSince = Math.max(1, Math.ceil((Date.now() - first) / (7 * 86400000)));
-        s.weeksMissed = Math.max(0, weeksSince - s.totalSubmissions);
-      }
-      // Clean up submissions array for JSON (don't send raw dates)
-      delete s.submissions;
-    });
+        var hKey = d.getHours();
+        var dKey = d.getDay();
+        if (!heatmapData[hKey]) heatmapData[hKey] = {};
+        heatmapData[hKey][dKey] = (heatmapData[hKey][dKey] || 0) + 1;
+      });
+
+      Object.keys(empAnalytics).forEach(function(name) {
+        var s = empAnalytics[name];
+        if (s.submissions.length > 0) {
+          var daySum = 0, hourSum = 0;
+          s.submissions.forEach(function(sub) { daySum += sub.day; hourSum += sub.hour; });
+          s.avgDay = dayNames[Math.round(daySum / s.submissions.length)];
+          s.avgHour = Math.round(hourSum / s.submissions.length) + ':00';
+
+          var sorted = s.submissions.sort(function(a,b) { return b.date - a.date; });
+          s.lateStreak = 0;
+          for (var i = 0; i < sorted.length; i++) {
+            var ld = sorted[i].day;
+            if (ld === 0 || ld === 6 || ld === 1) s.lateStreak++; else break;
+          }
+
+          var first = sorted[sorted.length - 1].date;
+          var weeksSince = Math.max(1, Math.ceil((Date.now() - first) / (7 * 86400000)));
+          s.weeksMissed = Math.max(0, weeksSince - s.totalSubmissions);
+        }
+        delete s.submissions;
+      });
+    } // end admin-only analytics
 
     // Deadline countdown
     var now = new Date();
@@ -12365,8 +12363,8 @@ app.get('/followup/api/history', async function(req, res) {
     res.json({
       success: true,
       history: history,
-      chartData: chartData,
-      employees: employees.map(function(e) { return { name: e.name, submittedThisWeek: weekStatus[e.name] }; }),
+      chartData: isAdmin ? chartData : null,
+      employees: isAdmin ? employees.map(function(e) { return { name: e.name, submittedThisWeek: weekStatus[e.name] }; }) : null,
       analytics: empAnalytics,
       heatmap: heatmapData,
       deadline: { text: deadlineText, hoursLeft: hoursUntilDeadline },
@@ -12608,15 +12606,16 @@ app.get('/followup', async function(req, res) {
     html += '<div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>';
     html += '</div>';
 
-    // Weekly status
+    // Weekly status (admin only)
+    html += '<div class="admin-only" style="display:none;">';
     html += '<div class="section-title orange">📅 THIS WEEK\'S STATUS</div>';
     html += '<div id="weekStatus" class="status-grid"></div>';
 
-    // Employee Analytics (admin sees all, user sees themselves)
+    // Employee Analytics (admin only)
     html += '<div class="section-title" style="color:#f472b6;border-color:#f472b620;">📈 EMPLOYEE ANALYTICS</div>';
     html += '<div id="analyticsArea" style="overflow-x:auto;-webkit-overflow-scrolling:touch;"></div>';
 
-    // Performance chart
+    // Performance chart (admin only)
     html += '<div class="section-title purple">📊 PERFORMANCE — ON TIME vs LATE</div>';
     html += '<div id="chartArea" class="chart-grid"></div>';
     html += '<div style="display:flex;gap:15px;justify-content:center;margin-bottom:20px;font-size:0.8em;">';
@@ -12624,13 +12623,14 @@ app.get('/followup', async function(req, res) {
     html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ff4750;margin-right:4px;vertical-align:middle;"></span> Late</span>';
     html += '</div>';
 
-    // Submission Heatmap
+    // Submission Heatmap (admin only)
     html += '<div class="section-title" style="color:#fbbf24;border-color:#fbbf2420;">🔥 SUBMISSION HEATMAP</div>';
     html += '<div id="heatmapArea" style="overflow-x:auto;margin-bottom:25px;"></div>';
 
-    // Leaderboard
+    // Leaderboard (admin only)
     html += '<div class="section-title" style="color:#34d399;border-color:#34d39920;">🏆 CONSISTENCY LEADERBOARD</div>';
     html += '<div id="leaderboardArea"></div>';
+    html += '</div>'; // end admin-only
 
     // History
     html += '<div class="section-title">📋 SUBMISSION HISTORY</div>';
@@ -12692,6 +12692,7 @@ app.get('/followup', async function(req, res) {
     html += '  document.getElementById("loginScreen").style.display="none";';
     html += '  document.getElementById("portal").classList.add("active");';
     html += '  document.getElementById("welcomeName").textContent="👋 "+sessionUser;';
+    html += '  if(sessionRole==="admin"){var els=document.querySelectorAll(".admin-only");for(var i=0;i<els.length;i++)els[i].style.display="block";}';
     html += '}';
 
     // Load data
@@ -12699,7 +12700,13 @@ app.get('/followup', async function(req, res) {
     html += '  fetch("/followup/api/history?token="+encodeURIComponent(sessionToken))';
     html += '  .then(function(r){return r.json()}).then(function(d){';
     html += '    if(!d.success){doLogout();return;}';
-    html += '    renderDeadline(d.deadline);renderWeekStatus(d.employees);renderAnalytics(d.analytics);renderChart(d.chartData);renderHeatmap(d.heatmap);renderLeaderboard(d.analytics);renderHistory(d.history);';
+    html += '    renderDeadline(d.deadline);';
+    html += '    if(d.employees)renderWeekStatus(d.employees);';
+    html += '    if(d.analytics)renderAnalytics(d.analytics);';
+    html += '    if(d.chartData)renderChart(d.chartData);';
+    html += '    if(d.heatmap)renderHeatmap(d.heatmap);';
+    html += '    if(d.analytics)renderLeaderboard(d.analytics);';
+    html += '    renderHistory(d.history);';
     html += '  }).catch(function(e){console.log("Load error:",e);});';
     html += '}';
 
