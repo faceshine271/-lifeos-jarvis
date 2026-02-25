@@ -10682,17 +10682,22 @@ async function executeGAQL(query, customerId) {
       headers['login-customer-id'] = GOOGLE_ADS_MANAGER_ID;
     }
     
-    var res = await fetch('https://googleads.googleapis.com/v16/customers/' + cid + '/googleAds:searchStream', {
+    var res = await fetch('https://googleads.googleapis.com/v18/customers/' + cid + '/googleAds:search', {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify({ query: query }),
+      body: JSON.stringify({ query: query, pageSize: 10000 }),
     });
-    var data = await res.json();
-    if (data.error) {
-      console.log("GAQL Error:", JSON.stringify(data.error).substring(0, 300));
+    var rawText = await res.text();
+    var data;
+    try { data = JSON.parse(rawText); } catch(pe) {
+      console.log("GAQL Parse Error:", rawText.substring(0, 300));
       return null;
     }
-    // searchStream returns array of result batches
+    if (data.error) {
+      console.log("GAQL Error [" + res.status + "]:", JSON.stringify(data.error).substring(0, 500));
+      return null;
+    }
+    // search returns {results:[...]} or array of batches
     var results = [];
     if (Array.isArray(data)) {
       data.forEach(function(batch) {
@@ -10701,6 +10706,7 @@ async function executeGAQL(query, customerId) {
     } else if (data.results) {
       results = data.results;
     }
+    console.log("GAQL returned " + results.length + " results for: " + query.substring(0, 60) + "...");
     return results;
   } catch (err) {
     console.log("GAQL fetch error:", err.message);
@@ -10784,6 +10790,9 @@ async function buildAdsContext() {
       });
     }
   } catch(e) { result.errors.push("Campaign fetch: " + e.message); }
+  if (result.campaigns.length === 0 && result.errors.length === 0) {
+    result.errors.push("Campaign query returned empty. Check Render logs for GAQL errors. Test token may need Basic Access approval at ads.google.com/aw/apicenter");
+  }
 
   // ====== 2. AD GROUP PERFORMANCE ======
   try {
@@ -11114,6 +11123,45 @@ app.get('/ads/refresh', async function(req, res) {
     res.json({ status: 'refreshed', campaigns: data.campaigns.length, keywords: data.keywords.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug endpoint — raw API test
+app.get('/ads/debug', async function(req, res) {
+  try {
+    var token = await getAdsAccessToken();
+    if (!token) return res.json({ error: 'No access token. Visit /ads/auth', hasRefresh: !!adsTokenStore.refreshToken, hasClientId: !!GOOGLE_ADS_CLIENT_ID });
+    
+    var cid = GOOGLE_ADS_CUSTOMER_ID;
+    var headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token,
+      'developer-token': GOOGLE_ADS_DEVELOPER_TOKEN,
+    };
+    if (GOOGLE_ADS_MANAGER_ID) headers['login-customer-id'] = GOOGLE_ADS_MANAGER_ID;
+    
+    // Simple query to test
+    var query = "SELECT campaign.id, campaign.name, campaign.status FROM campaign LIMIT 10";
+    
+    var apiRes = await fetch('https://googleads.googleapis.com/v18/customers/' + cid + '/googleAds:search', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ query: query }),
+    });
+    var rawText = await apiRes.text();
+    
+    res.json({
+      config: {
+        customerID: cid,
+        managerID: GOOGLE_ADS_MANAGER_ID || 'NOT SET',
+        devToken: GOOGLE_ADS_DEVELOPER_TOKEN ? GOOGLE_ADS_DEVELOPER_TOKEN.substring(0, 6) + '...' : 'NOT SET',
+        hasAccessToken: !!token,
+      },
+      httpStatus: apiRes.status,
+      rawResponse: rawText.substring(0, 2000),
+    });
+  } catch (err) {
+    res.json({ error: err.message, stack: err.stack.substring(0, 500) });
   }
 });
 
