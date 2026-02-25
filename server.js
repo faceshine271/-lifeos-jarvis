@@ -10682,7 +10682,7 @@ async function executeGAQL(query, customerId) {
       headers['login-customer-id'] = GOOGLE_ADS_MANAGER_ID;
     }
     
-    var res = await fetch('https://googleads.googleapis.com/v18/customers/' + cid + '/googleAds:search', {
+    var res = await fetch('https://googleads.googleapis.com/v23/customers/' + cid + '/googleAds:search', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({ query: query, pageSize: 10000 }),
@@ -11143,7 +11143,7 @@ app.get('/ads/debug', async function(req, res) {
     // Simple query to test
     var query = "SELECT campaign.id, campaign.name, campaign.status FROM campaign LIMIT 10";
     
-    var apiRes = await fetch('https://googleads.googleapis.com/v18/customers/' + cid + '/googleAds:search', {
+    var apiRes = await fetch('https://googleads.googleapis.com/v23/customers/' + cid + '/googleAds:search', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({ query: query }),
