@@ -56,12 +56,268 @@ var sheets = google.sheets({ version: 'v4', auth: auth });
 var drive = google.drive({ version: 'v3', auth: auth });
 console.log("Google Auth Ready");
 
+// Log service account email for sharing
+try {
+  var creds = JSON.parse(fs.readFileSync(keyfilePath, 'utf8'));
+  console.log("🔑 Service Account Email: " + creds.client_email);
+  console.log("   Share Google Drive folders with this email to enable uploads");
+} catch (e) {}
+
 // Follow-up portal config
 const FOLLOWUP_PASSWORD_SHEET_ID = process.env.FOLLOWUP_PASSWORD_SHEET_ID || '1zXJPcJsKgoY8zY921mfzz0KSphQWFYF74hX9_M54v4A';
 const FOLLOWUP_PASSWORD_TAB = 'Follow up password';
 const FOLLOWUP_ADMIN_EMAIL = 'aly@wildwoodsmallenginerepair.com';
 const FOLLOWUP_CC_EMAIL = 'trace@wildwoodsmallenginerepair.com';
 const FOLLOWUP_OPENAI_KEY = process.env.FOLLOWUP_OPENAI_KEY || '';
+
+// Discord bot config
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
+const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || '';
+var discordCache = { channels: null, messages: {}, time: 0 };
+
+async function discordFetch(endpoint) {
+  if (!DISCORD_BOT_TOKEN) return null;
+  var res = await fetch('https://discord.com/api/v10' + endpoint, {
+    headers: { 'Authorization': 'Bot ' + DISCORD_BOT_TOKEN }
+  });
+  if (!res.ok) { console.log("Discord API error: " + res.status + " on " + endpoint); return null; }
+  return res.json();
+}
+
+async function discordGetChannels() {
+  if (!DISCORD_GUILD_ID) return [];
+  if (discordCache.channels && (Date.now() - discordCache.time) < 300000) return discordCache.channels;
+  var channels = await discordFetch('/guilds/' + DISCORD_GUILD_ID + '/channels');
+  if (!channels) return [];
+  var textChannels = channels.filter(function(c) { return c.type === 0; });
+  discordCache.channels = textChannels;
+  discordCache.time = Date.now();
+  return textChannels;
+}
+
+async function discordGetMessages(channelId, limit) {
+  limit = limit || 50;
+  var cacheKey = channelId + '_' + limit;
+  if (discordCache.messages[cacheKey] && (Date.now() - (discordCache.messages[cacheKey].time || 0)) < 120000) {
+    return discordCache.messages[cacheKey].data;
+  }
+  var msgs = await discordFetch('/channels/' + channelId + '/messages?limit=' + limit);
+  if (!msgs) return [];
+  discordCache.messages[cacheKey] = { data: msgs, time: Date.now() };
+  return msgs;
+}
+
+async function discordGetAllRecent(limit) {
+  limit = limit || 30;
+  var channels = await discordGetChannels();
+  var all = [];
+  for (var i = 0; i < channels.length; i++) {
+    var msgs = await discordGetMessages(channels[i].id, limit);
+    msgs.forEach(function(m) {
+      all.push({
+        channel: channels[i].name,
+        channelId: channels[i].id,
+        author: m.author ? m.author.username : 'unknown',
+        content: m.content || '',
+        timestamp: m.timestamp,
+        attachments: (m.attachments || []).length,
+        reactions: (m.reactions || []).map(function(r) { return r.emoji.name + ':' + r.count; }),
+      });
+    });
+  }
+  all.sort(function(a, b) { return new Date(b.timestamp) - new Date(a.timestamp); });
+  return all;
+}
+
+async function discordSendMessage(channelId, content) {
+  if (!DISCORD_BOT_TOKEN || !channelId || !content) return null;
+  try {
+    var res = await fetch('https://discord.com/api/v10/channels/' + channelId + '/messages', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bot ' + DISCORD_BOT_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content })
+    });
+    if (!res.ok) { console.log("Discord send error: " + res.status); return null; }
+    return await res.json();
+  } catch (err) { console.log("Discord send failed:", err.message); return null; }
+}
+
+async function discordGetQuietChannels() {
+  var channels = await discordGetChannels();
+  var quiet = [];
+  var now = Date.now();
+  for (var i = 0; i < channels.length; i++) {
+    var msgs = await discordGetMessages(channels[i].id, 1);
+    var lastMsg = msgs && msgs.length > 0 ? msgs[0] : null;
+    var lastTime = lastMsg ? new Date(lastMsg.timestamp).getTime() : 0;
+    var hoursSince = lastTime ? Math.round((now - lastTime) / 3600000) : 999;
+    quiet.push({
+      id: channels[i].id,
+      name: channels[i].name,
+      lastMessage: lastMsg ? { author: lastMsg.author ? lastMsg.author.username : '?', content: (lastMsg.content || '').substring(0, 100), time: lastMsg.timestamp } : null,
+      hoursSince: hoursSince,
+      isQuiet: hoursSince >= 24
+    });
+  }
+  quiet.sort(function(a, b) { return b.hoursSince - a.hoursSince; });
+  return quiet;
+}
+
+async function discordAnalyzeResponseRates() {
+  var channels = await discordGetChannels();
+  var people = {};
+  var RESPONSE_WINDOW = 7200000; // 2 hours in ms — if you reply within 2h it counts as a response
+
+  for (var i = 0; i < channels.length; i++) {
+    var msgs = await discordGetMessages(channels[i].id, 100);
+    if (!msgs || msgs.length === 0) continue;
+
+    // Sort oldest first so we can walk the conversation forward
+    msgs.sort(function(a, b) { return new Date(a.timestamp) - new Date(b.timestamp); });
+
+    for (var j = 0; j < msgs.length; j++) {
+      var m = msgs[j];
+      var author = m.author ? m.author.username : 'unknown';
+      var mTime = new Date(m.timestamp).getTime();
+
+      // Init person
+      if (!people[author]) {
+        people[author] = {
+          name: author,
+          totalMessages: 0,
+          responsesGiven: 0,       // times they replied to someone else
+          responsesReceived: 0,    // times someone replied to them
+          unanswered: 0,           // their messages nobody replied to
+          totalResponseTimeMs: 0,  // sum of their response times (when they replied)
+          fastestResponseMs: Infinity,
+          slowestResponseMs: 0,
+          conversationsStarted: 0, // messages with no prior message within window
+          mentionsSent: 0,
+          mentionsReceived: 0,
+          activeChannels: {},
+          hourActivity: {},        // which hours they post
+          dayActivity: {},         // which days they post
+        };
+      }
+
+      people[author].totalMessages++;
+      people[author].activeChannels[channels[i].name] = (people[author].activeChannels[channels[i].name] || 0) + 1;
+
+      // Track activity hours and days
+      var msgDate = new Date(m.timestamp);
+      var hour = msgDate.getHours();
+      var day = msgDate.toLocaleDateString('en-US', { weekday: 'short' });
+      people[author].hourActivity[hour] = (people[author].hourActivity[hour] || 0) + 1;
+      people[author].dayActivity[day] = (people[author].dayActivity[day] || 0) + 1;
+
+      // Check for @mentions
+      var mentions = (m.content || '').match(/@\w+/g) || [];
+      people[author].mentionsSent += mentions.length;
+      mentions.forEach(function(mention) {
+        var mentionedName = mention.replace('@', '');
+        if (people[mentionedName]) people[mentionedName].mentionsReceived++;
+      });
+
+      // Look backward — was this message a response to someone?
+      var isResponse = false;
+      for (var k = j - 1; k >= 0; k--) {
+        var prev = msgs[k];
+        var prevAuthor = prev.author ? prev.author.username : 'unknown';
+        var prevTime = new Date(prev.timestamp).getTime();
+
+        if (mTime - prevTime > RESPONSE_WINDOW) break; // too old
+        if (prevAuthor === author) continue; // skip own messages
+
+        // This message is a response to prev
+        isResponse = true;
+        var responseTime = mTime - prevTime;
+        people[author].responsesGiven++;
+        people[author].totalResponseTimeMs += responseTime;
+        if (responseTime < people[author].fastestResponseMs) people[author].fastestResponseMs = responseTime;
+        if (responseTime > people[author].slowestResponseMs) people[author].slowestResponseMs = responseTime;
+
+        if (people[prevAuthor]) people[prevAuthor].responsesReceived++;
+        break; // count as response to the most recent different person
+      }
+
+      if (!isResponse) {
+        // Check if there was any prior message in the window at all
+        var hadPrior = false;
+        for (var k2 = j - 1; k2 >= 0; k2--) {
+          if (mTime - new Date(msgs[k2].timestamp).getTime() > RESPONSE_WINDOW) break;
+          if ((msgs[k2].author ? msgs[k2].author.username : '') !== author) { hadPrior = true; break; }
+        }
+        if (!hadPrior) people[author].conversationsStarted++;
+      }
+    }
+
+    // Mark unanswered: last message per channel, if nobody replied within window
+    if (msgs.length > 0) {
+      var last = msgs[msgs.length - 1];
+      var lastAuthor = last.author ? last.author.username : 'unknown';
+      var lastTime = new Date(last.timestamp).getTime();
+      var now = Date.now();
+      if (now - lastTime > RESPONSE_WINDOW && people[lastAuthor]) {
+        // Check if someone replied after this in the time window
+        var gotReply = false;
+        for (var r = msgs.length - 2; r >= 0; r--) {
+          if (new Date(msgs[r].timestamp).getTime() < lastTime - RESPONSE_WINDOW) break;
+          if ((msgs[r].author ? msgs[r].author.username : '') !== lastAuthor) { gotReply = true; break; }
+        }
+        if (!gotReply) people[lastAuthor].unanswered++;
+      }
+    }
+  }
+
+  // Calculate derived metrics
+  var results = Object.values(people).map(function(p) {
+    var avgResponseMs = p.responsesGiven > 0 ? Math.round(p.totalResponseTimeMs / p.responsesGiven) : 0;
+    var responseRate = p.totalMessages > 0 ? Math.round((p.responsesGiven / Math.max(p.totalMessages, 1)) * 100) : 0;
+    var engagementScore = 0;
+    // Score: messages (30%) + response rate (30%) + speed (20%) + channels (10%) + conversations started (10%)
+    engagementScore += Math.min(p.totalMessages / 20, 1) * 30;
+    engagementScore += (responseRate / 100) * 30;
+    engagementScore += avgResponseMs > 0 ? Math.max(0, (1 - avgResponseMs / 3600000)) * 20 : 0;
+    engagementScore += Math.min(Object.keys(p.activeChannels).length / 5, 1) * 10;
+    engagementScore += Math.min(p.conversationsStarted / 5, 1) * 10;
+
+    // Peak hour
+    var peakHour = Object.entries(p.hourActivity).sort(function(a,b){return b[1]-a[1];})[0];
+    // Peak day
+    var peakDay = Object.entries(p.dayActivity).sort(function(a,b){return b[1]-a[1];})[0];
+
+    return {
+      name: p.name,
+      totalMessages: p.totalMessages,
+      responsesGiven: p.responsesGiven,
+      responsesReceived: p.responsesReceived,
+      responseRate: responseRate,
+      avgResponseTime: avgResponseMs,
+      avgResponseTimeFormatted: avgResponseMs > 0 ? formatDuration(avgResponseMs) : '—',
+      fastestResponse: p.fastestResponseMs < Infinity ? formatDuration(p.fastestResponseMs) : '—',
+      slowestResponse: p.slowestResponseMs > 0 ? formatDuration(p.slowestResponseMs) : '—',
+      unanswered: p.unanswered,
+      conversationsStarted: p.conversationsStarted,
+      mentionsSent: p.mentionsSent,
+      mentionsReceived: p.mentionsReceived,
+      activeChannels: Object.keys(p.activeChannels).length,
+      topChannel: Object.entries(p.activeChannels).sort(function(a,b){return b[1]-a[1];})[0],
+      peakHour: peakHour ? peakHour[0] + ':00' : '—',
+      peakDay: peakDay ? peakDay[0] : '—',
+      engagementScore: Math.round(engagementScore),
+    };
+  });
+
+  results.sort(function(a, b) { return b.engagementScore - a.engagementScore; });
+  return results;
+}
+
+function formatDuration(ms) {
+  if (ms < 60000) return Math.round(ms / 1000) + 's';
+  if (ms < 3600000) return Math.round(ms / 60000) + 'm';
+  if (ms < 86400000) return (ms / 3600000).toFixed(1) + 'h';
+  return (ms / 86400000).toFixed(1) + 'd';
+}
 
 /* ===========================
    TWILIO CLIENT
@@ -383,7 +639,7 @@ var SKIP_TABS = [
   "sample","test","location sheets","manual entry record",
   "diagnostic sms reply","promotion customers reply",
   "sheet1","location unavailable","return customers","unorganized customers",
-  "main","receptionist names","discord reviews"
+  "main","receptionist names"
 ];
 
 var HEADER_MAP = {
@@ -4220,7 +4476,7 @@ app.get('/dashboard', async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -6651,7 +6907,7 @@ app.get('/business', async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
@@ -8336,8 +8592,34 @@ app.post('/chat/athena', async function(req, res) {
         }
       }
 
+      // Add Discord data
+      if (DISCORD_BOT_TOKEN) {
+        try {
+          var discordMsgs = await discordGetAllRecent(20);
+          if (discordMsgs.length > 0) {
+            athenaContext += '\n\nDISCORD TEAM MESSAGES (recent):\n';
+            discordMsgs.slice(0, 30).forEach(function(m) {
+              athenaContext += '#' + m.channel + ' | ' + m.author + ': ' + (m.content || '').substring(0, 200) + '\n';
+            });
+            var dAuthors = {};
+            discordMsgs.forEach(function(m) { dAuthors[m.author] = (dAuthors[m.author] || 0) + 1; });
+            athenaContext += 'Discord activity: ' + Object.entries(dAuthors).map(function(a) { return a[0] + ': ' + a[1] + ' msgs'; }).join(', ') + '\n';
+          }
+          // Add response rates
+          try {
+            var rates = await discordAnalyzeResponseRates();
+            if (rates.length > 0) {
+              athenaContext += '\nDISCORD RESPONSE RATES:\n';
+              rates.forEach(function(p) {
+                athenaContext += p.name + ': engagement ' + p.engagementScore + '/100, response rate ' + p.responseRate + '%, avg speed ' + p.avgResponseTimeFormatted + ', ' + p.totalMessages + ' msgs, ' + p.unanswered + ' unanswered, peak ' + p.peakDay + ' ' + p.peakHour + '\n';
+              });
+            }
+          } catch (rre) {}
+        } catch (de) {}
+      }
+
       history = {
-        systemPrompt: "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. You are speaking through a voice interface to Trace, the owner.\n\nRULES:\n- You are ATHENA, not Jarvis. You are the business intelligence brain.\n- You know EVERYTHING about the business across every dashboard:\n  * CRM: bookings, conversion rates, cancellations, growth trends, monthly/weekly volume\n  * FINANCIAL: revenue, expenses, profit, margins, tech payouts, daily averages, ad spend\n  * GOOGLE ADS: spend, clicks, conversions, ROAS, cost per lead, campaign performance\n  * TECHNICIANS: job counts, completion rates, equipment specialties, workload balance\n  * EMPLOYEES: follow-up submissions, on-time rates, late streaks, AI audit scores\n  * DISPATCH: active Tookan tasks, completed today, tech assignments\n  * EQUIPMENT & BRANDS: what you fix most, brand trends\n  * LOCATIONS: top markets, calls by city, new expansion areas\n  * CALL PATTERNS: monthly trends, seasonal patterns, busiest periods\n  * REVIEWS & OPS: customer feedback, operational data\n  * SOPs: Standard Operating Procedures, contracts, checklists for each role\n  * TEAM ROLES: who is a tech, receptionist, or admin and their current performance\n- You can recommend WHAT NEEDS FOCUS based on the data: low conversion areas, high cancellation locations, underperforming techs, late follow-ups, missed SOPs.\n- You can recommend WHO SHOULD DO IT by matching the task to the right team member role. Techs handle field work. Receptionists handle phones and scheduling. Admins handle oversight and strategy.\n- When asked about SOPs or what someone should be doing, reference the actual SOP content and match it to the person's role and current performance.\n- When asked about priorities or focus areas, analyze the data: what metrics are weak? What needs immediate attention? Who is best suited to fix it?\n- Give specific numbers when asked. Be precise.\n- Keep responses to 2-5 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound confident, analytical, and sharp.\n- If asked to compare or analyze, do the math and give insights.\n\nBUSINESS DATA:\n" + athenaContext,
+        systemPrompt: "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. You are speaking through a voice interface to Trace, the owner.\n\nRULES:\n- You are ATHENA, not Jarvis. You are the business intelligence brain.\n- You know EVERYTHING about the business across every dashboard:\n  * CRM: bookings, conversion rates, cancellations, growth trends, monthly/weekly volume\n  * FINANCIAL: revenue, expenses, profit, margins, tech payouts, daily averages, ad spend\n  * GOOGLE ADS: spend, clicks, conversions, ROAS, cost per lead, campaign performance\n  * TECHNICIANS: job counts, completion rates, equipment specialties, workload balance\n  * EMPLOYEES: follow-up submissions, on-time rates, late streaks, AI audit scores\n  * DISPATCH: active Tookan tasks, completed today, tech assignments\n  * EQUIPMENT & BRANDS: what you fix most, brand trends\n  * LOCATIONS: top markets, calls by city, new expansion areas\n  * CALL PATTERNS: monthly trends, seasonal patterns, busiest periods\n  * REVIEWS & OPS: customer feedback, operational data\n  * SOPs: Standard Operating Procedures, contracts, checklists for each role\n  * TEAM ROLES: who is a tech, receptionist, or admin and their current performance\n  * DISCORD: team communication messages, who's active, response quality\n- You can recommend WHAT NEEDS FOCUS based on the data.\n- You can recommend WHO SHOULD DO IT by matching the task to the right team member.\n- When asked about Discord or team communication, analyze message quality, response times, who's active vs quiet, and suggest improvements.\n- Give specific numbers when asked. Be precise.\n- Keep responses to 2-5 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound confident, analytical, and sharp.\n\nBUSINESS DATA:\n" + athenaContext,
         messages: [],
       };
     }
@@ -9114,7 +9396,7 @@ app.get('/tookan', async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
 
     // Status overview cards
@@ -9570,7 +9852,7 @@ app.get('/business/chart', async function(req, res) {
     html += '<a href="/business/chart" class="active">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
@@ -12290,55 +12572,42 @@ async function fuGetChartData() {
 // Upload PDF to Google Drive
 async function fuUploadToDrive(base64Data, fileName) {
   try {
-    // Find or create the "Weekly Task PDFs" folder
-    var folderName = 'Weekly Task PDFs';
-    var folderRes = await drive.files.list({
-      q: "name='" + folderName + "' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-      fields: 'files(id, name)',
-    });
-
-    var folderId;
-    if (folderRes.data.files && folderRes.data.files.length > 0) {
-      folderId = folderRes.data.files[0].id;
-    } else {
-      var newFolder = await drive.files.create({
-        requestBody: { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
-        fields: 'id',
+    // Store PDF in a "PDF_Storage" tab on the follow-up sheet
+    var storageTab = 'PDF_Storage';
+    var tabs = await fuGetTabs(FOLLOWUP_SPREADSHEET_ID);
+    if (tabs.indexOf(storageTab) === -1) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: FOLLOWUP_SPREADSHEET_ID,
+        requestBody: { requests: [{ addSheet: { properties: { title: storageTab } } }] }
       });
-      folderId = newFolder.data.id;
+      await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + storageTab + "'!A1:D1",
+        [['ID', 'FileName', 'Timestamp', 'Base64Data']]);
     }
 
-    // Upload the PDF
-    var buffer = Buffer.from(base64Data, 'base64');
-    var { Readable } = require('stream');
-    var stream = new Readable();
-    stream.push(buffer);
-    stream.push(null);
+    // Generate unique ID
+    var pdfId = 'pdf_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
 
-    var fileRes = await drive.files.create({
-      requestBody: {
-        name: fileName,
-        parents: [folderId],
-      },
-      media: {
-        mimeType: 'application/pdf',
-        body: stream,
-      },
-      fields: 'id, webViewLink',
-    });
+    // Store in sheet (split base64 into chunks if needed — sheets max ~50k chars per cell)
+    var chunks = [];
+    for (var i = 0; i < base64Data.length; i += 49000) {
+      chunks.push(base64Data.substring(i, i + 49000));
+    }
 
-    // Make it viewable by anyone with link
-    await drive.permissions.create({
-      fileId: fileRes.data.id,
-      requestBody: { role: 'reader', type: 'anyone' },
-    });
+    // First chunk goes in column D, extras in E, F, etc.
+    var row = [pdfId, fileName, new Date().toISOString()];
+    chunks.forEach(function(c) { row.push(c); });
+
+    await fuAppendSheet(FOLLOWUP_SPREADSHEET_ID, "'" + storageTab + "'!A:Z", [row]);
+
+    var viewUrl = '/followup/pdf/' + pdfId;
+    console.log("FU: Stored PDF '" + fileName + "' in sheet as " + pdfId + " (" + chunks.length + " chunks)");
 
     return {
-      id: fileRes.data.id,
-      url: fileRes.data.webViewLink || ('https://drive.google.com/file/d/' + fileRes.data.id + '/view'),
+      id: pdfId,
+      url: viewUrl,
     };
   } catch (err) {
-    console.log("Drive upload error:", err.message);
+    console.log("FU: PDF storage error:", err.message);
     throw err;
   }
 }
@@ -12505,6 +12774,498 @@ async function fuRunAIAudit(pdfText) {
     return { audit: 'ERROR: AI Audit Failed: ' + err.message, reason: '', suggestions: '' };
   }
 }
+
+/* ===========================
+   DISCORD INTEGRATION
+=========================== */
+
+// Discord Messages API
+app.get('/discord/api/channels', async function(req, res) {
+  var channels = await discordGetChannels();
+  res.json({ channels: channels.map(function(c) { return { id: c.id, name: c.name, position: c.position }; }) });
+});
+
+app.get('/discord/api/messages', async function(req, res) {
+  var channelId = req.query.channel;
+  var limit = parseInt(req.query.limit) || 50;
+  if (channelId) {
+    var msgs = await discordGetMessages(channelId, limit);
+    res.json({ messages: msgs });
+  } else {
+    var all = await discordGetAllRecent(limit);
+    res.json({ messages: all });
+  }
+});
+
+// AI Analysis of Discord messages
+app.post('/discord/api/analyze', express.json(), async function(req, res) {
+  try {
+    var channelId = req.body.channel || '';
+    var limit = req.body.limit || 50;
+    var msgs;
+    if (channelId) {
+      msgs = await discordGetMessages(channelId, limit);
+      msgs = msgs.map(function(m) {
+        return { author: m.author ? m.author.username : '?', content: m.content, time: m.timestamp };
+      });
+    } else {
+      msgs = await discordGetAllRecent(limit);
+    }
+
+    if (msgs.length === 0) return res.json({ analysis: 'No messages found.' });
+
+    var msgText = msgs.slice(0, 80).map(function(m) {
+      return (m.author || '') + ' (' + (m.channel || '') + '): ' + (m.content || '').substring(0, 300);
+    }).join('\n');
+
+    var analysis = await askClaude(
+      "You are ATHENA, business AI for Wildwood Small Engine Repair. Analyze these Discord messages from the team server. Give:\n" +
+      "1. COMMUNICATION QUALITY: Are messages clear, professional, actionable? Rate 1-10.\n" +
+      "2. RESPONSE TIME: Are people responding quickly or leaving things hanging?\n" +
+      "3. TOP ISSUES: What topics/problems keep coming up?\n" +
+      "4. IMPROVEMENTS: Specific ways to improve team communication (be direct, give examples of better phrasing).\n" +
+      "5. WHO'S ACTIVE: Who's contributing most vs who's quiet?\n" +
+      "6. ACTION ITEMS: Any messages that need follow-up but didn't get one?\n\n" +
+      "Keep it practical and specific. No generic advice. Use names and quote actual message issues.\n" +
+      "Format as plain readable text, no markdown.",
+      [{ role: 'user', content: 'Analyze these Discord messages:\n\n' + msgText }]
+    );
+
+    res.json({ analysis: analysis });
+  } catch (err) {
+    res.json({ analysis: 'Error: ' + err.message });
+  }
+});
+
+// Response rate analytics per person
+app.get('/discord/api/response-rates', async function(req, res) {
+  try {
+    var rates = await discordAnalyzeResponseRates();
+    res.json({ people: rates });
+  } catch (err) {
+    console.log("Discord response rate error:", err.message);
+    res.json({ people: [], error: err.message });
+  }
+});
+
+// Quiet channels detection
+app.get('/discord/api/quiet', async function(req, res) {
+  var quiet = await discordGetQuietChannels();
+  res.json({ channels: quiet });
+});
+
+// AI-generated message suggestions for quiet/important channels
+app.post('/discord/api/suggest', express.json(), async function(req, res) {
+  try {
+    var quiet = await discordGetQuietChannels();
+    var allMsgs = await discordGetAllRecent(40);
+    var bm = global.bizMetrics || {};
+    var pm = global.profitMetrics || {};
+    var fu = global.followUpMetrics || {};
+
+    var bizSnap = '';
+    bizSnap += 'TODAY: ' + new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'}) + '\n';
+    if (bm.totalLeads) bizSnap += 'CRM: ' + (bm.totalBooked||0) + ' booked, ' + (bm.totalCancelled||0) + ' cancelled, ' + (bm.totalCompleted||0) + ' completed\n';
+    if (fu) {
+      var pending = (fu.employees || []).filter(function(e){return !e.submittedThisWeek;});
+      if (pending.length > 0) bizSnap += 'FOLLOW-UPS PENDING: ' + pending.map(function(e){return e.name;}).join(', ') + '\n';
+    }
+    if (bm.totalCancelled > 0) bizSnap += 'Cancellation rate: ' + ((bm.totalCancelled / (bm.totalLeads||1)) * 100).toFixed(1) + '%\n';
+
+    var quietInfo = quiet.filter(function(c){return c.isQuiet;}).map(function(c){
+      return '#' + c.name + ' — last message ' + c.hoursSince + 'h ago' + (c.lastMessage ? ' (last: "' + c.lastMessage.content + '" by ' + c.lastMessage.author + ')' : '');
+    }).join('\n');
+
+    var recentMsgSample = allMsgs.slice(0, 25).map(function(m){
+      return '#' + (m.channel||'') + ' | ' + (m.author||'') + ': ' + (m.content||'').substring(0, 150);
+    }).join('\n');
+
+    var targetChannel = req.body.channel || '';
+    var customTopic = req.body.topic || '';
+
+    var prompt = "You are ATHENA, AI for Wildwood Small Engine Repair. Generate 3-5 Discord message suggestions the team should send.\n\n";
+    prompt += "BUSINESS CONTEXT:\n" + bizSnap + "\n";
+    if (quietInfo) prompt += "QUIET CHANNELS (need attention):\n" + quietInfo + "\n";
+    prompt += "\nRECENT MESSAGES:\n" + recentMsgSample + "\n";
+    if (targetChannel) prompt += "\nFOCUS: Generate messages for #" + targetChannel + "\n";
+    if (customTopic) prompt += "\nTOPIC: " + customTopic + "\n";
+    prompt += "\nRULES:\n- Each suggestion: channel name, message text, WHY it should be sent\n";
+    prompt += "- Consider: quiet channels, pending tasks, recognition, follow-up reminders, scheduling\n";
+    prompt += "- Sound natural and human, NOT corporate\n- Include at least one motivational message\n";
+    prompt += "\nReturn ONLY valid JSON array. Each object: {\"channel\": \"channel-name\", \"message\": \"text\", \"reason\": \"why\", \"priority\": \"high|medium|low\"}\nNo markdown. No backticks. Just JSON.";
+
+    var raw = await askClaude(prompt, [{ role: 'user', content: 'Generate message suggestions now.' }]);
+    var suggestions = [];
+    try {
+      suggestions = JSON.parse((raw || '').replace(/```json|```/g, '').trim());
+    } catch (e) { suggestions = [{ channel: 'general', message: raw, reason: 'AI response', priority: 'medium' }]; }
+
+    var channels = await discordGetChannels();
+    suggestions.forEach(function(s) {
+      var match = channels.find(function(c) { return c.name.toLowerCase() === (s.channel || '').toLowerCase().replace('#', ''); });
+      s.channelId = match ? match.id : '';
+    });
+
+    res.json({ suggestions: suggestions, quietChannels: quiet.filter(function(c){return c.isQuiet;}), businessContext: bizSnap });
+  } catch (err) {
+    console.log("Discord suggest error:", err.message);
+    res.json({ suggestions: [], error: err.message });
+  }
+});
+
+// Send a message to Discord
+app.post('/discord/api/send', express.json(), async function(req, res) {
+  try {
+    var channelId = req.body.channelId;
+    var message = req.body.message;
+    if (!channelId || !message) return res.json({ success: false, error: 'Missing channelId or message' });
+    var result = await discordSendMessage(channelId, message);
+    if (result) { res.json({ success: true, messageId: result.id }); }
+    else { res.json({ success: false, error: 'Failed to send' }); }
+  } catch (err) { res.json({ success: false, error: err.message }); }
+});
+
+// System improvement analysis from message patterns
+app.post('/discord/api/improve', express.json(), async function(req, res) {
+  try {
+    var allMsgs = await discordGetAllRecent(100);
+    if (allMsgs.length === 0) return res.json({ analysis: 'No messages to analyze.' });
+
+    var msgText = allMsgs.slice(0, 100).map(function(m) {
+      return '#' + (m.channel||'') + ' | ' + (m.author||'') + ' (' + new Date(m.timestamp).toLocaleDateString() + '): ' + (m.content||'').substring(0, 200);
+    }).join('\n');
+
+    var bm = global.bizMetrics || {};
+    var bizSnap = 'CRM: ' + (bm.totalBooked||0) + ' booked, ' + (bm.totalCancelled||0) + ' cancelled. Locations: ' + (Object.keys(bm.locationStats || {}).length) + '.';
+
+    var analysis = await askClaude(
+      "You are ATHENA, business AI for Wildwood Small Engine Repair. Analyze these Discord messages to find SYSTEM AND PROCESS IMPROVEMENTS.\n\n" +
+      "BUSINESS CONTEXT: " + bizSnap + "\n\nLook for:\n" +
+      "1. RECURRING PROBLEMS — What issues keep getting mentioned?\n" +
+      "2. COMMUNICATION GAPS — Messages going unanswered? Info requested multiple times?\n" +
+      "3. PROCESS BREAKDOWNS — Bottlenecks, handoff failures, workflow issues?\n" +
+      "4. TRAINING NEEDS — Confusion about procedures? Repeated mistakes?\n" +
+      "5. CUSTOMER IMPACT — Complaints, missed appointments, service failures?\n" +
+      "6. QUICK WINS — Easy fixes for recurring issues\n" +
+      "7. SOP GAPS — Processes that should be documented\n\n" +
+      "For each finding: state problem, cite messages/people, give concrete fix.\nPlain text. Be direct. Use names.",
+      [{ role: 'user', content: 'Analyze for system improvements:\n\n' + msgText }]
+    );
+    res.json({ analysis: analysis });
+  } catch (err) { res.json({ analysis: 'Error: ' + err.message }); }
+});
+
+// Discord Dashboard Page
+app.get('/discord', async function(req, res) {
+  var channels = await discordGetChannels();
+  var allMsgs = await discordGetAllRecent(30);
+
+  // Count messages by author
+  var authorCounts = {};
+  var channelCounts = {};
+  allMsgs.forEach(function(m) {
+    authorCounts[m.author] = (authorCounts[m.author] || 0) + 1;
+    channelCounts[m.channel] = (channelCounts[m.channel] || 0) + 1;
+  });
+
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+  html += '<title>Discord — ATHENA</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">';
+  html += '<style>';
+  html += 'body{margin:0;background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;min-height:100vh;}';
+  html += '.nav{display:flex;justify-content:center;gap:15px;padding:15px;background:rgba(5,10,20,0.9);border-bottom:1px solid #1a2a3a;flex-wrap:wrap;}';
+  html += '.nav a{font-family:Orbitron;font-size:0.65em;letter-spacing:3px;padding:8px 20px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;}';
+  html += '.nav a:hover{color:#7c3aed;border-color:#7c3aed40;}';
+  html += '.nav a.active{color:#7c3aed;border-color:#7c3aed;background:rgba(124,58,237,0.1);}';
+  html += '.container{max-width:1400px;margin:0 auto;padding:20px 40px;}';
+  html += 'h1{font-family:Orbitron;font-size:2.5em;font-weight:900;letter-spacing:10px;background:linear-gradient(135deg,#7c3aed,#5b21b6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center;margin:30px 0 5px;}';
+  html += '.subtitle{text-align:center;font-size:0.9em;color:#4a6a8a;letter-spacing:5px;font-family:Orbitron;margin-bottom:30px;}';
+  html += '.section-title{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#7c3aed;margin-bottom:12px;}';
+  html += '.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:30px;}';
+  html += '.card{background:rgba(10,20,35,0.6);border:1px solid #7c3aed15;padding:20px;}';
+  html += '.card .label{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;color:#7c3aed;margin-bottom:5px;}';
+  html += '.card .value{font-size:2em;font-weight:700;color:#c0d8f0;}';
+  html += '.card .sub{font-size:0.8em;color:#4a6a8a;margin-top:3px;}';
+  html += '.channel-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;}';
+  html += '.ch-tab{padding:8px 16px;border:1px solid #7c3aed30;color:#7c3aed80;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;transition:all 0.3s;background:transparent;}';
+  html += '.ch-tab:hover,.ch-tab.active{color:#7c3aed;border-color:#7c3aed;background:rgba(124,58,237,0.1);}';
+  html += '.msg{padding:15px;border-bottom:1px solid #0a1520;display:flex;gap:15px;}';
+  html += '.msg:hover{background:rgba(124,58,237,0.03);}';
+  html += '.msg .avatar{width:36px;height:36px;border-radius:50%;background:#7c3aed20;border:1px solid #7c3aed40;display:flex;align-items:center;justify-content:center;font-family:Orbitron;font-size:0.7em;color:#7c3aed;flex-shrink:0;}';
+  html += '.msg .body{flex:1;}';
+  html += '.msg .meta{font-size:0.75em;margin-bottom:4px;}';
+  html += '.msg .author{color:#a78bfa;font-weight:700;}';
+  html += '.msg .ch{color:#4a6a8a;margin-left:8px;}';
+  html += '.msg .time{color:#2a3a4a;margin-left:8px;font-size:0.85em;}';
+  html += '.msg .text{color:#c0d8f0;line-height:1.5;}';
+  html += '.analyze-btn{padding:12px 30px;background:rgba(124,58,237,0.15);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.65em;letter-spacing:3px;cursor:pointer;transition:all 0.3s;}';
+  html += '.analyze-btn:hover{background:rgba(124,58,237,0.25);box-shadow:0 0 20px rgba(124,58,237,0.2);}';
+  html += '.leaderboard{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:30px;}';
+  html += '.lb-item{background:rgba(10,20,35,0.6);border:1px solid #7c3aed15;padding:12px 18px;display:flex;align-items:center;gap:10px;}';
+  html += '.lb-item .name{color:#a78bfa;font-weight:600;}';
+  html += '.lb-item .count{color:#c0d8f0;font-size:1.2em;font-weight:700;}';
+  html += '.lb-bar{height:4px;background:#0a1520;margin-top:6px;width:100%;} .lb-fill{height:100%;background:#7c3aed;}';
+  html += '.rr-table{width:100%;border-collapse:collapse;margin-bottom:30px;}';
+  html += '.rr-table th{font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;text-align:left;padding:10px 8px;border-bottom:1px solid #7c3aed30;}';
+  html += '.rr-table td{padding:10px 8px;border-bottom:1px solid #0a1520;font-size:0.95em;}';
+  html += '.rr-table tr:hover{background:rgba(124,58,237,0.03);}';
+  html += '.pill{display:inline-block;padding:2px 10px;font-size:0.75em;font-family:Orbitron;letter-spacing:1px;}';
+  html += '.pill-green{background:#10b98120;color:#10b981;} .pill-yellow{background:#f59e0b20;color:#f59e0b;} .pill-red{background:#ef444420;color:#ef4444;} .pill-blue{background:#3b82f620;color:#3b82f6;}';
+  html += '.score-ring{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:Orbitron;font-size:0.7em;font-weight:700;}';
+  html += '@media(max-width:768px){.container{padding:15px 12px;}.grid{grid-template-columns:1fr;} h1{font-size:1.5em;} .analyze-btn{font-size:0.55em;padding:10px 15px;letter-spacing:2px;} .rr-table{font-size:0.85em;} .rr-table th{font-size:0.5em;} .channel-tabs{gap:5px;} .ch-tab{padding:6px 10px;font-size:0.55em;}}';
+  html += '</style></head><body>';
+
+  // Nav
+  html += '<div class="nav">';
+  html += '<a href="/">JARVIS</a>';
+  html += '<a href="/business">ATHENA</a>';
+  html += '<a href="/tookan">TOOKAN</a>';
+  html += '<a href="/business/chart">CHARTS</a>';
+  html += '<a href="/analytics">ANALYTICS</a>';
+  html += '<a href="/ads">GOOGLE ADS</a>';
+  html += '<a href="/discord" class="active">DISCORD</a>';
+  html += '<a href="/followup">FOLLOW UP</a>';
+  html += '</div>';
+
+  html += '<div class="container">';
+  html += '<h1>DISCORD</h1>';
+  html += '<div class="subtitle">TEAM COMMUNICATIONS COMMAND CENTER</div>';
+
+  if (!DISCORD_BOT_TOKEN) {
+    html += '<div style="text-align:center;padding:60px 20px;">';
+    html += '<div style="font-family:Orbitron;font-size:1.2em;color:#7c3aed;margin-bottom:20px;">DISCORD NOT CONNECTED</div>';
+    html += '<div style="color:#4a6a8a;max-width:600px;margin:0 auto;line-height:1.8;">';
+    html += 'To connect Discord:<br><br>';
+    html += '1. Go to <a href="https://discord.com/developers/applications" target="_blank" style="color:#7c3aed;">Discord Developer Portal</a><br>';
+    html += '2. Create New Application → Bot → Copy Token<br>';
+    html += '3. Enable "Message Content Intent" under Bot settings<br>';
+    html += '4. Invite bot with Read Messages + Send Messages permissions<br>';
+    html += '5. Add to Render env vars:<br>';
+    html += '<span style="color:#a78bfa;">DISCORD_BOT_TOKEN</span> = your bot token<br>';
+    html += '<span style="color:#a78bfa;">DISCORD_GUILD_ID</span> = your server ID<br>';
+    html += '</div></div>';
+  } else {
+    // Stats cards
+    html += '<div class="grid">';
+    html += '<div class="card"><div class="label">CHANNELS</div><div class="value">' + channels.length + '</div><div class="sub">Text channels monitored</div></div>';
+    html += '<div class="card"><div class="label">RECENT MESSAGES</div><div class="value">' + allMsgs.length + '</div><div class="sub">Last 30 per channel</div></div>';
+    html += '<div class="card"><div class="label">ACTIVE MEMBERS</div><div class="value">' + Object.keys(authorCounts).length + '</div><div class="sub">Unique posters</div></div>';
+    var mostActive = Object.entries(authorCounts).sort(function(a,b){return b[1]-a[1];})[0];
+    html += '<div class="card"><div class="label">MOST ACTIVE</div><div class="value">' + (mostActive ? mostActive[0] : '—') + '</div><div class="sub">' + (mostActive ? mostActive[1] + ' messages' : '') + '</div></div>';
+    html += '</div>';
+
+    // === RESPONSE RATE TABLE ===
+    html += '<div class="section-title">📊 RESPONSE RATES BY PERSON</div>';
+    html += '<div style="font-size:0.8em;color:#4a6a8a;margin-bottom:15px;">Based on last 100 messages per channel. A response = reply within 2 hours.</div>';
+    html += '<div id="responseRates" style="margin-bottom:30px;"><div style="color:#4a6a8a;padding:20px;">Loading response rates...</div></div>';
+
+    // Quiet channel alerts (loaded by JS)
+    html += '<div id="quietAlerts" style="margin-bottom:30px;"></div>';
+
+    // Action buttons row
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">';
+    html += '<button class="analyze-btn" onclick="analyzeMessages()">⚡ ANALYZE COMMUNICATIONS</button>';
+    html += '<button class="analyze-btn" onclick="loadSuggestions()" style="border-color:#10b98150;color:#10b981;">💡 GENERATE MESSAGE IDEAS</button>';
+    html += '<button class="analyze-btn" onclick="analyzeSystemImprovements()" style="border-color:#f59e0b50;color:#f59e0b;">🔍 FIND SYSTEM IMPROVEMENTS</button>';
+    html += '</div>';
+
+    // Suggestions panel (populated by JS)
+    html += '<div id="suggestions" style="margin-bottom:30px;display:none;"></div>';
+
+    // Analysis panels
+    html += '<div id="analysis" style="background:rgba(10,20,35,0.8);border:1px solid #7c3aed20;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-bottom:30px;display:none;"></div>';
+    html += '<div id="systemAnalysis" style="background:rgba(10,20,35,0.8);border:1px solid #f59e0b20;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-bottom:30px;display:none;"></div>';
+
+    // Custom message composer
+    html += '<div class="section-title">📤 SEND MESSAGE TO DISCORD</div>';
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:30px;">';
+    html += '<select id="sendChannel" style="padding:10px 15px;background:#0a1520;border:1px solid #7c3aed30;color:#c0d8f0;font-family:Rajdhani;font-size:1em;">';
+    channels.forEach(function(c) {
+      html += '<option value="' + c.id + '">#' + c.name + '</option>';
+    });
+    html += '</select>';
+    html += '<input id="sendText" placeholder="Type a message..." style="flex:1;min-width:200px;padding:10px 15px;background:#0a1520;border:1px solid #7c3aed30;color:#c0d8f0;font-family:Rajdhani;font-size:1em;">';
+    html += '<button onclick="sendCustomMessage()" style="padding:10px 20px;background:rgba(124,58,237,0.2);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;">SEND</button>';
+    html += '</div>';
+    html += '<div id="sendStatus" style="font-size:0.8em;color:#4a6a8a;margin-top:-20px;margin-bottom:20px;"></div>';
+
+    // Activity leaderboard
+    var sortedAuthors = Object.entries(authorCounts).sort(function(a,b){return b[1]-a[1];});
+    var maxMsgs = sortedAuthors.length > 0 ? sortedAuthors[0][1] : 1;
+    html += '<div class="section-title">ACTIVITY LEADERBOARD</div>';
+    html += '<div class="leaderboard">';
+    sortedAuthors.forEach(function(a) {
+      var pct = Math.round((a[1] / maxMsgs) * 100);
+      html += '<div class="lb-item" style="min-width:180px;flex:1;"><div style="width:100%;"><div style="display:flex;justify-content:space-between;"><span class="name">' + a[0] + '</span><span class="count">' + a[1] + '</span></div><div class="lb-bar"><div class="lb-fill" style="width:' + pct + '%;"></div></div></div></div>';
+    });
+    html += '</div>';
+
+    // Channel tabs + messages
+    html += '<div class="section-title">MESSAGES BY CHANNEL</div>';
+    html += '<div class="channel-tabs">';
+    html += '<div class="ch-tab active" onclick="filterChannel(\'all\',this)">ALL (' + allMsgs.length + ')</div>';
+    channels.forEach(function(c) {
+      var cnt = channelCounts[c.name] || 0;
+      html += '<div class="ch-tab" onclick="filterChannel(\'' + c.name + '\',this)">#' + c.name + ' (' + cnt + ')</div>';
+    });
+    html += '</div>';
+
+    html += '<div id="messages">';
+    allMsgs.forEach(function(m) {
+      var d = new Date(m.timestamp);
+      var timeStr = (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+      var initial = (m.author || '?')[0].toUpperCase();
+      html += '<div class="msg" data-channel="' + (m.channel || '') + '">';
+      html += '<div class="avatar">' + initial + '</div>';
+      html += '<div class="body"><div class="meta"><span class="author">' + (m.author || 'unknown') + '</span><span class="ch">#' + (m.channel || '') + '</span><span class="time">' + timeStr + '</span></div>';
+      html += '<div class="text">' + (m.content || '<em style="color:#4a6a8a;">attachment/embed</em>') + '</div>';
+      if (m.attachments > 0) html += '<div style="color:#7c3aed80;font-size:0.8em;margin-top:3px;">📎 ' + m.attachments + ' attachment(s)</div>';
+      html += '</div></div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>'; // close container
+
+  // ===================== JAVASCRIPT =====================
+  html += '<script>';
+
+  // Channel filter
+  html += 'function filterChannel(ch,el){';
+  html += '  document.querySelectorAll(".ch-tab").forEach(function(t){t.classList.remove("active");});el.classList.add("active");';
+  html += '  document.querySelectorAll(".msg").forEach(function(m){m.style.display=(ch==="all"||m.dataset.channel===ch)?"flex":"none";});';
+  html += '}';
+
+  // Load response rates
+  html += 'async function loadResponseRates(){';
+  html += '  var div=document.getElementById("responseRates");';
+  html += '  try{var r=await fetch("/discord/api/response-rates");var d=await r.json();var people=d.people||[];';
+  html += '  if(people.length===0){div.innerHTML="<div style=\\"color:#4a6a8a;\\">No message data available yet.</div>";return;}';
+  html += '  var h="<table class=\\"rr-table\\"><thead><tr>';
+  html += '  <th>PERSON</th><th>SCORE</th><th>MESSAGES</th><th>RESPONSES</th><th>RESPONSE RATE</th><th>AVG SPEED</th><th>FASTEST</th><th>STARTED</th><th>UNANSWERED</th><th>CHANNELS</th><th>PEAK TIME</th>';
+  html += '  </tr></thead><tbody>";';
+  html += '  people.forEach(function(p,i){';
+  html += '    var scoreColor=p.engagementScore>=70?"#10b981":p.engagementScore>=40?"#f59e0b":"#ef4444";';
+  html += '    var rateColor=p.responseRate>=60?"#10b981":p.responseRate>=30?"#f59e0b":"#ef4444";';
+  html += '    var medal=i===0?"🥇 ":i===1?"🥈 ":i===2?"🥉 ":"";';
+  html += '    h+="<tr>";';
+  html += '    h+="<td style=\\"color:#a78bfa;font-weight:700;\\">"+medal+p.name+"</td>";';
+  html += '    h+="<td><div class=\\"score-ring\\" style=\\"border:2px solid "+scoreColor+";color:"+scoreColor+"\\">"+p.engagementScore+"</div></td>";';
+  html += '    h+="<td>"+p.totalMessages+"</td>";';
+  html += '    h+="<td>"+p.responsesGiven+" given<br><span style=\\"color:#4a6a8a;font-size:0.85em;\\">"+p.responsesReceived+" received</span></td>";';
+  html += '    h+="<td><span class=\\"pill "+(p.responseRate>=60?"pill-green":p.responseRate>=30?"pill-yellow":"pill-red")+"\\">"+p.responseRate+"%</span></td>";';
+  html += '    h+="<td style=\\"color:"+(p.avgResponseTime>0&&p.avgResponseTime<900000?"#10b981":p.avgResponseTime<3600000?"#f59e0b":"#ef4444")+"\\">"+p.avgResponseTimeFormatted+"</td>";';
+  html += '    h+="<td style=\\"color:#10b981;\\">"+p.fastestResponse+"</td>";';
+  html += '    h+="<td>"+p.conversationsStarted+"</td>";';
+  html += '    h+="<td style=\\"color:"+(p.unanswered>0?"#ef4444":"#4a6a8a")+"\\">"+p.unanswered+"</td>";';
+  html += '    h+="<td><span class=\\"pill pill-blue\\">"+p.activeChannels+"</span></td>";';
+  html += '    h+="<td style=\\"font-size:0.85em;color:#4a6a8a;\\">"+p.peakDay+" "+p.peakHour+"</td>";';
+  html += '    h+="</tr>";';
+  html += '  });';
+  html += '  h+="</tbody></table>";div.innerHTML=h;';
+  html += '  }catch(e){div.innerHTML="<div style=\\"color:#ef4444;\\">Error loading rates: "+e.message+"</div>";}';
+  html += '}';
+
+  // Load quiet channel alerts
+  html += 'async function loadQuietChannels(){';
+  html += '  try{var r=await fetch("/discord/api/quiet");var d=await r.json();';
+  html += '  var quiet=d.channels||[];var div=document.getElementById("quietAlerts");';
+  html += '  var quietOnes=quiet.filter(function(c){return c.isQuiet;});';
+  html += '  if(quietOnes.length===0){div.innerHTML="<div style=\\"font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#10b981;margin-bottom:15px;\\">✅ ALL CHANNELS ACTIVE (last 24h)</div>";return;}';
+  html += '  var h="<div class=\\"section-title\\" style=\\"color:#ef4444;\\">🔴 QUIET CHANNEL ALERTS</div>";';
+  html += '  h+="<div style=\\"display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:20px;\\">";';
+  html += '  quietOnes.forEach(function(c){';
+  html += '    var sev=c.hoursSince>168?"#ef4444":c.hoursSince>72?"#f59e0b":"#eab308";';
+  html += '    var label=c.hoursSince>=48?(Math.floor(c.hoursSince/24)+"d ago"):(c.hoursSince+"h ago");';
+  html += '    h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid "+sev+"30;padding:15px;\\">";';
+  html += '    h+="<div style=\\"display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;\\">";';
+  html += '    h+="<span style=\\"color:"+sev+";font-weight:700;\\">#"+c.name+"</span>";';
+  html += '    h+="<span style=\\"background:"+sev+"20;color:"+sev+";padding:3px 10px;font-size:0.8em;font-family:Orbitron;letter-spacing:1px;\\">"+label+"</span></div>";';
+  html += '    if(c.lastMessage){h+="<div style=\\"font-size:0.8em;color:#4a6a8a;\\">Last: \\""+c.lastMessage.content+"\\" — "+c.lastMessage.author+"</div>";}';
+  html += '    h+="<button onclick=\\"loadSuggestions(\'"+c.name+"\')\\" style=\\"margin-top:8px;padding:5px 12px;background:"+sev+"15;border:1px solid "+sev+"30;color:"+sev+";font-size:0.75em;cursor:pointer;font-family:Orbitron;letter-spacing:1px;\\">💡 SUGGEST</button>";';
+  html += '    h+="</div>";});';
+  html += '  h+="</div>";div.innerHTML=h;';
+  html += '  }catch(e){console.log("Quiet check error:",e);}';
+  html += '}';
+
+  // Generate AI suggestions
+  html += 'var currentSuggestions=[];';
+  html += 'async function loadSuggestions(channel,topic){';
+  html += '  var panel=document.getElementById("suggestions");panel.style.display="block";';
+  html += '  panel.innerHTML="<div class=\\"section-title\\" style=\\"color:#10b981;\\">💡 SUGGESTED MESSAGES</div><div style=\\"color:#10b981;padding:20px;\\">ATHENA generating message ideas...</div>";';
+  html += '  try{var r=await fetch("/discord/api/suggest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channel:channel||"",topic:topic||""})});';
+  html += '  var d=await r.json();currentSuggestions=d.suggestions||[];';
+  html += '  var h="<div class=\\"section-title\\" style=\\"color:#10b981;\\">💡 SUGGESTED MESSAGES</div>";';
+  html += '  h+="<div style=\\"font-size:0.8em;color:#4a6a8a;margin-bottom:15px;\\">AI-generated from business data + channel activity. Edit before sending.</div>";';
+  html += '  currentSuggestions.forEach(function(s,i){';
+  html += '    var pc=s.priority==="high"?"#ef4444":s.priority==="low"?"#4a6a8a":"#f59e0b";';
+  html += '    h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid #10b98115;padding:18px;margin-bottom:10px;\\">";';
+  html += '    h+="<div style=\\"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;\\">";';
+  html += '    h+="<span style=\\"color:#10b981;font-weight:700;\\">#"+(s.channel||"general")+"</span>";';
+  html += '    h+="<span style=\\"background:"+pc+"20;color:"+pc+";padding:2px 10px;font-size:0.75em;font-family:Orbitron;letter-spacing:1px;\\">"+s.priority.toUpperCase()+"</span></div>";';
+  html += '    h+="<textarea id=\\"sug_"+i+"\\" style=\\"width:100%;background:#050a15;border:1px solid #1a2a3a;color:#c0d8f0;padding:12px;font-family:Rajdhani;font-size:1em;min-height:60px;resize:vertical;box-sizing:border-box;\\">"+s.message+"</textarea>";';
+  html += '    h+="<div style=\\"font-size:0.8em;color:#4a6a8a;margin:8px 0;\\">💭 "+s.reason+"</div>";';
+  html += '    h+="<div style=\\"display:flex;gap:8px;\\">";';
+  html += '    if(s.channelId){h+="<button onclick=\\"sendSuggestion("+i+")\\" style=\\"padding:8px 18px;background:rgba(16,185,129,0.15);border:1px solid #10b98150;color:#10b981;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;\\">📤 SEND TO DISCORD</button>";}';
+  html += '    else{h+="<span style=\\"color:#ef4444;font-size:0.75em;\\">⚠ Channel not matched</span>";}';
+  html += '    h+="<button onclick=\\"copySug("+i+")\\" style=\\"padding:8px 18px;background:rgba(124,58,237,0.15);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;\\">📋 COPY</button></div></div>";';
+  html += '  });';
+  html += '  if(currentSuggestions.length===0)h+="<div style=\\"color:#4a6a8a;padding:15px;\\">No suggestions generated.</div>";';
+  html += '  panel.innerHTML=h;';
+  html += '  }catch(e){panel.innerHTML="<div style=\\"color:#ef4444;\\">Error: "+e.message+"</div>";}';
+  html += '}';
+
+  // Send suggestion to Discord
+  html += 'async function sendSuggestion(idx){';
+  html += '  var s=currentSuggestions[idx];if(!s||!s.channelId)return;';
+  html += '  var msg=document.getElementById("sug_"+idx).value;if(!msg.trim())return;';
+  html += '  try{var r=await fetch("/discord/api/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channelId:s.channelId,message:msg})});';
+  html += '  var d=await r.json();if(d.success){';
+  html += '    var btn=event.target;btn.textContent="✅ SENT";btn.style.background="rgba(16,185,129,0.3)";btn.style.pointerEvents="none";';
+  html += '    setTimeout(function(){btn.textContent="📤 SEND TO DISCORD";btn.style.background="rgba(16,185,129,0.15)";btn.style.pointerEvents="auto";},3000);';
+  html += '  }else{alert("Failed: "+(d.error||"Unknown"));}';
+  html += '  }catch(e){alert("Error: "+e.message);}';
+  html += '}';
+
+  // Copy suggestion
+  html += 'function copySug(idx){var t=document.getElementById("sug_"+idx).value;navigator.clipboard.writeText(t).then(function(){var b=event.target;var o=b.textContent;b.textContent="✅ COPIED";setTimeout(function(){b.textContent=o;},2000);});}';
+
+  // Send custom message
+  html += 'async function sendCustomMessage(){';
+  html += '  var ch=document.getElementById("sendChannel").value;var txt=document.getElementById("sendText").value.trim();var st=document.getElementById("sendStatus");';
+  html += '  if(!txt){st.textContent="Type a message first";return;}st.textContent="Sending...";st.style.color="#7c3aed";';
+  html += '  try{var r=await fetch("/discord/api/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channelId:ch,message:txt})});';
+  html += '  var d=await r.json();if(d.success){st.textContent="✅ Sent!";st.style.color="#10b981";document.getElementById("sendText").value="";}';
+  html += '  else{st.textContent="❌ "+d.error;st.style.color="#ef4444";}';
+  html += '  }catch(e){st.textContent="❌ "+e.message;st.style.color="#ef4444";}';
+  html += '}';
+
+  // Analyze communications
+  html += 'async function analyzeMessages(){';
+  html += '  var div=document.getElementById("analysis");div.style.display="block";div.textContent="⚡ ATHENA analyzing communications...";';
+  html += '  try{var r=await fetch("/discord/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({limit:50})});';
+  html += '  var d=await r.json();div.textContent=d.analysis;}catch(e){div.textContent="Error: "+e.message;}';
+  html += '}';
+
+  // System improvement analysis
+  html += 'async function analyzeSystemImprovements(){';
+  html += '  var div=document.getElementById("systemAnalysis");div.style.display="block";div.textContent="🔍 ATHENA scanning for system improvements...";';
+  html += '  try{var r=await fetch("/discord/api/improve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});';
+  html += '  var d=await r.json();div.textContent=d.analysis;}catch(e){div.textContent="Error: "+e.message;}';
+  html += '}';
+
+  // Enter key for custom message
+  html += 'document.getElementById("sendText")&&document.getElementById("sendText").addEventListener("keydown",function(e){if(e.key==="Enter")sendCustomMessage();});';
+
+  // Auto-load on page ready
+  html += 'loadResponseRates();';
+  html += 'loadQuietChannels();';
+
+  html += '</script>';
+  html += '</body></html>';
+
+  res.send(html);
+});
 
 // ── ROUTES ──
 
@@ -12806,6 +13567,35 @@ app.get('/followup/api/names', async function(req, res) {
 });
 
 // Debug endpoint
+// Serve stored PDFs from sheet
+app.get('/followup/pdf/:id', async function(req, res) {
+  try {
+    var pdfId = req.params.id;
+    var rows = await fuReadSheet(FOLLOWUP_SPREADSHEET_ID, "'PDF_Storage'!A:Z");
+    if (!rows) return res.status(404).send('PDF storage not found');
+
+    var found = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i][0] === pdfId) { found = rows[i]; break; }
+    }
+    if (!found) return res.status(404).send('PDF not found');
+
+    var fileName = found[1] || 'document.pdf';
+    // Reassemble base64 from chunks (columns D, E, F, ...)
+    var base64 = '';
+    for (var c = 3; c < found.length; c++) {
+      base64 += (found[c] || '');
+    }
+
+    var buffer = Buffer.from(base64, 'base64');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="' + fileName + '"');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).send('Error loading PDF: ' + err.message);
+  }
+});
+
 app.get('/followup/debug', async function(req, res) {
   try {
     var passwordUsers = [];
@@ -12824,7 +13614,12 @@ app.get('/followup/debug', async function(req, res) {
       dropdownNames = ['ERROR: ' + e.message];
     }
 
+    var serviceEmail = '';
+    try { serviceEmail = JSON.parse(fs.readFileSync(keyfilePath, 'utf8')).client_email; } catch(e) {}
+
     res.json({
+      serviceAccountEmail: serviceEmail,
+      driveFolderId: process.env.FOLLOWUP_DRIVE_FOLDER_ID || '(not set — share a folder with service account)',
       passwordSheetId: FOLLOWUP_PASSWORD_SHEET_ID,
       passwordTab: FOLLOWUP_PASSWORD_TAB,
       passwordUsers: passwordUsers,
