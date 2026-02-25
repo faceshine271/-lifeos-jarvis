@@ -10582,9 +10582,9 @@ console.log("Google Ads Config: " + (GOOGLE_ADS_DEVELOPER_TOKEN ? "Token ✓" : 
 // Step 1: Redirect to Google consent
 app.get('/ads/auth', function(req, res) {
   if (!GOOGLE_ADS_CLIENT_ID) {
-    return res.send('<html><body style="background:#050d18;color:#ff4757;font-family:monospace;padding:40px;"><h2>Missing GOOGLE_ADS_CLIENT_ID</h2><p>Go to console.cloud.google.com → APIs & Credentials → Create OAuth 2.0 Client ID (Web Application)</p><p>Add redirect URI: <code>' + req.protocol + '://' + req.get('host') + '/ads/callback</code></p><p>Then add to Render env vars:<br>GOOGLE_ADS_CLIENT_ID=your_client_id<br>GOOGLE_ADS_CLIENT_SECRET=your_client_secret</p></body></html>');
+    return res.send('<html><body style="background:#050d18;color:#ff4757;font-family:monospace;padding:40px;"><h2>Missing GOOGLE_ADS_CLIENT_ID</h2><p>Go to console.cloud.google.com → APIs & Credentials → Create OAuth 2.0 Client ID (Web Application)</p><p>Add redirect URI: <code>' + 'https://' + req.get('host') + '/ads/callback</code></p><p>Then add to Render env vars:<br>GOOGLE_ADS_CLIENT_ID=your_client_id<br>GOOGLE_ADS_CLIENT_SECRET=your_client_secret</p></body></html>');
   }
-  var redirectUri = req.protocol + '://' + req.get('host') + '/ads/callback';
+  var redirectUri = 'https://' + req.get('host') + '/ads/callback';
   var authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' +
     'client_id=' + encodeURIComponent(GOOGLE_ADS_CLIENT_ID) +
     '&redirect_uri=' + encodeURIComponent(redirectUri) +
@@ -10600,7 +10600,7 @@ app.get('/ads/callback', async function(req, res) {
   var code = req.query.code;
   if (!code) return res.send('Missing code parameter');
   try {
-    var redirectUri = req.protocol + '://' + req.get('host') + '/ads/callback';
+    var redirectUri = 'https://' + req.get('host') + '/ads/callback';
     var tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -11277,7 +11277,7 @@ app.get('/ads', async function(req, res) {
       if (!GOOGLE_ADS_CLIENT_ID) {
         html += '<div style="color:#c0d8f0;margin-bottom:10px;">Step 1: Create OAuth2 credentials in Google Cloud Console</div>';
         html += '<div style="color:#4a6a8a;font-size:0.85em;margin-bottom:6px;">Go to console.cloud.google.com → APIs & Credentials → Create OAuth 2.0 Client ID (Web Application)</div>';
-        html += '<div style="color:#4a6a8a;font-size:0.85em;margin-bottom:6px;">Add redirect URI: <code style="color:#00d4ff;">' + req.protocol + '://' + req.get('host') + '/ads/callback</code></div>';
+        html += '<div style="color:#4a6a8a;font-size:0.85em;margin-bottom:6px;">Add redirect URI: <code style="color:#00d4ff;">' + 'https://' + req.get('host') + '/ads/callback</code></div>';
         html += '<div style="color:#4a6a8a;font-size:0.85em;">Add to Render: GOOGLE_ADS_CLIENT_ID and GOOGLE_ADS_CLIENT_SECRET</div>';
       } else {
         html += '<a href="/ads/auth" style="display:inline-block;font-family:Orbitron;font-size:0.8em;letter-spacing:3px;padding:12px 40px;background:rgba(66,133,244,0.2);border:1px solid #4285f4;color:#4285f4;text-decoration:none;">AUTHORIZE GOOGLE ADS →</a>';
