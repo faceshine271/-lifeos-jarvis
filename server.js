@@ -1,4 +1,4 @@
-/ ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
+// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
