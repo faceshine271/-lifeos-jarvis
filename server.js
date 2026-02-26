@@ -125,12 +125,12 @@ async function squareGetLocations() {
 // ---- PAYMENTS (last N days) ----
 async function squareGetPayments(days) { // default: all since 2022
   var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
-  return await squareFetchAll('/payments?begin_time=' + encodeURIComponent(begin) + '&end_time=' + encodeURIComponent(new Date().toISOString()) + '&sort_order=DESC', 'GET', null, 'payments');
+  return await squareFetchAll('/payments?begin_time=' + encodeURIComponent(begin) + '&end_time=' + encodeURIComponent(new Date().toISOString()) + '&sort_order=DESC', 'GET', null, 'payments', 100);
 }
 
 // ---- CUSTOMERS ----
 async function squareGetCustomers() {
-  return await squareFetchAll('/customers', 'GET', null, 'customers');
+  return await squareFetchAll('/customers', 'GET', null, 'customers', 100);
 }
 
 // ---- INVOICES ----
@@ -155,10 +155,18 @@ async function squareGetOrders(locationIds, days) {
   var all = [];
   for (var i = 0; i < locationIds.length; i += 10) {
     var chunk = locationIds.slice(i, i + 10);
-    var d = await squareFetch('/orders/search', 'POST', {
-      location_ids: chunk, query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 200
-    });
-    if (d && d.orders) all = all.concat(d.orders);
+    var cursor = '';
+    for (var page = 0; page < 50; page++) {
+      var body = {
+        location_ids: chunk, query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 500
+      };
+      if (cursor) body.cursor = cursor;
+      var d = await squareFetch('/orders/search', 'POST', body);
+      if (!d) break;
+      if (d.orders) all = all.concat(d.orders);
+      if (!d.cursor) break;
+      cursor = d.cursor;
+    }
   }
   return all;
 }
