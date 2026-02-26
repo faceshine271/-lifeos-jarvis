@@ -1,4 +1,30 @@
+// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
+require('dotenv').config();
+const express = require('express');
+const bodyParser = require('body-parser');
+const { google } = require('googleapis');
+const twilio = require('twilio');
+const path = require('path');
+const fs = require('fs');
 
+const app = express();
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+
+const PORT = process.env.PORT || 3000;
+
+console.log("Starting LifeOS Jarvis...");
+
+/* ===========================
+   GOOGLE SHEETS AUTH
+=========================== */
+
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+const BUSINESS_SPREADSHEET_ID = process.env.BUSINESS_SPREADSHEET_ID || SPREADSHEET_ID;
+const PROFIT_SPREADSHEET_ID = process.env.PROFIT_SPREADSHEET_ID || '';
+const FOLLOWUP_SPREADSHEET_ID = process.env.FOLLOWUP_SPREADSHEET_ID || '1A8oUmigHV6DsYcWF4hlDBC5KQDIHWMOh1Is6poCacx4';
+
+if (!SPREADSHEET_ID) {
   console.error("Missing SPREADSHEET_ID");
   process.exit(1);
 }
