@@ -13654,6 +13654,12 @@ app.get('/square/api/snapshot', async function(req, res) {
   } catch (err) { res.json({ error: err.message }); }
 });
 
+app.get('/square/api/locations', async function(req, res) {
+  try {
+    var locs = await squareGetLocations();
+    res.json({ count: locs.length, locations: locs });
+  } catch (err) { res.json({ locations: [], error: err.message }); }
+});
 app.get('/square/api/customers', async function(req, res) { try { res.json({ customers: await squareGetCustomers() }); } catch (err) { res.json({ customers: [], error: err.message }); } });
 app.get('/square/api/payments', async function(req, res) { try { res.json({ payments: await squareGetPayments(parseInt(req.query.days)||30) }); } catch (err) { res.json({ payments: [], error: err.message }); } });
 app.get('/square/api/catalog', async function(req, res) { try { res.json({ catalog: await squareGetCatalog() }); } catch (err) { res.json({ catalog: [], error: err.message }); } });
@@ -13768,6 +13774,10 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
   html += '<div class="container"><h1>SQUARE</h1><div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
   html += '<div class="stats" id="statsGrid"><div style="color:#4a6a8a;padding:20px;grid-column:1/-1;">Loading Square data...</div></div>';
+
+  // Locations panel
+  html += '<div class="section-title">📍 LOCATIONS</div>';
+  html += '<div id="locationsPanel" style="margin-bottom:15px;"><div style="color:#4a6a8a;">Loading...</div></div>';
   html += '<div class="section-title">📈 REVENUE (30 DAYS)</div><div class="chart-area" id="revenueChart"></div>';
   html += '<div class="section-title">🕐 REVENUE BY HOUR</div><div class="chart-area" id="hourChart" style="height:55px;"></div>';
 
@@ -13831,7 +13841,22 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<button class="tab-btn" onclick="showTab(\'subs\',this)">🔄 SUBS</button></div>';
   html += '<div id="tabContent" style="overflow-x:auto;"><div style="color:#4a6a8a;">Loading...</div></div></div>';
   html += '<script>var D=null;var curTab="payments";';
-  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+
+  // Locations
+  html += 'function renderLocations(){var locs=D.locations||[];var el=document.getElementById("locationsPanel");';
+  html += 'if(!locs.length){el.innerHTML="<div style=\\"color:#ef4444;\\">No locations found — check API permissions</div>";return;}';
+  html += 'var h="<div style=\\"display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px;\\">";';
+  html += 'locs.forEach(function(l){var sc=l.status==="ACTIVE"?"#10b981":"#ef4444";';
+  html += 'h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid "+sc+"30;padding:10px;\\">";';
+  html += 'h+="<div style=\\"display:flex;justify-content:space-between;\\"><span style=\\"color:"+sc+";font-weight:700;\\">"+l.name+"</span><span class=\\"pill "+(l.status==="ACTIVE"?"pill-green":"pill-red")+"\\">"+l.status+"</span></div>";';
+  html += 'if(l.businessName)h+="<div style=\\"font-size:0.85em;color:#4a6a8a;\\">"+l.businessName+"</div>";';
+  html += 'if(l.phone)h+="<div style=\\"font-size:0.85em;color:#4a6a8a;\\">"+l.phone+"</div>";';
+  html += 'if(l.address)h+="<div style=\\"font-size:0.8em;color:#4a6a8a;\\">"+(l.address.address_line_1||"")+" "+(l.address.locality||"")+" "+(l.address.administrative_district_level_1||"")+"</div>";';
+  html += 'h+="<div style=\\"font-size:0.7em;color:#1a3a5a;margin-top:4px;\\">ID: "+l.id+"</div>";';
+  html += 'if(l.capabilities)h+="<div style=\\"font-size:0.7em;color:#4a6a8a;margin-top:2px;\\">Capabilities: "+l.capabilities.join(", ")+"</div>";';
+  html += 'h+="</div>";});';
+  html += 'h+="</div>";el.innerHTML=h;}';
   html += 'function renderStats(){if(!D||!D.analytics)return;var a=D.analytics;var h="";';
   html += 'h+=sc("$"+a.revenue.today.toFixed(0),"TODAY","");h+=sc("$"+a.revenue.week.toFixed(0),"THIS WEEK","");h+=sc((a.revenue.weekGrowth>=0?"+":"")+a.revenue.weekGrowth+"%","WEEK GROWTH",a.revenue.weekGrowth>=0?"":"danger");';
   html += 'h+=sc("$"+a.revenue.month30d.toFixed(0),"30-DAY REV","");h+=sc("$"+a.revenue.net.toFixed(0),"NET REVENUE","blue");h+=sc("$"+a.revenue.tips.toFixed(0),"TIPS","");h+=sc("$"+a.revenue.fees.toFixed(0),"FEES","warn");';
