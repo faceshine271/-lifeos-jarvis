@@ -1,4 +1,3 @@
-// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -74,6 +73,58 @@ const FOLLOWUP_OPENAI_KEY = process.env.FOLLOWUP_OPENAI_KEY || '';
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || '';
 var discordCache = { channels: null, messages: {}, time: 0 };
+
+// ==============================
+// VOICE AUTH SYSTEM
+// ==============================
+// Passphrases — change these anytime. Case-insensitive, fuzzy matched.
+var voiceUsers = [
+  { name: 'Trace', passphrase: 'jarvis activate', role: 'owner', access: 'all' },
+  { name: 'Rubait', passphrase: 'discord open', role: 'manager', access: 'discord' },
+];
+var voiceSessions = {};
+
+function getVoiceSession(req) {
+  var cookies = (req.headers.cookie || '').split(';');
+  for (var i = 0; i < cookies.length; i++) {
+    var parts = cookies[i].trim().split('=');
+    if (parts[0] === 'voice_token') {
+      var token = decodeURIComponent(parts[1]);
+      if (voiceSessions[token] && (Date.now() - voiceSessions[token].created < 86400000 * 7)) {
+        return voiceSessions[token];
+      }
+    }
+  }
+  if (req.query && req.query.vt && voiceSessions[req.query.vt]) {
+    var s = voiceSessions[req.query.vt];
+    if (Date.now() - s.created < 86400000 * 7) return s;
+  }
+  return null;
+}
+
+function requireAuth(roles) {
+  // roles = 'all' (any logged in), 'owner', 'discord', or array like ['owner','manager']
+  return function(req, res, next) {
+    var session = getVoiceSession(req);
+    if (!session) return res.redirect('/login?r=' + encodeURIComponent(req.originalUrl));
+    if (roles === 'all') return next();
+    var allowed = Array.isArray(roles) ? roles : [roles];
+    // owner always has access to everything
+    if (session.access === 'all') return next();
+    if (allowed.includes(session.access) || allowed.includes(session.role)) return next();
+    return res.redirect('/login?r=' + encodeURIComponent(req.originalUrl) + '&denied=1');
+  };
+}
+
+function matchPassphrase(spoken, target) {
+  var s = (spoken || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  var t = (target || '').toLowerCase().trim();
+  if (s === t) return true;
+  // Fuzzy: check if spoken contains all words from target
+  var tWords = t.split(/\s+/);
+  var matched = tWords.filter(function(w) { return s.includes(w); });
+  return matched.length === tWords.length && matched.length > 0;
+}
 
 async function discordFetch(endpoint) {
   if (!DISCORD_BOT_TOKEN) return null;
@@ -152,11 +203,9 @@ async function discordGetQuietChannels() {
     var lastTime = lastMsg ? new Date(lastMsg.timestamp).getTime() : 0;
     var hoursSince = lastTime ? Math.round((now - lastTime) / 3600000) : 999;
     quiet.push({
-      id: channels[i].id,
-      name: channels[i].name,
+      id: channels[i].id, name: channels[i].name,
       lastMessage: lastMsg ? { author: lastMsg.author ? lastMsg.author.username : '?', content: (lastMsg.content || '').substring(0, 100), time: lastMsg.timestamp } : null,
-      hoursSince: hoursSince,
-      isQuiet: hoursSince >= 24
+      hoursSince: hoursSince, isQuiet: hoursSince >= 24
     });
   }
   quiet.sort(function(a, b) { return b.hoursSince - a.hoursSince; });
@@ -166,148 +215,44 @@ async function discordGetQuietChannels() {
 async function discordAnalyzeResponseRates() {
   var channels = await discordGetChannels();
   var people = {};
-  var RESPONSE_WINDOW = 7200000; // 2 hours in ms — if you reply within 2h it counts as a response
-
+  var RESPONSE_WINDOW = 7200000;
   for (var i = 0; i < channels.length; i++) {
     var msgs = await discordGetMessages(channels[i].id, 100);
     if (!msgs || msgs.length === 0) continue;
-
-    // Sort oldest first so we can walk the conversation forward
     msgs.sort(function(a, b) { return new Date(a.timestamp) - new Date(b.timestamp); });
-
     for (var j = 0; j < msgs.length; j++) {
-      var m = msgs[j];
-      var author = m.author ? m.author.username : 'unknown';
-      var mTime = new Date(m.timestamp).getTime();
-
-      // Init person
-      if (!people[author]) {
-        people[author] = {
-          name: author,
-          totalMessages: 0,
-          responsesGiven: 0,       // times they replied to someone else
-          responsesReceived: 0,    // times someone replied to them
-          unanswered: 0,           // their messages nobody replied to
-          totalResponseTimeMs: 0,  // sum of their response times (when they replied)
-          fastestResponseMs: Infinity,
-          slowestResponseMs: 0,
-          conversationsStarted: 0, // messages with no prior message within window
-          mentionsSent: 0,
-          mentionsReceived: 0,
-          activeChannels: {},
-          hourActivity: {},        // which hours they post
-          dayActivity: {},         // which days they post
-        };
-      }
-
+      var m = msgs[j]; var author = m.author ? m.author.username : 'unknown'; var mTime = new Date(m.timestamp).getTime();
+      if (!people[author]) people[author] = { name:author,totalMessages:0,responsesGiven:0,responsesReceived:0,unanswered:0,totalResponseTimeMs:0,fastestResponseMs:Infinity,slowestResponseMs:0,conversationsStarted:0,mentionsSent:0,mentionsReceived:0,activeChannels:{},hourActivity:{},dayActivity:{} };
       people[author].totalMessages++;
       people[author].activeChannels[channels[i].name] = (people[author].activeChannels[channels[i].name] || 0) + 1;
-
-      // Track activity hours and days
       var msgDate = new Date(m.timestamp);
-      var hour = msgDate.getHours();
-      var day = msgDate.toLocaleDateString('en-US', { weekday: 'short' });
-      people[author].hourActivity[hour] = (people[author].hourActivity[hour] || 0) + 1;
-      people[author].dayActivity[day] = (people[author].dayActivity[day] || 0) + 1;
-
-      // Check for @mentions
-      var mentions = (m.content || '').match(/@\w+/g) || [];
-      people[author].mentionsSent += mentions.length;
-      mentions.forEach(function(mention) {
-        var mentionedName = mention.replace('@', '');
-        if (people[mentionedName]) people[mentionedName].mentionsReceived++;
-      });
-
-      // Look backward — was this message a response to someone?
+      people[author].hourActivity[msgDate.getHours()] = (people[author].hourActivity[msgDate.getHours()] || 0) + 1;
+      var dayName = msgDate.toLocaleDateString('en-US', { weekday: 'short' });
+      people[author].dayActivity[dayName] = (people[author].dayActivity[dayName] || 0) + 1;
       var isResponse = false;
       for (var k = j - 1; k >= 0; k--) {
-        var prev = msgs[k];
-        var prevAuthor = prev.author ? prev.author.username : 'unknown';
+        var prev = msgs[k]; var prevAuthor = prev.author ? prev.author.username : 'unknown';
         var prevTime = new Date(prev.timestamp).getTime();
-
-        if (mTime - prevTime > RESPONSE_WINDOW) break; // too old
-        if (prevAuthor === author) continue; // skip own messages
-
-        // This message is a response to prev
-        isResponse = true;
-        var responseTime = mTime - prevTime;
-        people[author].responsesGiven++;
-        people[author].totalResponseTimeMs += responseTime;
+        if (mTime - prevTime > RESPONSE_WINDOW) break;
+        if (prevAuthor === author) continue;
+        isResponse = true; var responseTime = mTime - prevTime;
+        people[author].responsesGiven++; people[author].totalResponseTimeMs += responseTime;
         if (responseTime < people[author].fastestResponseMs) people[author].fastestResponseMs = responseTime;
         if (responseTime > people[author].slowestResponseMs) people[author].slowestResponseMs = responseTime;
-
         if (people[prevAuthor]) people[prevAuthor].responsesReceived++;
-        break; // count as response to the most recent different person
+        break;
       }
-
-      if (!isResponse) {
-        // Check if there was any prior message in the window at all
-        var hadPrior = false;
-        for (var k2 = j - 1; k2 >= 0; k2--) {
-          if (mTime - new Date(msgs[k2].timestamp).getTime() > RESPONSE_WINDOW) break;
-          if ((msgs[k2].author ? msgs[k2].author.username : '') !== author) { hadPrior = true; break; }
-        }
-        if (!hadPrior) people[author].conversationsStarted++;
-      }
-    }
-
-    // Mark unanswered: last message per channel, if nobody replied within window
-    if (msgs.length > 0) {
-      var last = msgs[msgs.length - 1];
-      var lastAuthor = last.author ? last.author.username : 'unknown';
-      var lastTime = new Date(last.timestamp).getTime();
-      var now = Date.now();
-      if (now - lastTime > RESPONSE_WINDOW && people[lastAuthor]) {
-        // Check if someone replied after this in the time window
-        var gotReply = false;
-        for (var r = msgs.length - 2; r >= 0; r--) {
-          if (new Date(msgs[r].timestamp).getTime() < lastTime - RESPONSE_WINDOW) break;
-          if ((msgs[r].author ? msgs[r].author.username : '') !== lastAuthor) { gotReply = true; break; }
-        }
-        if (!gotReply) people[lastAuthor].unanswered++;
-      }
+      if (!isResponse) { var hadPrior = false; for (var k2 = j-1; k2>=0; k2--) { if (mTime - new Date(msgs[k2].timestamp).getTime() > RESPONSE_WINDOW) break; if ((msgs[k2].author?msgs[k2].author.username:'')!==author){hadPrior=true;break;} } if (!hadPrior) people[author].conversationsStarted++; }
     }
   }
-
-  // Calculate derived metrics
   var results = Object.values(people).map(function(p) {
-    var avgResponseMs = p.responsesGiven > 0 ? Math.round(p.totalResponseTimeMs / p.responsesGiven) : 0;
-    var responseRate = p.totalMessages > 0 ? Math.round((p.responsesGiven / Math.max(p.totalMessages, 1)) * 100) : 0;
-    var engagementScore = 0;
-    // Score: messages (30%) + response rate (30%) + speed (20%) + channels (10%) + conversations started (10%)
-    engagementScore += Math.min(p.totalMessages / 20, 1) * 30;
-    engagementScore += (responseRate / 100) * 30;
-    engagementScore += avgResponseMs > 0 ? Math.max(0, (1 - avgResponseMs / 3600000)) * 20 : 0;
-    engagementScore += Math.min(Object.keys(p.activeChannels).length / 5, 1) * 10;
-    engagementScore += Math.min(p.conversationsStarted / 5, 1) * 10;
-
-    // Peak hour
-    var peakHour = Object.entries(p.hourActivity).sort(function(a,b){return b[1]-a[1];})[0];
-    // Peak day
-    var peakDay = Object.entries(p.dayActivity).sort(function(a,b){return b[1]-a[1];})[0];
-
-    return {
-      name: p.name,
-      totalMessages: p.totalMessages,
-      responsesGiven: p.responsesGiven,
-      responsesReceived: p.responsesReceived,
-      responseRate: responseRate,
-      avgResponseTime: avgResponseMs,
-      avgResponseTimeFormatted: avgResponseMs > 0 ? formatDuration(avgResponseMs) : '—',
-      fastestResponse: p.fastestResponseMs < Infinity ? formatDuration(p.fastestResponseMs) : '—',
-      slowestResponse: p.slowestResponseMs > 0 ? formatDuration(p.slowestResponseMs) : '—',
-      unanswered: p.unanswered,
-      conversationsStarted: p.conversationsStarted,
-      mentionsSent: p.mentionsSent,
-      mentionsReceived: p.mentionsReceived,
-      activeChannels: Object.keys(p.activeChannels).length,
-      topChannel: Object.entries(p.activeChannels).sort(function(a,b){return b[1]-a[1];})[0],
-      peakHour: peakHour ? peakHour[0] + ':00' : '—',
-      peakDay: peakDay ? peakDay[0] : '—',
-      engagementScore: Math.round(engagementScore),
-    };
+    var avgMs = p.responsesGiven > 0 ? Math.round(p.totalResponseTimeMs / p.responsesGiven) : 0;
+    var rate = p.totalMessages > 0 ? Math.round((p.responsesGiven / Math.max(p.totalMessages, 1)) * 100) : 0;
+    var score = Math.min(p.totalMessages/20,1)*30 + (rate/100)*30 + (avgMs>0?Math.max(0,(1-avgMs/3600000))*20:0) + Math.min(Object.keys(p.activeChannels).length/5,1)*10 + Math.min(p.conversationsStarted/5,1)*10;
+    var peakH = Object.entries(p.hourActivity).sort(function(a,b){return b[1]-a[1];})[0];
+    var peakD = Object.entries(p.dayActivity).sort(function(a,b){return b[1]-a[1];})[0];
+    return { name:p.name, totalMessages:p.totalMessages, responsesGiven:p.responsesGiven, responsesReceived:p.responsesReceived, responseRate:rate, avgResponseTime:avgMs, avgResponseTimeFormatted:avgMs>0?formatDuration(avgMs):'—', fastestResponse:p.fastestResponseMs<Infinity?formatDuration(p.fastestResponseMs):'—', slowestResponse:p.slowestResponseMs>0?formatDuration(p.slowestResponseMs):'—', unanswered:p.unanswered, conversationsStarted:p.conversationsStarted, activeChannels:Object.keys(p.activeChannels).length, peakHour:peakH?peakH[0]+':00':'—', peakDay:peakD?peakD[0]:'—', engagementScore:Math.round(score) };
   });
-
   results.sort(function(a, b) { return b.engagementScore - a.engagementScore; });
   return results;
 }
@@ -2077,6 +2022,216 @@ async function askClaude(systemPrompt, messages) {
 /* ===========================
    POST /voice — Initial greeting
 =========================== */
+
+// ==============================
+// LOGIN + AUTH ROUTES
+// ==============================
+app.get('/', function(req, res) {
+  var session = getVoiceSession(req);
+  if (!session) return res.redirect('/login');
+  if (session.access === 'all') return res.redirect('/dashboard');
+  if (session.access === 'discord') return res.redirect('/discord');
+  return res.redirect('/dashboard');
+});
+
+app.post('/auth/voice', express.json(), function(req, res) {
+  var spoken = (req.body.passphrase || '').trim();
+  if (!spoken) return res.json({ success: false, message: 'No passphrase detected' });
+
+  for (var i = 0; i < voiceUsers.length; i++) {
+    if (matchPassphrase(spoken, voiceUsers[i].passphrase)) {
+      var token = 'vt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12);
+      voiceSessions[token] = {
+        name: voiceUsers[i].name,
+        role: voiceUsers[i].role,
+        access: voiceUsers[i].access,
+        created: Date.now()
+      };
+      // Clean old sessions
+      Object.keys(voiceSessions).forEach(function(k) {
+        if (Date.now() - voiceSessions[k].created > 86400000 * 7) delete voiceSessions[k];
+      });
+      return res.json({
+        success: true,
+        name: voiceUsers[i].name,
+        role: voiceUsers[i].role,
+        access: voiceUsers[i].access,
+        token: token
+      });
+    }
+  }
+  res.json({ success: false, message: 'Passphrase not recognized' });
+});
+
+app.get('/auth/logout', function(req, res) {
+  var cookies = (req.headers.cookie || '').split(';');
+  for (var i = 0; i < cookies.length; i++) {
+    var parts = cookies[i].trim().split('=');
+    if (parts[0] === 'voice_token') {
+      delete voiceSessions[decodeURIComponent(parts[1])];
+    }
+  }
+  res.setHeader('Set-Cookie', 'voice_token=; Path=/; Max-Age=0');
+  res.redirect('/login');
+});
+
+app.get('/login', function(req, res) {
+  var session = getVoiceSession(req);
+  var redirect = req.query.r || '';
+  var denied = req.query.denied === '1';
+
+  // If already logged in, redirect to appropriate page
+  if (session && !denied) {
+    if (session.access === 'all') return res.redirect(redirect || '/dashboard');
+    if (session.access === 'discord') return res.redirect('/discord');
+    return res.redirect(redirect || '/dashboard');
+  }
+
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+  html += '<title>WILDWOOD — Voice Access</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">';
+  html += '<style>';
+  html += '*{margin:0;padding:0;box-sizing:border-box;}';
+  html += 'body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
+  html += '.login-container{text-align:center;position:relative;z-index:2;}';
+  html += '.logo-text{font-family:Orbitron;font-size:3em;font-weight:900;letter-spacing:15px;background:linear-gradient(135deg,#0ff,#0af,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:5px;}';
+  html += '.logo-sub{font-family:Orbitron;font-size:0.7em;letter-spacing:8px;color:#1a3a5a;margin-bottom:50px;}';
+
+  // Mic button
+  html += '.mic-wrap{position:relative;width:180px;height:180px;margin:0 auto 40px;}';
+  html += '.mic-ring{position:absolute;inset:0;border-radius:50%;border:2px solid #0af30;animation:pulse 2s infinite;}';
+  html += '.mic-ring2{position:absolute;inset:-15px;border-radius:50%;border:1px solid #0af15;animation:pulse 2s infinite 0.5s;}';
+  html += '.mic-ring3{position:absolute;inset:-30px;border-radius:50%;border:1px solid #0af10;animation:pulse 2s infinite 1s;}';
+  html += '.mic-btn{width:180px;height:180px;border-radius:50%;background:radial-gradient(circle at 40% 40%,#0a2040,#050a15);border:2px solid #0af40;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.4s;position:relative;z-index:1;}';
+  html += '.mic-btn:hover{border-color:#0af;box-shadow:0 0 40px rgba(0,170,255,0.2);}';
+  html += '.mic-btn.listening{border-color:#0f0;box-shadow:0 0 60px rgba(0,255,0,0.3);animation:glow 1s infinite alternate;}';
+  html += '.mic-btn.success{border-color:#10b981;box-shadow:0 0 80px rgba(16,185,129,0.4);}';
+  html += '.mic-btn.fail{border-color:#ef4444;box-shadow:0 0 60px rgba(239,68,68,0.3);}';
+  html += '.mic-icon{font-size:4em;transition:all 0.3s;}';
+  html += '@keyframes pulse{0%{transform:scale(1);opacity:0.3;}50%{transform:scale(1.1);opacity:0.1;}100%{transform:scale(1);opacity:0.3;}}';
+  html += '@keyframes glow{from{box-shadow:0 0 40px rgba(0,255,0,0.2);}to{box-shadow:0 0 80px rgba(0,255,0,0.4);}}';
+
+  // Status text
+  html += '.status{font-family:Orbitron;font-size:0.8em;letter-spacing:4px;color:#1a3a5a;margin-bottom:15px;min-height:25px;transition:all 0.3s;}';
+  html += '.status.active{color:#0f0;} .status.fail{color:#ef4444;} .status.success{color:#10b981;}';
+  html += '.heard{font-size:1.1em;color:#4a6a8a;min-height:30px;margin-bottom:20px;}';
+
+  // Waves background
+  html += '.bg-canvas{position:fixed;inset:0;z-index:0;}';
+
+  // Denied message
+  html += '.denied{background:#ef444415;border:1px solid #ef444430;padding:12px 25px;color:#ef4444;font-family:Orbitron;font-size:0.7em;letter-spacing:2px;margin-bottom:30px;display:' + (denied ? 'block' : 'none') + ';}';
+
+  html += '</style></head><body>';
+
+  // Background canvas
+  html += '<canvas class="bg-canvas" id="bgCanvas"></canvas>';
+
+  html += '<div class="login-container">';
+  html += '<div class="logo-text">WILDWOOD</div>';
+  html += '<div class="logo-sub">VOICE AUTHENTICATION</div>';
+  html += '<div class="denied">ACCESS DENIED — INSUFFICIENT CLEARANCE</div>';
+
+  html += '<div class="mic-wrap">';
+  html += '<div class="mic-ring"></div><div class="mic-ring2"></div><div class="mic-ring3"></div>';
+  html += '<div class="mic-btn" id="micBtn" onclick="startListening()">';
+  html += '<div class="mic-icon" id="micIcon">🎙️</div>';
+  html += '</div></div>';
+
+  html += '<div class="status" id="status">TAP TO SPEAK</div>';
+  html += '<div class="heard" id="heard"></div>';
+
+  html += '</div>';
+
+  // JavaScript
+  html += '<script>';
+
+  // Background animation
+  html += 'var c=document.getElementById("bgCanvas"),ctx=c.getContext("2d");';
+  html += 'function resizeBg(){c.width=window.innerWidth;c.height=window.innerHeight;}resizeBg();window.onresize=resizeBg;';
+  html += 'var particles=[];for(var i=0;i<60;i++){particles.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-0.5)*0.5,vy:(Math.random()-0.5)*0.5,r:Math.random()*2+1});}';
+  html += 'function drawBg(){ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle="rgba(0,170,255,0.3)";';
+  html += 'particles.forEach(function(p){p.x+=p.vx;p.y+=p.vy;if(p.x<0)p.x=c.width;if(p.x>c.width)p.x=0;if(p.y<0)p.y=c.height;if(p.y>c.height)p.y=0;';
+  html += 'ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();});';
+  html += 'particles.forEach(function(a,i){particles.slice(i+1).forEach(function(b){var dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy);';
+  html += 'if(d<120){ctx.strokeStyle="rgba(0,170,255,"+(0.1*(1-d/120))+")";ctx.lineWidth=0.5;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}});});';
+  html += 'requestAnimationFrame(drawBg);}drawBg();';
+
+  // Voice recognition
+  html += 'var isListening=false;';
+  html += 'var SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;';
+
+  html += 'function startListening(){';
+  html += '  if(isListening)return;';
+  html += '  if(!SpeechRecognition){document.getElementById("status").textContent="VOICE NOT SUPPORTED — USE CHROME";document.getElementById("status").className="status fail";return;}';
+  html += '  isListening=true;';
+  html += '  var btn=document.getElementById("micBtn");btn.className="mic-btn listening";';
+  html += '  document.getElementById("micIcon").textContent="🔊";';
+  html += '  document.getElementById("status").textContent="LISTENING...";';
+  html += '  document.getElementById("status").className="status active";';
+  html += '  document.getElementById("heard").textContent="";';
+
+  html += '  var rec=new SpeechRecognition();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";';
+
+  html += '  rec.onresult=function(e){';
+  html += '    var t="";for(var i=0;i<e.results.length;i++){t+=e.results[i][0].transcript;}';
+  html += '    document.getElementById("heard").textContent="\\""+t+"\\"";';
+  html += '    if(e.results[0].isFinal){validatePhrase(t);}';
+  html += '  };';
+
+  html += '  rec.onerror=function(e){';
+  html += '    isListening=false;btn.className="mic-btn fail";';
+  html += '    document.getElementById("micIcon").textContent="🎙️";';
+  html += '    document.getElementById("status").textContent="ERROR — TAP TO RETRY";';
+  html += '    document.getElementById("status").className="status fail";';
+  html += '    setTimeout(function(){btn.className="mic-btn";document.getElementById("status").textContent="TAP TO SPEAK";document.getElementById("status").className="status";},3000);';
+  html += '  };';
+
+  html += '  rec.onend=function(){isListening=false;};';
+  html += '  rec.start();';
+  html += '}';
+
+  // Validate against server
+  html += 'async function validatePhrase(phrase){';
+  html += '  document.getElementById("status").textContent="AUTHENTICATING...";';
+  html += '  document.getElementById("status").className="status active";';
+  html += '  try{';
+  html += '    var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});';
+  html += '    var d=await r.json();';
+  html += '    if(d.success){';
+  html += '      document.getElementById("micBtn").className="mic-btn success";';
+  html += '      document.getElementById("micIcon").textContent="✅";';
+  html += '      document.getElementById("status").textContent="WELCOME, "+d.name.toUpperCase();';
+  html += '      document.getElementById("status").className="status success";';
+  // Set cookie and speak greeting
+  html += '      document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
+  // TTS greeting
+  html += '      try{var a=await fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:"Access granted. Welcome, "+d.name})});';
+  html += '      if(a.ok){var blob=await a.blob();var url=URL.createObjectURL(blob);var audio=new Audio(url);audio.play();}}catch(te){}';
+  // Redirect after brief pause
+  html += '      var redir="' + (redirect || '') + '";';
+  html += '      if(!redir){redir=d.access==="all"?"/dashboard":"/discord";}';
+  html += '      setTimeout(function(){window.location.href=redir;},1800);';
+  html += '    }else{';
+  html += '      document.getElementById("micBtn").className="mic-btn fail";';
+  html += '      document.getElementById("micIcon").textContent="❌";';
+  html += '      document.getElementById("status").textContent="ACCESS DENIED";';
+  html += '      document.getElementById("status").className="status fail";';
+  html += '      try{var a2=await fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:"Access denied. Passphrase not recognized."})});';
+  html += '      if(a2.ok){var blob2=await a2.blob();var url2=URL.createObjectURL(blob2);new Audio(url2).play();}}catch(te2){}';
+  html += '      setTimeout(function(){document.getElementById("micBtn").className="mic-btn";document.getElementById("micIcon").textContent="🎙️";document.getElementById("status").textContent="TAP TO SPEAK";document.getElementById("status").className="status";},3000);';
+  html += '    }';
+  html += '  }catch(e){';
+  html += '    document.getElementById("status").textContent="CONNECTION ERROR";';
+  html += '    document.getElementById("status").className="status fail";';
+  html += '  }';
+  html += '}';
+
+  html += '</script>';
+  html += '</body></html>';
+
+  res.send(html);
+});
 
 app.post('/voice', async function(req, res) {
   var twiml = new twilio.twiml.VoiceResponse();
@@ -3993,7 +4148,7 @@ app.post('/gmail/archive', async function(req, res) {
    GET /dashboard — Live Web Dashboard
 =========================== */
 
-app.get('/dashboard', async function(req, res) {
+app.get('/dashboard', requireAuth('owner'), async function(req, res) {
   try {
     var today = new Date();
     // Fetch key data — PERSONAL + BUSINESS in parallel
@@ -4476,7 +4631,7 @@ app.get('/dashboard', async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -6698,7 +6853,7 @@ var webChatHistory = {};
    GET /business — CRM Business Dashboard
 =========================== */
 
-app.get('/business', async function(req, res) {
+app.get('/business', requireAuth('owner'), async function(req, res) {
   try {
     var bizContext = await buildBusinessContext();
     // Fetch Tookan data in parallel (non-blocking, uses 10-min cache)
@@ -6907,7 +7062,7 @@ app.get('/business', async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
@@ -8605,16 +8760,6 @@ app.post('/chat/athena', async function(req, res) {
             discordMsgs.forEach(function(m) { dAuthors[m.author] = (dAuthors[m.author] || 0) + 1; });
             athenaContext += 'Discord activity: ' + Object.entries(dAuthors).map(function(a) { return a[0] + ': ' + a[1] + ' msgs'; }).join(', ') + '\n';
           }
-          // Add response rates
-          try {
-            var rates = await discordAnalyzeResponseRates();
-            if (rates.length > 0) {
-              athenaContext += '\nDISCORD RESPONSE RATES:\n';
-              rates.forEach(function(p) {
-                athenaContext += p.name + ': engagement ' + p.engagementScore + '/100, response rate ' + p.responseRate + '%, avg speed ' + p.avgResponseTimeFormatted + ', ' + p.totalMessages + ' msgs, ' + p.unanswered + ' unanswered, peak ' + p.peakDay + ' ' + p.peakHour + '\n';
-              });
-            }
-          } catch (rre) {}
         } catch (de) {}
       }
 
@@ -8801,7 +8946,7 @@ app.post('/email/send-reply', async function(req, res) {
 /* ===========================
    GET /business/tabs — Browse all source tabs
 =========================== */
-app.get('/business/tabs', async function(req, res) {
+app.get('/business/tabs', requireAuth('owner'), async function(req, res) {
   try {
     // Lazy load source tabs with separate cache
     if (!global.allSourceTabs || !global.sourceTabsTime || (Date.now() - global.sourceTabsTime) > 1800000) {
@@ -9336,7 +9481,7 @@ app.get('/debug-sheets', async function(req, res) {
    TOOKAN LIVE DASHBOARD
 =========================== */
 
-app.get('/tookan', async function(req, res) {
+app.get('/tookan', requireAuth('owner'), async function(req, res) {
   try {
     var tk = await buildTookanContext();
     var todayStr = new Date().toISOString().split('T')[0];
@@ -9396,7 +9541,7 @@ app.get('/tookan', async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     // Status overview cards
@@ -9791,7 +9936,7 @@ app.get('/tookan', async function(req, res) {
    /business/chart — Full TA charting with Bollinger Bands, MACD, RSI, drawing tools
 =========================== */
 
-app.get('/business/chart', async function(req, res) {
+app.get('/business/chart', requireAuth('owner'), async function(req, res) {
   try {
     await buildBusinessContext();
     var bm = global.bizMetrics || {};
@@ -9852,7 +9997,7 @@ app.get('/business/chart', async function(req, res) {
     html += '<a href="/business/chart" class="active">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a>';
+    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
@@ -10131,7 +10276,7 @@ app.get('/business/chart', async function(req, res) {
 // interactive LightweightCharts, correlation analysis, AI strategy engine
 // ===========================
 
-app.get('/analytics', async function(req, res) {
+app.get('/analytics', requireAuth('owner'), async function(req, res) {
   try {
     await buildBusinessContext();
     var bm = global.bizMetrics || {};
@@ -10576,7 +10721,7 @@ app.get('/analytics', async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics" class="active">ANALYTICS</a>';
     html += '<a href="/ads">GOOGLE ADS</a>';
-    html += '<a href="/followup">FOLLOW UP</a>';
+    html += '<a href="/followup">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div class="title">PREDICTIVE ANALYTICS ENGINE</div>';
@@ -11949,7 +12094,7 @@ app.get('/ads/debug', async function(req, res) {
    Full interactive dashboard with Fibonacci, forecasting, every metric
 =========================== */
 
-app.get('/ads', async function(req, res) {
+app.get('/ads', requireAuth('owner'), async function(req, res) {
   try {
     await buildBusinessContext();
     var ads;
@@ -12092,7 +12237,7 @@ app.get('/ads', async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics">ANALYTICS</a>';
     html += '<a href="/ads" class="active">GOOGLE ADS</a>';
-    html += '<a href="/followup">FOLLOW UP</a>';
+    html += '<a href="/followup">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:5px;">GOOGLE ADS INTELLIGENCE</div>';
@@ -12839,124 +12984,65 @@ app.post('/discord/api/analyze', express.json(), async function(req, res) {
 
 // Response rate analytics per person
 app.get('/discord/api/response-rates', async function(req, res) {
-  try {
-    var rates = await discordAnalyzeResponseRates();
-    res.json({ people: rates });
-  } catch (err) {
-    console.log("Discord response rate error:", err.message);
-    res.json({ people: [], error: err.message });
-  }
+  try { res.json({ people: await discordAnalyzeResponseRates() }); }
+  catch (err) { res.json({ people: [], error: err.message }); }
 });
 
 // Quiet channels detection
 app.get('/discord/api/quiet', async function(req, res) {
-  var quiet = await discordGetQuietChannels();
-  res.json({ channels: quiet });
+  res.json({ channels: await discordGetQuietChannels() });
 });
 
-// AI-generated message suggestions for quiet/important channels
+// AI message suggestions
 app.post('/discord/api/suggest', express.json(), async function(req, res) {
   try {
     var quiet = await discordGetQuietChannels();
     var allMsgs = await discordGetAllRecent(40);
-    var bm = global.bizMetrics || {};
-    var pm = global.profitMetrics || {};
-    var fu = global.followUpMetrics || {};
-
-    var bizSnap = '';
-    bizSnap += 'TODAY: ' + new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'}) + '\n';
-    if (bm.totalLeads) bizSnap += 'CRM: ' + (bm.totalBooked||0) + ' booked, ' + (bm.totalCancelled||0) + ' cancelled, ' + (bm.totalCompleted||0) + ' completed\n';
-    if (fu) {
-      var pending = (fu.employees || []).filter(function(e){return !e.submittedThisWeek;});
-      if (pending.length > 0) bizSnap += 'FOLLOW-UPS PENDING: ' + pending.map(function(e){return e.name;}).join(', ') + '\n';
-    }
-    if (bm.totalCancelled > 0) bizSnap += 'Cancellation rate: ' + ((bm.totalCancelled / (bm.totalLeads||1)) * 100).toFixed(1) + '%\n';
-
-    var quietInfo = quiet.filter(function(c){return c.isQuiet;}).map(function(c){
-      return '#' + c.name + ' — last message ' + c.hoursSince + 'h ago' + (c.lastMessage ? ' (last: "' + c.lastMessage.content + '" by ' + c.lastMessage.author + ')' : '');
-    }).join('\n');
-
-    var recentMsgSample = allMsgs.slice(0, 25).map(function(m){
-      return '#' + (m.channel||'') + ' | ' + (m.author||'') + ': ' + (m.content||'').substring(0, 150);
-    }).join('\n');
-
-    var targetChannel = req.body.channel || '';
-    var customTopic = req.body.topic || '';
-
-    var prompt = "You are ATHENA, AI for Wildwood Small Engine Repair. Generate 3-5 Discord message suggestions the team should send.\n\n";
-    prompt += "BUSINESS CONTEXT:\n" + bizSnap + "\n";
-    if (quietInfo) prompt += "QUIET CHANNELS (need attention):\n" + quietInfo + "\n";
-    prompt += "\nRECENT MESSAGES:\n" + recentMsgSample + "\n";
-    if (targetChannel) prompt += "\nFOCUS: Generate messages for #" + targetChannel + "\n";
-    if (customTopic) prompt += "\nTOPIC: " + customTopic + "\n";
-    prompt += "\nRULES:\n- Each suggestion: channel name, message text, WHY it should be sent\n";
-    prompt += "- Consider: quiet channels, pending tasks, recognition, follow-up reminders, scheduling\n";
-    prompt += "- Sound natural and human, NOT corporate\n- Include at least one motivational message\n";
-    prompt += "\nReturn ONLY valid JSON array. Each object: {\"channel\": \"channel-name\", \"message\": \"text\", \"reason\": \"why\", \"priority\": \"high|medium|low\"}\nNo markdown. No backticks. Just JSON.";
-
-    var raw = await askClaude(prompt, [{ role: 'user', content: 'Generate message suggestions now.' }]);
-    var suggestions = [];
-    try {
-      suggestions = JSON.parse((raw || '').replace(/```json|```/g, '').trim());
-    } catch (e) { suggestions = [{ channel: 'general', message: raw, reason: 'AI response', priority: 'medium' }]; }
-
-    var channels = await discordGetChannels();
-    suggestions.forEach(function(s) {
-      var match = channels.find(function(c) { return c.name.toLowerCase() === (s.channel || '').toLowerCase().replace('#', ''); });
-      s.channelId = match ? match.id : '';
-    });
-
-    res.json({ suggestions: suggestions, quietChannels: quiet.filter(function(c){return c.isQuiet;}), businessContext: bizSnap });
-  } catch (err) {
-    console.log("Discord suggest error:", err.message);
-    res.json({ suggestions: [], error: err.message });
-  }
+    var bm = global.bizMetrics || {}; var fu = global.followUpMetrics || {};
+    var bizSnap = 'TODAY: ' + new Date().toLocaleDateString('en-US', {weekday:'long',month:'long',day:'numeric',year:'numeric'}) + '\n';
+    if (bm.totalLeads) bizSnap += 'CRM: ' + (bm.totalBooked||0) + ' booked, ' + (bm.totalCancelled||0) + ' cancelled\n';
+    if (fu) { var pend = (fu.employees||[]).filter(function(e){return !e.submittedThisWeek;}); if (pend.length > 0) bizSnap += 'FOLLOW-UPS PENDING: ' + pend.map(function(e){return e.name;}).join(', ') + '\n'; }
+    var quietInfo = quiet.filter(function(c){return c.isQuiet;}).map(function(c){ return '#'+c.name+' — '+c.hoursSince+'h ago'; }).join('\n');
+    var recentSample = allMsgs.slice(0,25).map(function(m){ return '#'+(m.channel||'')+' | '+(m.author||'')+': '+(m.content||'').substring(0,150); }).join('\n');
+    var prompt = "You are ATHENA, AI for Wildwood Small Engine Repair. Generate 3-5 Discord messages to send.\n\nBUSINESS: " + bizSnap + "\n";
+    if (quietInfo) prompt += "QUIET CHANNELS:\n" + quietInfo + "\n";
+    prompt += "RECENT:\n" + recentSample + "\n";
+    if (req.body.channel) prompt += "FOCUS: #" + req.body.channel + "\n";
+    prompt += "\nReturn ONLY JSON array. Each: {\"channel\":\"name\",\"message\":\"text\",\"reason\":\"why\",\"priority\":\"high|medium|low\"}\nNo markdown.";
+    var raw = await askClaude(prompt, [{ role: 'user', content: 'Generate suggestions now.' }]);
+    var suggestions = []; try { suggestions = JSON.parse((raw||'').replace(/```json|```/g,'').trim()); } catch(e) { suggestions = [{channel:'general',message:raw,reason:'AI',priority:'medium'}]; }
+    var chs = await discordGetChannels();
+    suggestions.forEach(function(s) { var m = chs.find(function(c){return c.name.toLowerCase()===(s.channel||'').toLowerCase().replace('#','');}); s.channelId = m ? m.id : ''; });
+    res.json({ suggestions: suggestions, quietChannels: quiet.filter(function(c){return c.isQuiet;}) });
+  } catch (err) { res.json({ suggestions: [], error: err.message }); }
 });
 
-// Send a message to Discord
+// Send message to Discord
 app.post('/discord/api/send', express.json(), async function(req, res) {
   try {
-    var channelId = req.body.channelId;
-    var message = req.body.message;
-    if (!channelId || !message) return res.json({ success: false, error: 'Missing channelId or message' });
-    var result = await discordSendMessage(channelId, message);
-    if (result) { res.json({ success: true, messageId: result.id }); }
-    else { res.json({ success: false, error: 'Failed to send' }); }
+    if (!req.body.channelId || !req.body.message) return res.json({ success: false, error: 'Missing data' });
+    var result = await discordSendMessage(req.body.channelId, req.body.message);
+    res.json(result ? { success: true, messageId: result.id } : { success: false, error: 'Send failed' });
   } catch (err) { res.json({ success: false, error: err.message }); }
 });
 
-// System improvement analysis from message patterns
+// System improvement analysis
 app.post('/discord/api/improve', express.json(), async function(req, res) {
   try {
     var allMsgs = await discordGetAllRecent(100);
-    if (allMsgs.length === 0) return res.json({ analysis: 'No messages to analyze.' });
-
-    var msgText = allMsgs.slice(0, 100).map(function(m) {
-      return '#' + (m.channel||'') + ' | ' + (m.author||'') + ' (' + new Date(m.timestamp).toLocaleDateString() + '): ' + (m.content||'').substring(0, 200);
-    }).join('\n');
-
-    var bm = global.bizMetrics || {};
-    var bizSnap = 'CRM: ' + (bm.totalBooked||0) + ' booked, ' + (bm.totalCancelled||0) + ' cancelled. Locations: ' + (Object.keys(bm.locationStats || {}).length) + '.';
-
+    if (allMsgs.length === 0) return res.json({ analysis: 'No messages.' });
+    var msgText = allMsgs.slice(0,100).map(function(m){ return '#'+(m.channel||'')+' | '+(m.author||'')+': '+(m.content||'').substring(0,200); }).join('\n');
     var analysis = await askClaude(
-      "You are ATHENA, business AI for Wildwood Small Engine Repair. Analyze these Discord messages to find SYSTEM AND PROCESS IMPROVEMENTS.\n\n" +
-      "BUSINESS CONTEXT: " + bizSnap + "\n\nLook for:\n" +
-      "1. RECURRING PROBLEMS — What issues keep getting mentioned?\n" +
-      "2. COMMUNICATION GAPS — Messages going unanswered? Info requested multiple times?\n" +
-      "3. PROCESS BREAKDOWNS — Bottlenecks, handoff failures, workflow issues?\n" +
-      "4. TRAINING NEEDS — Confusion about procedures? Repeated mistakes?\n" +
-      "5. CUSTOMER IMPACT — Complaints, missed appointments, service failures?\n" +
-      "6. QUICK WINS — Easy fixes for recurring issues\n" +
-      "7. SOP GAPS — Processes that should be documented\n\n" +
-      "For each finding: state problem, cite messages/people, give concrete fix.\nPlain text. Be direct. Use names.",
-      [{ role: 'user', content: 'Analyze for system improvements:\n\n' + msgText }]
+      "Analyze these Discord messages for SYSTEM AND PROCESS IMPROVEMENTS. Find: 1)Recurring problems 2)Communication gaps 3)Process breakdowns 4)Training needs 5)Customer impact 6)Quick wins 7)SOP gaps. Cite names and messages. Plain text, be direct.",
+      [{ role: 'user', content: msgText }]
     );
     res.json({ analysis: analysis });
   } catch (err) { res.json({ analysis: 'Error: ' + err.message }); }
 });
 
 // Discord Dashboard Page
-app.get('/discord', async function(req, res) {
+app.get('/discord', requireAuth('all'), async function(req, res) {
+  var session = getVoiceSession(req);
   var channels = await discordGetChannels();
   var allMsgs = await discordGetAllRecent(30);
 
@@ -12980,7 +13066,6 @@ app.get('/discord', async function(req, res) {
   html += '.container{max-width:1400px;margin:0 auto;padding:20px 40px;}';
   html += 'h1{font-family:Orbitron;font-size:2.5em;font-weight:900;letter-spacing:10px;background:linear-gradient(135deg,#7c3aed,#5b21b6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center;margin:30px 0 5px;}';
   html += '.subtitle{text-align:center;font-size:0.9em;color:#4a6a8a;letter-spacing:5px;font-family:Orbitron;margin-bottom:30px;}';
-  html += '.section-title{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#7c3aed;margin-bottom:12px;}';
   html += '.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:30px;}';
   html += '.card{background:rgba(10,20,35,0.6);border:1px solid #7c3aed15;padding:20px;}';
   html += '.card .label{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;color:#7c3aed;margin-bottom:5px;}';
@@ -12998,38 +13083,36 @@ app.get('/discord', async function(req, res) {
   html += '.msg .ch{color:#4a6a8a;margin-left:8px;}';
   html += '.msg .time{color:#2a3a4a;margin-left:8px;font-size:0.85em;}';
   html += '.msg .text{color:#c0d8f0;line-height:1.5;}';
-  html += '.analyze-btn{padding:12px 30px;background:rgba(124,58,237,0.15);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.65em;letter-spacing:3px;cursor:pointer;transition:all 0.3s;}';
+  html += '.analyze-btn{padding:12px 30px;background:rgba(124,58,237,0.15);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.7em;letter-spacing:3px;cursor:pointer;transition:all 0.3s;margin-bottom:20px;}';
   html += '.analyze-btn:hover{background:rgba(124,58,237,0.25);box-shadow:0 0 20px rgba(124,58,237,0.2);}';
+  html += '#analysis{background:rgba(10,20,35,0.8);border:1px solid #7c3aed20;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-bottom:30px;display:none;}';
   html += '.leaderboard{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:30px;}';
   html += '.lb-item{background:rgba(10,20,35,0.6);border:1px solid #7c3aed15;padding:12px 18px;display:flex;align-items:center;gap:10px;}';
   html += '.lb-item .name{color:#a78bfa;font-weight:600;}';
   html += '.lb-item .count{color:#c0d8f0;font-size:1.2em;font-weight:700;}';
   html += '.lb-bar{height:4px;background:#0a1520;margin-top:6px;width:100%;} .lb-fill{height:100%;background:#7c3aed;}';
-  html += '.rr-table{width:100%;border-collapse:collapse;margin-bottom:30px;}';
-  html += '.rr-table th{font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;text-align:left;padding:10px 8px;border-bottom:1px solid #7c3aed30;}';
-  html += '.rr-table td{padding:10px 8px;border-bottom:1px solid #0a1520;font-size:0.95em;}';
-  html += '.rr-table tr:hover{background:rgba(124,58,237,0.03);}';
-  html += '.pill{display:inline-block;padding:2px 10px;font-size:0.75em;font-family:Orbitron;letter-spacing:1px;}';
-  html += '.pill-green{background:#10b98120;color:#10b981;} .pill-yellow{background:#f59e0b20;color:#f59e0b;} .pill-red{background:#ef444420;color:#ef4444;} .pill-blue{background:#3b82f620;color:#3b82f6;}';
-  html += '.score-ring{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:Orbitron;font-size:0.7em;font-weight:700;}';
-  html += '@media(max-width:768px){.container{padding:15px 12px;}.grid{grid-template-columns:1fr;} h1{font-size:1.5em;} .analyze-btn{font-size:0.55em;padding:10px 15px;letter-spacing:2px;} .rr-table{font-size:0.85em;} .rr-table th{font-size:0.5em;} .channel-tabs{gap:5px;} .ch-tab{padding:6px 10px;font-size:0.55em;}}';
   html += '</style></head><body>';
 
-  // Nav
+  // Nav — conditional based on access level
   html += '<div class="nav">';
-  html += '<a href="/">JARVIS</a>';
-  html += '<a href="/business">ATHENA</a>';
-  html += '<a href="/tookan">TOOKAN</a>';
-  html += '<a href="/business/chart">CHARTS</a>';
-  html += '<a href="/analytics">ANALYTICS</a>';
-  html += '<a href="/ads">GOOGLE ADS</a>';
-  html += '<a href="/discord" class="active">DISCORD</a>';
-  html += '<a href="/followup">FOLLOW UP</a>';
+  if (session && session.access === 'all') {
+    html += '<a href="/dashboard">JARVIS</a>';
+    html += '<a href="/business">ATHENA</a>';
+    html += '<a href="/tookan">TOOKAN</a>';
+    html += '<a href="/business/chart">CHARTS</a>';
+    html += '<a href="/analytics">ANALYTICS</a>';
+    html += '<a href="/ads">GOOGLE ADS</a>';
+    html += '<a href="/discord" class="active">DISCORD</a>';
+    html += '<a href="/followup">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+  } else {
+    html += '<a href="/discord" class="active">DISCORD</a>';
+  }
+  html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
   html += '</div>';
 
   html += '<div class="container">';
   html += '<h1>DISCORD</h1>';
-  html += '<div class="subtitle">TEAM COMMUNICATIONS COMMAND CENTER</div>';
+  html += '<div class="subtitle">TEAM COMMUNICATIONS MONITOR</div>';
 
   if (!DISCORD_BOT_TOKEN) {
     html += '<div style="text-align:center;padding:60px 20px;">';
@@ -13037,62 +13120,27 @@ app.get('/discord', async function(req, res) {
     html += '<div style="color:#4a6a8a;max-width:600px;margin:0 auto;line-height:1.8;">';
     html += 'To connect Discord:<br><br>';
     html += '1. Go to <a href="https://discord.com/developers/applications" target="_blank" style="color:#7c3aed;">Discord Developer Portal</a><br>';
-    html += '2. Create New Application → Bot → Copy Token<br>';
+    html += '2. Create a New Application → Bot → Copy the Token<br>';
     html += '3. Enable "Message Content Intent" under Bot settings<br>';
-    html += '4. Invite bot with Read Messages + Send Messages permissions<br>';
-    html += '5. Add to Render env vars:<br>';
+    html += '4. Invite the bot to your server with "Read Messages" permission<br>';
+    html += '5. On Render, add env vars:<br>';
     html += '<span style="color:#a78bfa;">DISCORD_BOT_TOKEN</span> = your bot token<br>';
-    html += '<span style="color:#a78bfa;">DISCORD_GUILD_ID</span> = your server ID<br>';
+    html += '<span style="color:#a78bfa;">DISCORD_GUILD_ID</span> = your server ID (right-click server → Copy Server ID)<br>';
     html += '</div></div>';
   } else {
     // Stats cards
     html += '<div class="grid">';
-    html += '<div class="card"><div class="label">CHANNELS</div><div class="value">' + channels.length + '</div><div class="sub">Text channels monitored</div></div>';
-    html += '<div class="card"><div class="label">RECENT MESSAGES</div><div class="value">' + allMsgs.length + '</div><div class="sub">Last 30 per channel</div></div>';
-    html += '<div class="card"><div class="label">ACTIVE MEMBERS</div><div class="value">' + Object.keys(authorCounts).length + '</div><div class="sub">Unique posters</div></div>';
+    html += '<div class="card"><div class="label">Channels</div><div class="value">' + channels.length + '</div><div class="sub">Text channels monitored</div></div>';
+    html += '<div class="card"><div class="label">Recent Messages</div><div class="value">' + allMsgs.length + '</div><div class="sub">Last 30 per channel</div></div>';
+    html += '<div class="card"><div class="label">Active Members</div><div class="value">' + Object.keys(authorCounts).length + '</div><div class="sub">Unique posters</div></div>';
     var mostActive = Object.entries(authorCounts).sort(function(a,b){return b[1]-a[1];})[0];
-    html += '<div class="card"><div class="label">MOST ACTIVE</div><div class="value">' + (mostActive ? mostActive[0] : '—') + '</div><div class="sub">' + (mostActive ? mostActive[1] + ' messages' : '') + '</div></div>';
+    html += '<div class="card"><div class="label">Most Active</div><div class="value">' + (mostActive ? mostActive[0] : '—') + '</div><div class="sub">' + (mostActive ? mostActive[1] + ' messages' : '') + '</div></div>';
     html += '</div>';
-
-    // === RESPONSE RATE TABLE ===
-    html += '<div class="section-title">📊 RESPONSE RATES BY PERSON</div>';
-    html += '<div style="font-size:0.8em;color:#4a6a8a;margin-bottom:15px;">Based on last 100 messages per channel. A response = reply within 2 hours.</div>';
-    html += '<div id="responseRates" style="margin-bottom:30px;"><div style="color:#4a6a8a;padding:20px;">Loading response rates...</div></div>';
-
-    // Quiet channel alerts (loaded by JS)
-    html += '<div id="quietAlerts" style="margin-bottom:30px;"></div>';
-
-    // Action buttons row
-    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">';
-    html += '<button class="analyze-btn" onclick="analyzeMessages()">⚡ ANALYZE COMMUNICATIONS</button>';
-    html += '<button class="analyze-btn" onclick="loadSuggestions()" style="border-color:#10b98150;color:#10b981;">💡 GENERATE MESSAGE IDEAS</button>';
-    html += '<button class="analyze-btn" onclick="analyzeSystemImprovements()" style="border-color:#f59e0b50;color:#f59e0b;">🔍 FIND SYSTEM IMPROVEMENTS</button>';
-    html += '</div>';
-
-    // Suggestions panel (populated by JS)
-    html += '<div id="suggestions" style="margin-bottom:30px;display:none;"></div>';
-
-    // Analysis panels
-    html += '<div id="analysis" style="background:rgba(10,20,35,0.8);border:1px solid #7c3aed20;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-bottom:30px;display:none;"></div>';
-    html += '<div id="systemAnalysis" style="background:rgba(10,20,35,0.8);border:1px solid #f59e0b20;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-bottom:30px;display:none;"></div>';
-
-    // Custom message composer
-    html += '<div class="section-title">📤 SEND MESSAGE TO DISCORD</div>';
-    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:30px;">';
-    html += '<select id="sendChannel" style="padding:10px 15px;background:#0a1520;border:1px solid #7c3aed30;color:#c0d8f0;font-family:Rajdhani;font-size:1em;">';
-    channels.forEach(function(c) {
-      html += '<option value="' + c.id + '">#' + c.name + '</option>';
-    });
-    html += '</select>';
-    html += '<input id="sendText" placeholder="Type a message..." style="flex:1;min-width:200px;padding:10px 15px;background:#0a1520;border:1px solid #7c3aed30;color:#c0d8f0;font-family:Rajdhani;font-size:1em;">';
-    html += '<button onclick="sendCustomMessage()" style="padding:10px 20px;background:rgba(124,58,237,0.2);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;">SEND</button>';
-    html += '</div>';
-    html += '<div id="sendStatus" style="font-size:0.8em;color:#4a6a8a;margin-top:-20px;margin-bottom:20px;"></div>';
 
     // Activity leaderboard
     var sortedAuthors = Object.entries(authorCounts).sort(function(a,b){return b[1]-a[1];});
     var maxMsgs = sortedAuthors.length > 0 ? sortedAuthors[0][1] : 1;
-    html += '<div class="section-title">ACTIVITY LEADERBOARD</div>';
+    html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#7c3aed;margin-bottom:12px;">ACTIVITY LEADERBOARD</div>';
     html += '<div class="leaderboard">';
     sortedAuthors.forEach(function(a) {
       var pct = Math.round((a[1] / maxMsgs) * 100);
@@ -13100,8 +13148,38 @@ app.get('/discord', async function(req, res) {
     });
     html += '</div>';
 
-    // Channel tabs + messages
-    html += '<div class="section-title">MESSAGES BY CHANNEL</div>';
+    // AI Analysis button
+    html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#7c3aed;margin-bottom:12px;">📊 RESPONSE RATES BY PERSON</div>';
+    html += '<div id="responseRates" style="margin-bottom:30px;"><div style="color:#4a6a8a;padding:10px;">Loading...</div></div>';
+
+    // Quiet alerts placeholder
+    html += '<div id="quietAlerts" style="margin-bottom:20px;"></div>';
+
+    // Action buttons
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">';
+    html += '<button class="analyze-btn" onclick="analyzeMessages()">⚡ ANALYZE COMMS</button>';
+    html += '<button class="analyze-btn" onclick="loadSuggestions()" style="border-color:#10b98150;color:#10b981;">💡 MESSAGE IDEAS</button>';
+    html += '<button class="analyze-btn" onclick="analyzeSystem()" style="border-color:#f59e0b50;color:#f59e0b;">🔍 SYSTEM IMPROVEMENTS</button>';
+    html += '</div>';
+
+    // Panels
+    html += '<div id="suggestions" style="display:none;margin-bottom:20px;"></div>';
+    html += '<div id="analysis" style="background:rgba(10,20,35,0.8);border:1px solid #7c3aed20;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-bottom:30px;display:none;"></div>';
+    html += '<div id="sysAnalysis" style="background:rgba(10,20,35,0.8);border:1px solid #f59e0b20;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-bottom:30px;display:none;"></div>';
+
+    // Send custom message
+    html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#7c3aed;margin-bottom:12px;">📤 SEND TO DISCORD</div>';
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:30px;">';
+    html += '<select id="sendCh" style="padding:10px;background:#0a1520;border:1px solid #7c3aed30;color:#c0d8f0;font-family:Rajdhani;">';
+    channels.forEach(function(c) { html += '<option value="' + c.id + '">#' + c.name + '</option>'; });
+    html += '</select>';
+    html += '<input id="sendTxt" placeholder="Type a message..." style="flex:1;min-width:200px;padding:10px;background:#0a1520;border:1px solid #7c3aed30;color:#c0d8f0;font-family:Rajdhani;">';
+    html += '<button onclick="sendMsg()" style="padding:10px 20px;background:rgba(124,58,237,0.2);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.6em;cursor:pointer;">SEND</button>';
+    html += '</div>';
+    html += '<div id="sendSt" style="font-size:0.8em;color:#4a6a8a;margin-top:-20px;margin-bottom:20px;"></div>';
+
+    // Channel tabs
+    html += '<div style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#7c3aed;margin-bottom:12px;">MESSAGES BY CHANNEL</div>';
     html += '<div class="channel-tabs">';
     html += '<div class="ch-tab active" onclick="filterChannel(\'all\',this)">ALL (' + allMsgs.length + ')</div>';
     channels.forEach(function(c) {
@@ -13110,6 +13188,7 @@ app.get('/discord', async function(req, res) {
     });
     html += '</div>';
 
+    // Messages
     html += '<div id="messages">';
     allMsgs.forEach(function(m) {
       var d = new Date(m.timestamp);
@@ -13125,141 +13204,81 @@ app.get('/discord', async function(req, res) {
     html += '</div>';
   }
 
-  html += '</div>'; // close container
+  html += '</div>';
 
-  // ===================== JAVASCRIPT =====================
   html += '<script>';
+  html += 'function filterChannel(ch,el){document.querySelectorAll(".ch-tab").forEach(function(t){t.classList.remove("active");});el.classList.add("active");document.querySelectorAll(".msg").forEach(function(m){m.style.display=(ch==="all"||m.dataset.channel===ch)?"flex":"none";});}';
 
-  // Channel filter
-  html += 'function filterChannel(ch,el){';
-  html += '  document.querySelectorAll(".ch-tab").forEach(function(t){t.classList.remove("active");});el.classList.add("active");';
-  html += '  document.querySelectorAll(".msg").forEach(function(m){m.style.display=(ch==="all"||m.dataset.channel===ch)?"flex":"none";});';
-  html += '}';
+  // Response rates
+  html += 'async function loadRR(){var d=document.getElementById("responseRates");try{var r=await(await fetch("/discord/api/response-rates")).json();var p=r.people||[];if(!p.length){d.innerHTML="<div style=\\"color:#4a6a8a;\\">No data yet</div>";return;}';
+  html += 'var h="<table style=\\"width:100%;border-collapse:collapse;\\"><thead><tr style=\\"border-bottom:1px solid #7c3aed30;\\">';
+  html += '<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;text-align:left;padding:8px;\\">PERSON</th>';
+  html += '<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;padding:8px;\\">SCORE</th>';
+  html += '<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;padding:8px;\\">MSGS</th>';
+  html += '<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;padding:8px;\\">RATE</th>';
+  html += '<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;padding:8px;\\">AVG SPEED</th>';
+  html += '<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;padding:8px;\\">UNANSWERED</th>';
+  html += '<th style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:2px;color:#7c3aed;padding:8px;\\">PEAK</th>';
+  html += '</tr></thead><tbody>";';
+  html += 'p.forEach(function(x,i){var sc=x.engagementScore>=70?"#10b981":x.engagementScore>=40?"#f59e0b":"#ef4444";var rc=x.responseRate>=60?"#10b981":x.responseRate>=30?"#f59e0b":"#ef4444";var medal=i===0?"🥇 ":i===1?"🥈 ":i===2?"🥉 ":"";';
+  html += 'h+="<tr style=\\"border-bottom:1px solid #0a1520;\\">";';
+  html += 'h+="<td style=\\"padding:8px;color:#a78bfa;font-weight:700;\\">"+medal+x.name+"</td>";';
+  html += 'h+="<td style=\\"padding:8px;text-align:center;\\"><span style=\\"display:inline-block;width:36px;height:36px;border-radius:50%;border:2px solid "+sc+";line-height:32px;text-align:center;color:"+sc+";font-family:Orbitron;font-size:0.7em;\\">"+x.engagementScore+"</span></td>";';
+  html += 'h+="<td style=\\"padding:8px;text-align:center;\\">"+x.totalMessages+"</td>";';
+  html += 'h+="<td style=\\"padding:8px;text-align:center;\\"><span style=\\"background:"+rc+"20;color:"+rc+";padding:2px 10px;font-size:0.8em;font-family:Orbitron;\\">"+x.responseRate+"%</span></td>";';
+  html += 'h+="<td style=\\"padding:8px;text-align:center;\\">"+x.avgResponseTimeFormatted+"</td>";';
+  html += 'h+="<td style=\\"padding:8px;text-align:center;color:"+(x.unanswered>0?"#ef4444":"#4a6a8a")+";\\">"+x.unanswered+"</td>";';
+  html += 'h+="<td style=\\"padding:8px;text-align:center;font-size:0.85em;color:#4a6a8a;\\">"+x.peakDay+" "+x.peakHour+"</td></tr>";});';
+  html += 'h+="</tbody></table>";d.innerHTML=h;}catch(e){d.innerHTML="<div style=\\"color:#ef4444;\\">"+e.message+"</div>";}}';
 
-  // Load response rates
-  html += 'async function loadResponseRates(){';
-  html += '  var div=document.getElementById("responseRates");';
-  html += '  try{var r=await fetch("/discord/api/response-rates");var d=await r.json();var people=d.people||[];';
-  html += '  if(people.length===0){div.innerHTML="<div style=\\"color:#4a6a8a;\\">No message data available yet.</div>";return;}';
-  html += '  var h="<table class=\\"rr-table\\"><thead><tr>';
-  html += '  <th>PERSON</th><th>SCORE</th><th>MESSAGES</th><th>RESPONSES</th><th>RESPONSE RATE</th><th>AVG SPEED</th><th>FASTEST</th><th>STARTED</th><th>UNANSWERED</th><th>CHANNELS</th><th>PEAK TIME</th>';
-  html += '  </tr></thead><tbody>";';
-  html += '  people.forEach(function(p,i){';
-  html += '    var scoreColor=p.engagementScore>=70?"#10b981":p.engagementScore>=40?"#f59e0b":"#ef4444";';
-  html += '    var rateColor=p.responseRate>=60?"#10b981":p.responseRate>=30?"#f59e0b":"#ef4444";';
-  html += '    var medal=i===0?"🥇 ":i===1?"🥈 ":i===2?"🥉 ":"";';
-  html += '    h+="<tr>";';
-  html += '    h+="<td style=\\"color:#a78bfa;font-weight:700;\\">"+medal+p.name+"</td>";';
-  html += '    h+="<td><div class=\\"score-ring\\" style=\\"border:2px solid "+scoreColor+";color:"+scoreColor+"\\">"+p.engagementScore+"</div></td>";';
-  html += '    h+="<td>"+p.totalMessages+"</td>";';
-  html += '    h+="<td>"+p.responsesGiven+" given<br><span style=\\"color:#4a6a8a;font-size:0.85em;\\">"+p.responsesReceived+" received</span></td>";';
-  html += '    h+="<td><span class=\\"pill "+(p.responseRate>=60?"pill-green":p.responseRate>=30?"pill-yellow":"pill-red")+"\\">"+p.responseRate+"%</span></td>";';
-  html += '    h+="<td style=\\"color:"+(p.avgResponseTime>0&&p.avgResponseTime<900000?"#10b981":p.avgResponseTime<3600000?"#f59e0b":"#ef4444")+"\\">"+p.avgResponseTimeFormatted+"</td>";';
-  html += '    h+="<td style=\\"color:#10b981;\\">"+p.fastestResponse+"</td>";';
-  html += '    h+="<td>"+p.conversationsStarted+"</td>";';
-  html += '    h+="<td style=\\"color:"+(p.unanswered>0?"#ef4444":"#4a6a8a")+"\\">"+p.unanswered+"</td>";';
-  html += '    h+="<td><span class=\\"pill pill-blue\\">"+p.activeChannels+"</span></td>";';
-  html += '    h+="<td style=\\"font-size:0.85em;color:#4a6a8a;\\">"+p.peakDay+" "+p.peakHour+"</td>";';
-  html += '    h+="</tr>";';
-  html += '  });';
-  html += '  h+="</tbody></table>";div.innerHTML=h;';
-  html += '  }catch(e){div.innerHTML="<div style=\\"color:#ef4444;\\">Error loading rates: "+e.message+"</div>";}';
-  html += '}';
+  // Quiet channels
+  html += 'async function loadQC(){try{var d=await(await fetch("/discord/api/quiet")).json();var q=(d.channels||[]).filter(function(c){return c.isQuiet;});var el=document.getElementById("quietAlerts");';
+  html += 'if(!q.length){el.innerHTML="<div style=\\"font-family:Orbitron;font-size:0.6em;color:#10b981;letter-spacing:3px;margin-bottom:10px;\\">✅ ALL CHANNELS ACTIVE</div>";return;}';
+  html += 'var h="<div style=\\"font-family:Orbitron;font-size:0.7em;color:#ef4444;letter-spacing:4px;margin-bottom:10px;\\">🔴 QUIET CHANNELS</div><div style=\\"display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:15px;\\">";';
+  html += 'q.forEach(function(c){var sv=c.hoursSince>168?"#ef4444":c.hoursSince>72?"#f59e0b":"#eab308";var lb=c.hoursSince>=48?Math.floor(c.hoursSince/24)+"d":c.hoursSince+"h";';
+  html += 'h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid "+sv+"30;padding:12px;\\"><div style=\\"display:flex;justify-content:space-between;\\"><span style=\\"color:"+sv+";font-weight:700;\\">#"+c.name+"</span><span style=\\"background:"+sv+"20;color:"+sv+";padding:2px 8px;font-size:0.8em;font-family:Orbitron;\\">"+lb+"</span></div>";';
+  html += 'if(c.lastMessage)h+="<div style=\\"font-size:0.8em;color:#4a6a8a;margin-top:5px;\\">"+c.lastMessage.author+": "+c.lastMessage.content+"</div>";';
+  html += 'h+="<button onclick=\\"loadSug(\'"+c.name+"\')\\" style=\\"margin-top:8px;padding:4px 10px;background:"+sv+"15;border:1px solid "+sv+"30;color:"+sv+";font-size:0.7em;cursor:pointer;font-family:Orbitron;\\">💡 SUGGEST</button></div>";});';
+  html += 'h+="</div>";el.innerHTML=h;}catch(e){}}';
 
-  // Load quiet channel alerts
-  html += 'async function loadQuietChannels(){';
-  html += '  try{var r=await fetch("/discord/api/quiet");var d=await r.json();';
-  html += '  var quiet=d.channels||[];var div=document.getElementById("quietAlerts");';
-  html += '  var quietOnes=quiet.filter(function(c){return c.isQuiet;});';
-  html += '  if(quietOnes.length===0){div.innerHTML="<div style=\\"font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#10b981;margin-bottom:15px;\\">✅ ALL CHANNELS ACTIVE (last 24h)</div>";return;}';
-  html += '  var h="<div class=\\"section-title\\" style=\\"color:#ef4444;\\">🔴 QUIET CHANNEL ALERTS</div>";';
-  html += '  h+="<div style=\\"display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-bottom:20px;\\">";';
-  html += '  quietOnes.forEach(function(c){';
-  html += '    var sev=c.hoursSince>168?"#ef4444":c.hoursSince>72?"#f59e0b":"#eab308";';
-  html += '    var label=c.hoursSince>=48?(Math.floor(c.hoursSince/24)+"d ago"):(c.hoursSince+"h ago");';
-  html += '    h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid "+sev+"30;padding:15px;\\">";';
-  html += '    h+="<div style=\\"display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;\\">";';
-  html += '    h+="<span style=\\"color:"+sev+";font-weight:700;\\">#"+c.name+"</span>";';
-  html += '    h+="<span style=\\"background:"+sev+"20;color:"+sev+";padding:3px 10px;font-size:0.8em;font-family:Orbitron;letter-spacing:1px;\\">"+label+"</span></div>";';
-  html += '    if(c.lastMessage){h+="<div style=\\"font-size:0.8em;color:#4a6a8a;\\">Last: \\""+c.lastMessage.content+"\\" — "+c.lastMessage.author+"</div>";}';
-  html += '    h+="<button onclick=\\"loadSuggestions(\'"+c.name+"\')\\" style=\\"margin-top:8px;padding:5px 12px;background:"+sev+"15;border:1px solid "+sev+"30;color:"+sev+";font-size:0.75em;cursor:pointer;font-family:Orbitron;letter-spacing:1px;\\">💡 SUGGEST</button>";';
-  html += '    h+="</div>";});';
-  html += '  h+="</div>";div.innerHTML=h;';
-  html += '  }catch(e){console.log("Quiet check error:",e);}';
-  html += '}';
+  // Suggestions
+  html += 'var curSug=[];';
+  html += 'async function loadSug(ch){var p=document.getElementById("suggestions");p.style.display="block";p.innerHTML="<div style=\\"color:#10b981;padding:15px;\\">💡 Generating ideas...</div>";';
+  html += 'try{var d=await(await fetch("/discord/api/suggest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channel:ch||""})})).json();curSug=d.suggestions||[];';
+  html += 'var h="<div style=\\"font-family:Orbitron;font-size:0.7em;color:#10b981;letter-spacing:4px;margin-bottom:10px;\\">💡 SUGGESTED MESSAGES</div>";';
+  html += 'curSug.forEach(function(s,i){var pc=s.priority==="high"?"#ef4444":"#f59e0b";';
+  html += 'h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid #10b98115;padding:15px;margin-bottom:8px;\\">";';
+  html += 'h+="<div style=\\"display:flex;justify-content:space-between;margin-bottom:8px;\\"><span style=\\"color:#10b981;font-weight:700;\\">#"+(s.channel||"general")+"</span><span style=\\"background:"+pc+"20;color:"+pc+";padding:2px 8px;font-size:0.7em;font-family:Orbitron;\\">"+s.priority.toUpperCase()+"</span></div>";';
+  html += 'h+="<textarea id=\\"sg_"+i+"\\" style=\\"width:100%;background:#050a15;border:1px solid #1a2a3a;color:#c0d8f0;padding:10px;font-family:Rajdhani;min-height:50px;resize:vertical;box-sizing:border-box;\\">"+s.message+"</textarea>";';
+  html += 'h+="<div style=\\"font-size:0.8em;color:#4a6a8a;margin:6px 0;\\">💭 "+s.reason+"</div>";';
+  html += 'h+="<div style=\\"display:flex;gap:8px;\\">";';
+  html += 'if(s.channelId)h+="<button onclick=\\"sendSug("+i+")\\" style=\\"padding:6px 15px;background:rgba(16,185,129,0.15);border:1px solid #10b98150;color:#10b981;font-family:Orbitron;font-size:0.55em;cursor:pointer;\\">📤 SEND</button>";';
+  html += 'h+="</div></div>";});';
+  html += 'if(!curSug.length)h+="<div style=\\"color:#4a6a8a;\\">No suggestions.</div>";p.innerHTML=h;}catch(e){p.innerHTML="<div style=\\"color:#ef4444;\\">"+e.message+"</div>";}}';
+  html += 'function loadSuggestions(){loadSug();}';
 
-  // Generate AI suggestions
-  html += 'var currentSuggestions=[];';
-  html += 'async function loadSuggestions(channel,topic){';
-  html += '  var panel=document.getElementById("suggestions");panel.style.display="block";';
-  html += '  panel.innerHTML="<div class=\\"section-title\\" style=\\"color:#10b981;\\">💡 SUGGESTED MESSAGES</div><div style=\\"color:#10b981;padding:20px;\\">ATHENA generating message ideas...</div>";';
-  html += '  try{var r=await fetch("/discord/api/suggest",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channel:channel||"",topic:topic||""})});';
-  html += '  var d=await r.json();currentSuggestions=d.suggestions||[];';
-  html += '  var h="<div class=\\"section-title\\" style=\\"color:#10b981;\\">💡 SUGGESTED MESSAGES</div>";';
-  html += '  h+="<div style=\\"font-size:0.8em;color:#4a6a8a;margin-bottom:15px;\\">AI-generated from business data + channel activity. Edit before sending.</div>";';
-  html += '  currentSuggestions.forEach(function(s,i){';
-  html += '    var pc=s.priority==="high"?"#ef4444":s.priority==="low"?"#4a6a8a":"#f59e0b";';
-  html += '    h+="<div style=\\"background:rgba(10,20,35,0.6);border:1px solid #10b98115;padding:18px;margin-bottom:10px;\\">";';
-  html += '    h+="<div style=\\"display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;\\">";';
-  html += '    h+="<span style=\\"color:#10b981;font-weight:700;\\">#"+(s.channel||"general")+"</span>";';
-  html += '    h+="<span style=\\"background:"+pc+"20;color:"+pc+";padding:2px 10px;font-size:0.75em;font-family:Orbitron;letter-spacing:1px;\\">"+s.priority.toUpperCase()+"</span></div>";';
-  html += '    h+="<textarea id=\\"sug_"+i+"\\" style=\\"width:100%;background:#050a15;border:1px solid #1a2a3a;color:#c0d8f0;padding:12px;font-family:Rajdhani;font-size:1em;min-height:60px;resize:vertical;box-sizing:border-box;\\">"+s.message+"</textarea>";';
-  html += '    h+="<div style=\\"font-size:0.8em;color:#4a6a8a;margin:8px 0;\\">💭 "+s.reason+"</div>";';
-  html += '    h+="<div style=\\"display:flex;gap:8px;\\">";';
-  html += '    if(s.channelId){h+="<button onclick=\\"sendSuggestion("+i+")\\" style=\\"padding:8px 18px;background:rgba(16,185,129,0.15);border:1px solid #10b98150;color:#10b981;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;\\">📤 SEND TO DISCORD</button>";}';
-  html += '    else{h+="<span style=\\"color:#ef4444;font-size:0.75em;\\">⚠ Channel not matched</span>";}';
-  html += '    h+="<button onclick=\\"copySug("+i+")\\" style=\\"padding:8px 18px;background:rgba(124,58,237,0.15);border:1px solid #7c3aed50;color:#7c3aed;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;cursor:pointer;\\">📋 COPY</button></div></div>";';
-  html += '  });';
-  html += '  if(currentSuggestions.length===0)h+="<div style=\\"color:#4a6a8a;padding:15px;\\">No suggestions generated.</div>";';
-  html += '  panel.innerHTML=h;';
-  html += '  }catch(e){panel.innerHTML="<div style=\\"color:#ef4444;\\">Error: "+e.message+"</div>";}';
-  html += '}';
+  // Send suggestion
+  html += 'async function sendSug(i){var s=curSug[i];if(!s||!s.channelId)return;var m=document.getElementById("sg_"+i).value;if(!m.trim())return;';
+  html += 'try{var d=await(await fetch("/discord/api/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channelId:s.channelId,message:m})})).json();';
+  html += 'if(d.success){var b=event.target;b.textContent="✅ SENT";setTimeout(function(){b.textContent="📤 SEND";},3000);}else{alert(d.error);}}catch(e){alert(e.message);}}';
 
-  // Send suggestion to Discord
-  html += 'async function sendSuggestion(idx){';
-  html += '  var s=currentSuggestions[idx];if(!s||!s.channelId)return;';
-  html += '  var msg=document.getElementById("sug_"+idx).value;if(!msg.trim())return;';
-  html += '  try{var r=await fetch("/discord/api/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channelId:s.channelId,message:msg})});';
-  html += '  var d=await r.json();if(d.success){';
-  html += '    var btn=event.target;btn.textContent="✅ SENT";btn.style.background="rgba(16,185,129,0.3)";btn.style.pointerEvents="none";';
-  html += '    setTimeout(function(){btn.textContent="📤 SEND TO DISCORD";btn.style.background="rgba(16,185,129,0.15)";btn.style.pointerEvents="auto";},3000);';
-  html += '  }else{alert("Failed: "+(d.error||"Unknown"));}';
-  html += '  }catch(e){alert("Error: "+e.message);}';
-  html += '}';
+  // Send custom
+  html += 'async function sendMsg(){var ch=document.getElementById("sendCh").value;var t=document.getElementById("sendTxt").value.trim();var st=document.getElementById("sendSt");';
+  html += 'if(!t){st.textContent="Type a message";return;}st.textContent="Sending...";st.style.color="#7c3aed";';
+  html += 'try{var d=await(await fetch("/discord/api/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channelId:ch,message:t})})).json();';
+  html += 'if(d.success){st.textContent="✅ Sent!";st.style.color="#10b981";document.getElementById("sendTxt").value="";}else{st.textContent="❌ "+d.error;st.style.color="#ef4444";}}catch(e){st.textContent="❌ "+e.message;st.style.color="#ef4444";}}';
 
-  // Copy suggestion
-  html += 'function copySug(idx){var t=document.getElementById("sug_"+idx).value;navigator.clipboard.writeText(t).then(function(){var b=event.target;var o=b.textContent;b.textContent="✅ COPIED";setTimeout(function(){b.textContent=o;},2000);});}';
+  // Analyze comms
+  html += 'async function analyzeMessages(){var d=document.getElementById("analysis");d.style.display="block";d.textContent="⚡ Analyzing...";try{var r=await(await fetch("/discord/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({limit:50})})).json();d.textContent=r.analysis;}catch(e){d.textContent=e.message;}}';
 
-  // Send custom message
-  html += 'async function sendCustomMessage(){';
-  html += '  var ch=document.getElementById("sendChannel").value;var txt=document.getElementById("sendText").value.trim();var st=document.getElementById("sendStatus");';
-  html += '  if(!txt){st.textContent="Type a message first";return;}st.textContent="Sending...";st.style.color="#7c3aed";';
-  html += '  try{var r=await fetch("/discord/api/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channelId:ch,message:txt})});';
-  html += '  var d=await r.json();if(d.success){st.textContent="✅ Sent!";st.style.color="#10b981";document.getElementById("sendText").value="";}';
-  html += '  else{st.textContent="❌ "+d.error;st.style.color="#ef4444";}';
-  html += '  }catch(e){st.textContent="❌ "+e.message;st.style.color="#ef4444";}';
-  html += '}';
+  // System improvements
+  html += 'async function analyzeSystem(){var d=document.getElementById("sysAnalysis");d.style.display="block";d.textContent="🔍 Scanning...";try{var r=await(await fetch("/discord/api/improve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})})).json();d.textContent=r.analysis;}catch(e){d.textContent=e.message;}}';
 
-  // Analyze communications
-  html += 'async function analyzeMessages(){';
-  html += '  var div=document.getElementById("analysis");div.style.display="block";div.textContent="⚡ ATHENA analyzing communications...";';
-  html += '  try{var r=await fetch("/discord/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({limit:50})});';
-  html += '  var d=await r.json();div.textContent=d.analysis;}catch(e){div.textContent="Error: "+e.message;}';
-  html += '}';
+  // Enter to send
+  html += 'document.getElementById("sendTxt")&&document.getElementById("sendTxt").addEventListener("keydown",function(e){if(e.key==="Enter")sendMsg();});';
 
-  // System improvement analysis
-  html += 'async function analyzeSystemImprovements(){';
-  html += '  var div=document.getElementById("systemAnalysis");div.style.display="block";div.textContent="🔍 ATHENA scanning for system improvements...";';
-  html += '  try{var r=await fetch("/discord/api/improve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})});';
-  html += '  var d=await r.json();div.textContent=d.analysis;}catch(e){div.textContent="Error: "+e.message;}';
-  html += '}';
-
-  // Enter key for custom message
-  html += 'document.getElementById("sendText")&&document.getElementById("sendText").addEventListener("keydown",function(e){if(e.key==="Enter")sendCustomMessage();});';
-
-  // Auto-load on page ready
-  html += 'loadResponseRates();';
-  html += 'loadQuietChannels();';
+  // Auto-load
+  html += 'loadRR();loadQC();';
 
   html += '</script>';
   html += '</body></html>';
@@ -13747,7 +13766,7 @@ app.get('/followup', async function(req, res) {
 
     // Nav — only FOLLOW UP shown
     html += '<div class="nav">';
-    html += '<a href="/followup" class="active">FOLLOW UP</a>';
+    html += '<a href="/followup" class="active">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div class="container">';
