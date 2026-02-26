@@ -12603,12 +12603,12 @@ async function buildAdsContext() {
   try {
     var campaignData = await executeGAQL(
       "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, " +
-      "campaign.bidding_strategy_type, campaign_budget.amount_micros, " +
+      "campaign.bidding_strategy_type, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.average_cpm, " +
       "metrics.search_impression_share, metrics.cost_per_conversion, " +
       "metrics.all_conversions, metrics.interactions, metrics.interaction_rate " +
-      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 365*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' AND campaign.status != 'REMOVED' " +
+      "FROM campaign WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "' AND campaign.status != 'REMOVED' " +
       "ORDER BY metrics.cost_micros DESC"
     );
     if (campaignData) {
@@ -12617,7 +12617,7 @@ async function buildAdsContext() {
         return {
           id: c.id, name: c.name || 'Unknown', status: c.status || 'UNKNOWN',
           type: c.advertisingChannelType || '', bidStrategy: c.biddingStrategyType || '',
-          budget: ((r.campaignBudget || {}).amountMicros || 0) / 1000000,
+          budget: 0,
           impressions: parseInt(m.impressions || 0), clicks: parseInt(m.clicks || 0),
           cost: (parseInt(m.costMicros || 0)) / 1000000,
           conversions: parseFloat(m.conversions || 0), convValue: parseFloat(m.conversionsValue || 0),
@@ -12641,7 +12641,7 @@ async function buildAdsContext() {
       "SELECT ad_group.id, ad_group.name, ad_group.status, campaign.name, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
-      "FROM ad_group WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' AND ad_group.status != 'REMOVED' " +
+      "FROM ad_group WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "' AND ad_group.status != 'REMOVED' " +
       "ORDER BY metrics.cost_micros DESC LIMIT 100"
     );
     if (adGroupData) {
@@ -12667,7 +12667,7 @@ async function buildAdsContext() {
       "campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion, " +
       "metrics.search_impression_share " +
-      "FROM keyword_view WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' " +
+      "FROM keyword_view WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "' " +
       "ORDER BY metrics.cost_micros DESC LIMIT 200"
     );
     if (kwData) {
@@ -12695,7 +12695,7 @@ async function buildAdsContext() {
       "SELECT search_term_view.search_term, search_term_view.status, campaign.name, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.ctr, metrics.average_cpc " +
-      "FROM search_term_view WHERE segments.date DURING LAST_30_DAYS " +
+      "FROM search_term_view WHERE segments.date BETWEEN '2020-01-01' AND '" + new Date().toISOString().substring(0,10) + "' " +
       "ORDER BY metrics.impressions DESC LIMIT 200"
     );
     if (stData) {
@@ -12718,7 +12718,7 @@ async function buildAdsContext() {
       "SELECT geographic_view.country_criterion_id, geographic_view.location_type, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
-      "FROM geographic_view WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' " +
+      "FROM geographic_view WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "' " +
       "ORDER BY metrics.impressions DESC LIMIT 100"
     );
     if (geoData) {
@@ -12741,7 +12741,7 @@ async function buildAdsContext() {
     var deviceData = await executeGAQL(
       "SELECT segments.device, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
-      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "'"
+      "FROM campaign WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "'"
     );
     if (deviceData) {
       var deviceMap = {};
@@ -12772,7 +12772,7 @@ async function buildAdsContext() {
     var hourData = await executeGAQL(
       "SELECT segments.hour, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.ctr " +
-      "FROM campaign WHERE segments.date DURING LAST_30_DAYS"
+      "FROM campaign WHERE segments.date BETWEEN '2020-01-01' AND '" + new Date().toISOString().substring(0,10) + "'"
     );
     if (hourData) {
       var hourMap = {};
@@ -12801,7 +12801,7 @@ async function buildAdsContext() {
     var dowData = await executeGAQL(
       "SELECT segments.day_of_week, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.ctr " +
-      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "'"
+      "FROM campaign WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "'"
     );
     if (dowData) {
       var dowMap = {};
@@ -12831,7 +12831,7 @@ async function buildAdsContext() {
     var monthData = await executeGAQL(
       "SELECT segments.month, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc " +
-      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 365*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "'"
+      "FROM campaign WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "'"
     );
     if (monthData) {
       var monthMap = {};
@@ -12865,7 +12865,7 @@ async function buildAdsContext() {
     var dayData = await executeGAQL(
       "SELECT segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc " +
-      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' ORDER BY segments.date"
+      "FROM campaign WHERE segments.date BETWEEN '" + "2020-01-01" + "' AND '" + new Date().toISOString().substring(0,10) + "' ORDER BY segments.date"
     );
     if (dayData) {
       var dayMap = {};
@@ -13179,7 +13179,7 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
 
     // ====== SECTION 1: ACCOUNT OVERVIEW ======
     html += '<div class="section">';
-    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;display:flex;align-items:center;gap:15px;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW <select id="adsRange" onchange="filterByRange()" style="background:#0a1520;color:#4285f4;border:1px solid #4285f440;font-family:Orbitron;font-size:0.65em;padding:4px 10px;letter-spacing:2px;cursor:pointer;"><option value="7">7 DAYS</option><option value="14">14 DAYS</option><option value="30" selected>30 DAYS</option><option value="60">60 DAYS</option><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0">ALL TIME</option></select></div>';
+    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;display:flex;align-items:center;gap:15px;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW <select id="adsRange" onchange="filterByRange()" style="background:#0a1520;color:#4285f4;border:1px solid #4285f440;font-family:Orbitron;font-size:0.65em;padding:4px 10px;letter-spacing:2px;cursor:pointer;"><option value="7">7 DAYS</option><option value="14">14 DAYS</option><option value="30">30 DAYS</option><option value="60">60 DAYS</option><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0" selected>ALL TIME</option></select></div>';
     html += '<div id="kpi-row" class="kpi-row">';
     var acctKPIs = [
       { label: 'TOTAL SPEND', val: '$' + as.totalSpend.toLocaleString(), sub: as.activeCampaigns + ' active campaigns', c: '#ff4757' },
@@ -14072,6 +14072,293 @@ app.get('/square/api/locations', async function(req, res) {
     res.json({ count: locs.length, locations: locs });
   } catch (err) { res.json({ locations: [], error: err.message }); }
 });
+// ====== SYSTEM AUDIT — Cross-Tab Discrepancy Checker ======
+async function runSystemAudit() {
+  var audit = { timestamp: new Date().toISOString(), checks: [], warnings: [], errors: [], summary: {} };
+  
+  function check(name, expected, actual, tolerance) {
+    tolerance = tolerance || 0.05;
+    var diff = expected > 0 ? Math.abs(actual - expected) / expected : (actual === 0 ? 0 : 1);
+    var pass = diff <= tolerance;
+    var entry = { name: name, expected: Math.round(expected * 100) / 100, actual: Math.round(actual * 100) / 100, diff: Math.round(diff * 10000) / 100 + '%', pass: pass };
+    audit.checks.push(entry);
+    if (!pass) audit.warnings.push(name + ': expected $' + Math.round(expected).toLocaleString() + ', got $' + Math.round(actual).toLocaleString() + ' (off by ' + entry.diff + ')');
+    return pass;
+  }
+
+  try {
+    // 1. Square Revenue Cross-Check
+    var sq = await squareFullSnapshot(false);
+    var sqA = squareAnalyze(sq);
+    
+    var completedOrders = (sq.orders || []).filter(function(o) { return o.state === 'COMPLETED' && o.total_money && o.total_money.amount > 0; });
+    var orderRevTotal = completedOrders.reduce(function(sum, o) { return sum + (o.total_money.amount / 100); }, 0);
+    var completedPayments = (sq.payments || []).filter(function(p) { return p.status === 'COMPLETED'; });
+    var paymentRevTotal = completedPayments.reduce(function(sum, p) { return sum + ((p.amount_money && p.amount_money.amount ? p.amount_money.amount : 0) / 100); }, 0);
+    
+    audit.summary.square = {
+      completedOrders: completedOrders.length,
+      completedPayments: completedPayments.length,
+      orderRevenue: Math.round(orderRevTotal * 100) / 100,
+      paymentRevenue: Math.round(paymentRevTotal * 100) / 100,
+      analyzeTotal: Math.round(sqA.revenue.allTimeTotal * 100) / 100,
+      locations: (sq.locations || []).length,
+      customers: (sq.customers || []).length,
+      invoices: (sq.invoices || []).length,
+    };
+
+    var monthlyTotal = 0;
+    Object.values(sqA.trends.monthlyRevenue || {}).forEach(function(v) { monthlyTotal += v; });
+    check('Square: Monthly sums vs All-Time Total', sqA.revenue.allTimeTotal, monthlyTotal, 0.01);
+    
+    var yearlyTotal = 0;
+    Object.values(sqA.trends.yearlyRevenue || {}).forEach(function(v) { yearlyTotal += v; });
+    check('Square: Yearly sums vs All-Time Total', sqA.revenue.allTimeTotal, yearlyTotal, 0.01);
+    
+    check('Square: Order revenue vs Analyze total', orderRevTotal, sqA.revenue.allTimeTotal, 0.02);
+
+    // Per-year detail
+    audit.summary.squareYearly = {};
+    Object.keys(sqA.trends.yearlyRevenue || {}).sort().forEach(function(y) {
+      var yearOrders = completedOrders.filter(function(o) { return (o.created_at || '').startsWith(y); });
+      var yearOrderRev = yearOrders.reduce(function(s, o) { return s + (o.total_money.amount / 100); }, 0);
+      var yearPayments = completedPayments.filter(function(p) { return (p.created_at || '').startsWith(y); });
+      var yearPaymentRev = yearPayments.reduce(function(s, p) { return s + ((p.amount_money && p.amount_money.amount ? p.amount_money.amount : 0) / 100); }, 0);
+      audit.summary.squareYearly[y] = {
+        reportedRevenue: Math.round(sqA.trends.yearlyRevenue[y] * 100) / 100,
+        orderRevenue: Math.round(yearOrderRev * 100) / 100,
+        paymentRevenue: Math.round(yearPaymentRev * 100) / 100,
+        orders: yearOrders.length,
+        payments: yearPayments.length,
+      };
+      check('Square ' + y + ': reported vs order revenue', sqA.trends.yearlyRevenue[y], yearOrderRev, 0.02);
+    });
+
+    // 2. Google Ads Cross-Check
+    try {
+      var ads = await buildAdsContext();
+      audit.summary.googleAds = {
+        campaigns: ads.campaigns.length,
+        activeCampaigns: ads.campaigns.filter(function(c) { return c.status === 'ENABLED'; }).length,
+        keywords: ads.keywords.length,
+        searchTerms: ads.searchTerms.length,
+        dailyRecords: ads.dailyPerformance.length,
+        monthlyRecords: ads.monthlyPerformance.length,
+        totalSpend: ads.accountSummary.totalSpend,
+        totalClicks: ads.accountSummary.totalClicks,
+        totalConversions: ads.accountSummary.totalConversions,
+      };
+      
+      var dailySpendTotal = ads.dailyPerformance.reduce(function(s, d) { return s + d.cost; }, 0);
+      var dailyClickTotal = ads.dailyPerformance.reduce(function(s, d) { return s + d.clicks; }, 0);
+      check('Google Ads: Daily spend sum vs Account total', ads.accountSummary.totalSpend, Math.round(dailySpendTotal * 100) / 100, 0.05);
+      check('Google Ads: Daily clicks sum vs Account total', ads.accountSummary.totalClicks, dailyClickTotal, 0.05);
+      
+      if (ads.campaigns.length === 0) audit.errors.push('Google Ads: 0 campaigns — campaign query may be failing');
+      if (ads.dailyPerformance.length === 0) audit.errors.push('Google Ads: 0 daily records — daily query failing');
+    } catch(e) { audit.errors.push('Google Ads: ' + e.message); }
+
+    // 3. CRM Cross-Check
+    var bm = global.bizMetrics || {};
+    audit.summary.crm = {
+      totalLeads: bm.totalLeads || 0,
+      booked: bm.totalBooked || 0,
+      completed: bm.totalCompleted || 0,
+      cancelled: bm.totalCancelled || 0,
+      conversionRate: (bm.conversionRate || 0) + '%',
+      sheets: bm.sheetCount || 0,
+    };
+
+    // 4. Tookan
+    var tookanData = global.tookanData || {};
+    audit.summary.tookan = {
+      totalTasks: tookanData.totalTasks || 0,
+      completed: tookanData.completed || 0,
+      agents: (tookanData.agents || []).length,
+      note: (tookanData.totalTasks || 0) < 3 ? 'Low task count — Tookan may not be actively used' : 'OK',
+    };
+
+    // 5. Athena Context
+    audit.summary.athenaDataSources = {
+      hasCRM: !!(global.bizMetrics && global.bizMetrics.totalLeads > 0),
+      hasFinancial: !!global.profitMetrics,
+      hasGoogleAds: !!global.adsData,
+      hasTookan: !!(global.tookanData && global.tookanData.totalTasks > 0),
+      hasSquare: true, // always fetched fresh
+    };
+
+    // Overall health
+    var passCount = audit.checks.filter(function(c) { return c.pass; }).length;
+    audit.health = {
+      passed: passCount,
+      total: audit.checks.length,
+      score: audit.checks.length > 0 ? Math.round(passCount / audit.checks.length * 100) + '%' : 'N/A',
+      warnings: audit.warnings.length,
+      errors: audit.errors.length,
+    };
+
+  } catch(e) {
+    audit.errors.push('Audit failed: ' + e.message);
+    audit.health = { passed: 0, total: 0, score: '0%', warnings: 0, errors: 1 };
+  }
+  
+  return audit;
+}
+
+app.get('/api/audit', requireAuth('owner'), async function(req, res) {
+  res.json(await runSystemAudit());
+});
+
+app.get('/audit', requireAuth('owner'), async function(req, res) {
+  var auditRes = await runSystemAudit();
+  
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width"><title>System Audit</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">';
+  html += '<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#050d18;color:#c0d8f0;font-family:monospace;padding:20px;}';
+  html += '.nav{display:flex;gap:2px;margin-bottom:20px;flex-wrap:wrap;justify-content:center;}';
+  html += '.nav a{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);}';
+  html += '.nav a.active{color:#10b981;border-color:#10b98140;background:rgba(16,185,129,0.1);}';
+  html += 'h1{font-family:Orbitron;color:#10b981;letter-spacing:6px;margin-bottom:5px;}';
+  html += '.sub{font-family:Orbitron;font-size:0.6em;color:#4a6a8a;letter-spacing:3px;margin-bottom:20px;}';
+  html += '.section{background:rgba(10,20,35,0.6);border:1px solid #1a2a3a;padding:16px;margin-bottom:16px;border-radius:4px;}';
+  html += '.section-title{font-family:Orbitron;font-size:0.85em;letter-spacing:4px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1a2a3a;}';
+  html += '.check{display:flex;justify-content:space-between;padding:6px 8px;border-bottom:1px solid #0a1520;font-size:0.85em;}';
+  html += '.check:hover{background:rgba(16,185,129,0.05);}';
+  html += '.pass{color:#10b981;}.fail{color:#ef4444;}.warn{color:#f59e0b;}';
+  html += '.score{font-family:Orbitron;font-size:2em;text-align:center;padding:20px;}';
+  html += '.kv{display:flex;justify-content:space-between;padding:4px 0;font-size:0.85em;border-bottom:1px solid #0a152040;}';
+  html += '.kv .k{color:#4a6a8a;}.kv .v{color:#c0d8f0;font-weight:bold;}';
+  html += '.err-box{background:rgba(239,68,68,0.1);border:1px solid #ef444440;padding:10px;margin-bottom:8px;font-size:0.85em;color:#ef4444;}';
+  html += '.warn-box{background:rgba(245,158,11,0.1);border:1px solid #f59e0b40;padding:10px;margin-bottom:8px;font-size:0.85em;color:#f59e0b;}';
+  html += '</style></head><body>';
+  
+  // Nav
+  html += '<div class="nav">';
+  html += '<a href="/jarvis">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a>';
+  html += '<a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
+  html += '<a href="/audit" class="active">AUDIT</a>';
+  html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
+  
+  html += '<h1>🔍 SYSTEM AUDIT</h1>';
+  html += '<div class="sub">CROSS-TAB DATA INTEGRITY CHECK · ALL SYSTEMS</div>';
+  
+  // Score
+  html += '<div class="section"><div class="score">';
+  if (auditRes.health) {
+    var scoreColor = parseInt(auditRes.health.score) >= 90 ? '#10b981' : parseInt(auditRes.health.score) >= 70 ? '#f59e0b' : '#ef4444';
+    html += '<span style="color:' + scoreColor + ';">' + auditRes.health.score + '</span>';
+    html += '<div style="font-size:0.3em;color:#4a6a8a;margin-top:5px;">' + auditRes.health.passed + '/' + auditRes.health.total + ' checks passed · ' + auditRes.health.warnings + ' warnings · ' + auditRes.health.errors + ' errors</div>';
+  } else {
+    html += '<span style="color:#ef4444;">ERROR</span>';
+  }
+  html += '</div></div>';
+  
+  // Errors
+  if (auditRes.errors && auditRes.errors.length > 0) {
+    html += '<div class="section"><div class="section-title" style="color:#ef4444;">❌ ERRORS</div>';
+    auditRes.errors.forEach(function(e) { html += '<div class="err-box">' + e + '</div>'; });
+    html += '</div>';
+  }
+  
+  // Warnings
+  if (auditRes.warnings && auditRes.warnings.length > 0) {
+    html += '<div class="section"><div class="section-title" style="color:#f59e0b;">⚠️ WARNINGS</div>';
+    auditRes.warnings.forEach(function(w) { html += '<div class="warn-box">' + w + '</div>'; });
+    html += '</div>';
+  }
+  
+  // Individual Checks
+  if (auditRes.checks && auditRes.checks.length > 0) {
+    html += '<div class="section"><div class="section-title" style="color:#00d4ff;">📋 DATA INTEGRITY CHECKS</div>';
+    auditRes.checks.forEach(function(c) {
+      html += '<div class="check"><span>' + c.name + '</span>';
+      html += '<span class="' + (c.pass ? 'pass' : 'fail') + '">' + (c.pass ? '✅' : '❌') + ' Expected: ' + (typeof c.expected === 'number' ? '$' + c.expected.toLocaleString() : c.expected) + ' | Actual: ' + (typeof c.actual === 'number' ? '$' + c.actual.toLocaleString() : c.actual) + ' (' + c.diff + ')</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  // System Summaries
+  var summary = auditRes.summary || {};
+  
+  // Square Summary
+  if (summary.square) {
+    html += '<div class="section"><div class="section-title" style="color:#10b981;">💰 SQUARE</div>';
+    Object.keys(summary.square).forEach(function(k) {
+      html += '<div class="kv"><span class="k">' + k + '</span><span class="v">' + (typeof summary.square[k] === 'number' ? (k.includes('evenue') || k.includes('otal') ? '$' + summary.square[k].toLocaleString() : summary.square[k].toLocaleString()) : summary.square[k]) + '</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  // Square Yearly
+  if (summary.squareYearly) {
+    html += '<div class="section"><div class="section-title" style="color:#10b981;">📅 SQUARE YEARLY BREAKDOWN</div>';
+    Object.keys(summary.squareYearly).sort().forEach(function(y) {
+      var yd = summary.squareYearly[y];
+      html += '<div style="padding:8px 0;border-bottom:1px solid #1a2a3a;">';
+      html += '<div style="font-family:Orbitron;font-size:0.9em;color:#10b981;margin-bottom:4px;">' + y + '</div>';
+      html += '<div class="kv"><span class="k">Reported Revenue</span><span class="v">$' + yd.reportedRevenue.toLocaleString() + '</span></div>';
+      html += '<div class="kv"><span class="k">Order Revenue (COMPLETED)</span><span class="v">$' + yd.orderRevenue.toLocaleString() + '</span></div>';
+      html += '<div class="kv"><span class="k">Payment Revenue (card only)</span><span class="v">$' + yd.paymentRevenue.toLocaleString() + '</span></div>';
+      html += '<div class="kv"><span class="k">Orders / Payments</span><span class="v">' + yd.orders + ' / ' + yd.payments + '</span></div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  
+  // Google Ads Summary
+  if (summary.googleAds) {
+    html += '<div class="section"><div class="section-title" style="color:#4285f4;">📊 GOOGLE ADS</div>';
+    Object.keys(summary.googleAds).forEach(function(k) {
+      var v = summary.googleAds[k];
+      html += '<div class="kv"><span class="k">' + k + '</span><span class="v">' + (typeof v === 'number' ? (k.includes('pend') ? '$' + v.toLocaleString() : v.toLocaleString()) : v) + '</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  // CRM Summary
+  if (summary.crm) {
+    html += '<div class="section"><div class="section-title" style="color:#a855f7;">📞 CRM</div>';
+    Object.keys(summary.crm).forEach(function(k) {
+      html += '<div class="kv"><span class="k">' + k + '</span><span class="v">' + summary.crm[k] + '</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  // Tookan
+  if (summary.tookan) {
+    html += '<div class="section"><div class="section-title" style="color:#ff9f43;">🚚 TOOKAN</div>';
+    Object.keys(summary.tookan).forEach(function(k) {
+      html += '<div class="kv"><span class="k">' + k + '</span><span class="v">' + summary.tookan[k] + '</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  // Discord
+  if (summary.discord) {
+    html += '<div class="section"><div class="section-title" style="color:#5865F2;">💬 DISCORD</div>';
+    Object.keys(summary.discord).forEach(function(k) {
+      html += '<div class="kv"><span class="k">' + k + '</span><span class="v">' + summary.discord[k] + '</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  // Athena Data Sources
+  if (summary.athenaDataSources) {
+    html += '<div class="section"><div class="section-title" style="color:#c084fc;">🧠 ATHENA DATA SOURCES</div>';
+    Object.keys(summary.athenaDataSources).forEach(function(k) {
+      var v = summary.athenaDataSources[k];
+      var color = v === true ? '#10b981' : '#ef4444';
+      html += '<div class="kv"><span class="k">' + k + '</span><span class="v" style="color:' + color + ';">' + (v ? '✅ Connected' : '❌ Missing') + '</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  html += '<div style="text-align:center;padding:20px;font-family:Orbitron;font-size:0.5em;color:#1a2a3a;">SYSTEM AUDIT v1.0 · ' + new Date().toISOString() + '</div>';
+  html += '<script>setTimeout(function(){location.reload();},300000);</script>'; // auto-refresh 5min
+  html += '</body></html>';
+  res.send(html);
+});
+
 app.get('/square/api/debug', async function(req, res) {
   try {
     var today = new Date(); today.setHours(0,0,0,0);
