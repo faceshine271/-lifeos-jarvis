@@ -1,3 +1,4 @@
+0; // LINE_GUARD — do not remove
 // ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
@@ -78,6 +79,8 @@ var discordCache = { channels: null, messages: {}, time: 0 };
 // Square API config
 const SQUARE_ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN || '';
 const SQUARE_BASE = process.env.SQUARE_ENV === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+// Square API batch limits — future-proof for location growth
+const SQ_BATCH = { ORDERS_LOCS: 10, INVOICES_LOCS: 1, MAX_PAGES: 200, CUSTOMERS_LIMIT: 50 };
 // squareCache replaced by squareDataStore (see squareFullSnapshot)
 
 async function squareFetch(endpoint, method, body) {
@@ -151,12 +154,12 @@ async function squareGetOrders(locationIds, days) {
   if (!locationIds) { var locs = await squareGetLocations(); if (!locs.length) return []; locationIds = locs.map(function(l){return l.id;}); }
   if (!Array.isArray(locationIds)) locationIds = [locationIds];
   var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
-  // Square orders API only allows 10 location_ids at a time — batch them
+  // Square orders API only allows 10 location_ids at a time — batch dynamically
   var all = [];
-  for (var i = 0; i < locationIds.length; i += 10) {
-    var chunk = locationIds.slice(i, i + 10);
+  for (var i = 0; i < locationIds.length; i += SQ_BATCH.ORDERS_LOCS) {
+    var chunk = locationIds.slice(i, i + SQ_BATCH.ORDERS_LOCS);
     var cursor = '';
-    for (var page = 0; page < 50; page++) {
+    for (var page = 0; page < SQ_BATCH.MAX_PAGES; page++) {
       var body = {
         location_ids: chunk, query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 500
       };
@@ -275,12 +278,12 @@ async function squareGetBankAccounts() {
 
 // ---- CUSTOMER GROUPS / SEGMENTS ----
 async function squareGetCustomerGroups() {
-  var d = await squareFetch('/customers/groups?limit=50');
+  var d = await squareFetch('/customers/groups?limit=' + SQ_BATCH.CUSTOMERS_LIMIT);
   return d && d.groups ? d.groups : [];
 }
 
 async function squareGetCustomerSegments() {
-  var d = await squareFetch('/customers/segments?limit=50');
+  var d = await squareFetch('/customers/segments?limit=' + SQ_BATCH.CUSTOMERS_LIMIT);
   return d && d.segments ? d.segments : [];
 }
 
@@ -439,7 +442,7 @@ function squareAnalyze(snap) {
 
   // Use orders as primary revenue source if we have more orders than payments
   var useOrders = orders.length > completed.length;
-  var completedOrders = orders.filter(function(o){return o.state==='COMPLETED';});
+  var completedOrders = orders.filter(function(o){return o.state!=='CANCELED'&&o.state!=='DRAFT'&&sqCents(o.total_money)>0;});
 
   if (useOrders && completedOrders.length > 0) {
     // Calculate revenue from orders
@@ -544,6 +547,79 @@ function squareAnalyze(snap) {
   var unpaidTotal = 0; var overdueTotal = 0;
   unpaidInv.forEach(function(inv){ if(inv.payment_requests) inv.payment_requests.forEach(function(pr){ if(pr.computed_amount_money) unpaidTotal+=pr.computed_amount_money.amount/100; }); });
   overdueInv.forEach(function(inv){ if(inv.payment_requests) inv.payment_requests.forEach(function(pr){ if(pr.computed_amount_money) overdueTotal+=pr.computed_amount_money.amount/100; }); });
+
+  // Invoice turnaround time (service date → invoice created, business hours only 8am-6pm)
+  var invoiceTurnarounds = [];
+  invoices.forEach(function(inv) {
+    if (!inv.sale_or_service_date || !inv.created_at) return;
+    var serviceDate = new Date(inv.sale_or_service_date + 'T08:00:00');
+    var invoiceDate = new Date(inv.created_at);
+    if (isNaN(serviceDate.getTime()) || isNaN(invoiceDate.getTime())) return;
+    if (invoiceDate <= serviceDate) return; // invoice before service = skip
+    // Count business hours (8am-6pm, 10 hrs/day, skip weekends)
+    var bizHours = 0;
+    var cursor = new Date(serviceDate);
+    var maxDays = 60; // cap at 60 days to avoid infinite loops
+    while (cursor < invoiceDate && maxDays-- > 0) {
+      var dow = cursor.getDay();
+      if (dow > 0 && dow < 6) { // Mon-Fri
+        var dayStart = new Date(cursor); dayStart.setHours(8,0,0,0);
+        var dayEnd = new Date(cursor); dayEnd.setHours(18,0,0,0);
+        var start = cursor > dayStart ? cursor : dayStart;
+        var end = invoiceDate < dayEnd ? invoiceDate : dayEnd;
+        if (end > start) bizHours += (end - start) / 3600000;
+      }
+      cursor.setDate(cursor.getDate() + 1);
+      cursor.setHours(8,0,0,0);
+    }
+    if (bizHours > 0) invoiceTurnarounds.push(bizHours);
+  });
+  var avgInvoiceTurnaround = invoiceTurnarounds.length > 0 ? invoiceTurnarounds.reduce(function(a,b){return a+b;},0) / invoiceTurnarounds.length : 0;
+  var medianInvoiceTurnaround = 0;
+  if (invoiceTurnarounds.length > 0) {
+    invoiceTurnarounds.sort(function(a,b){return a-b;});
+    medianInvoiceTurnaround = invoiceTurnarounds[Math.floor(invoiceTurnarounds.length/2)];
+  }
+  var fastestInvoice = invoiceTurnarounds.length > 0 ? Math.min.apply(null, invoiceTurnarounds) : 0;
+  var slowestInvoice = invoiceTurnarounds.length > 0 ? Math.max.apply(null, invoiceTurnarounds) : 0;
+  // Format hours into readable string
+  function fmtBizHours(h) {
+    if (h < 1) return Math.round(h*60) + 'm';
+    if (h < 10) return h.toFixed(1) + 'h';
+    var days = Math.floor(h / 10); var rem = h % 10;
+    return days + 'd ' + Math.round(rem) + 'h';
+  }
+
+  // Payment speed — time from invoice sent to payment received (business hours)
+  var paymentSpeeds = [];
+  var sameDay = 0; var within3d = 0; var within7d = 0; var within30d = 0; var over30d = 0;
+  paidInv.forEach(function(inv) {
+    if (!inv.created_at || !inv.updated_at) return;
+    var sent = new Date(inv.created_at);
+    var paid = new Date(inv.updated_at); // updated_at is when status changed to PAID
+    if (isNaN(sent.getTime()) || isNaN(paid.getTime())) return;
+    if (paid <= sent) return;
+    var calDays = Math.round((paid - sent) / 86400000);
+    paymentSpeeds.push(calDays);
+    if (calDays === 0) sameDay++;
+    else if (calDays <= 3) within3d++;
+    else if (calDays <= 7) within7d++;
+    else if (calDays <= 30) within30d++;
+    else over30d++;
+  });
+  var avgPaymentSpeed = paymentSpeeds.length > 0 ? paymentSpeeds.reduce(function(a,b){return a+b;},0) / paymentSpeeds.length : 0;
+  var medianPaymentSpeed = 0;
+  if (paymentSpeeds.length > 0) {
+    paymentSpeeds.sort(function(a,b){return a-b;});
+    medianPaymentSpeed = paymentSpeeds[Math.floor(paymentSpeeds.length/2)];
+  }
+  var paymentSpeedPct = {
+    sameDay: paymentSpeeds.length > 0 ? Math.round((sameDay/paymentSpeeds.length)*100) : 0,
+    within3d: paymentSpeeds.length > 0 ? Math.round((within3d/paymentSpeeds.length)*100) : 0,
+    within7d: paymentSpeeds.length > 0 ? Math.round((within7d/paymentSpeeds.length)*100) : 0,
+    within30d: paymentSpeeds.length > 0 ? Math.round((within30d/paymentSpeeds.length)*100) : 0,
+    over30d: paymentSpeeds.length > 0 ? Math.round((over30d/paymentSpeeds.length)*100) : 0
+  };
 
   // Order line item analytics
   var itemSales = {}; var discountsApplied = 0; var discountTotal = 0;
@@ -656,6 +732,68 @@ function squareAnalyze(snap) {
   var seasonalAvg = {};
   Object.keys(seasonality).forEach(function(mo) { seasonalAvg[mo] = Math.round(seasonality[mo].total / seasonality[mo].count); });
 
+  // REVENUE PROJECTIONS
+  var currentYear = nowCT.getFullYear();
+  var currentMonth = nowCT.getMonth() + 1; // 1-12
+  var currentYearKey = String(currentYear);
+  var ytdRevenue = yearlyRevenue[currentYearKey] || 0;
+  
+  // Calculate YoY growth rate from last 2 full years
+  var lastYear = String(currentYear - 1);
+  var twoYearsAgo = String(currentYear - 2);
+  var yoyGrowthRate = 0;
+  if (yearlyRevenue[twoYearsAgo] && yearlyRevenue[lastYear]) {
+    yoyGrowthRate = (yearlyRevenue[lastYear] - yearlyRevenue[twoYearsAgo]) / yearlyRevenue[twoYearsAgo];
+  }
+
+  // Seasonal projection: use seasonal avg for remaining months
+  var projectedRemaining = 0;
+  var monthProjections = {};
+  for (var pm = 1; pm <= 12; pm++) {
+    var moKey = String(pm).padStart(2, '0');
+    var monthYearKey = currentYearKey + '-' + moKey;
+    if (pm < currentMonth) {
+      // Past months — use actual
+      monthProjections[moKey] = { actual: monthlyRevenue[monthYearKey] || 0, projected: false };
+    } else if (pm === currentMonth) {
+      // Current month — extrapolate from days elapsed
+      var daysInMonth = new Date(currentYear, pm, 0).getDate();
+      var dayOfMonth = nowCT.getDate();
+      var currentMonthRev = monthlyRevenue[monthYearKey] || 0;
+      var extrapolated = dayOfMonth > 0 ? (currentMonthRev / dayOfMonth) * daysInMonth : 0;
+      monthProjections[moKey] = { actual: currentMonthRev, projected: true, estimate: Math.round(extrapolated) };
+      projectedRemaining += Math.max(0, extrapolated - currentMonthRev);
+    } else {
+      // Future months — seasonal avg adjusted by YoY growth
+      var seasonBase = seasonalAvg[moKey] || 0;
+      var adjusted = Math.round(seasonBase * (1 + yoyGrowthRate));
+      monthProjections[moKey] = { actual: 0, projected: true, estimate: adjusted };
+      projectedRemaining += adjusted;
+    }
+  }
+  var projectedFullYear = ytdRevenue + projectedRemaining;
+  var lastYearTotal = yearlyRevenue[lastYear] || 0;
+  var projectedGrowth = lastYearTotal > 0 ? Math.round(((projectedFullYear - lastYearTotal) / lastYearTotal) * 100) : 0;
+
+  // Conservative projection (no growth adjustment)
+  var conservativeRemaining = 0;
+  for (var cm = currentMonth + 1; cm <= 12; cm++) {
+    var cmoKey = String(cm).padStart(2, '0');
+    conservativeRemaining += seasonalAvg[cmoKey] || 0;
+  }
+  // Add current month extrapolation
+  var curMoKey = String(currentMonth).padStart(2, '0');
+  var curMoActual = monthlyRevenue[currentYearKey + '-' + curMoKey] || 0;
+  var curMoDays = new Date(currentYear, currentMonth, 0).getDate();
+  var curDayOfMonth = nowCT.getDate();
+  var curMoExtrapolated = curDayOfMonth > 0 ? (curMoActual / curDayOfMonth) * curMoDays : 0;
+  conservativeRemaining += Math.max(0, curMoExtrapolated - curMoActual);
+  var conservativeFullYear = ytdRevenue + conservativeRemaining;
+
+  // Optimistic projection (using best year's seasonal pattern)
+  var bestYearKey = Object.entries(yearlyRevenue).filter(function(e){return e[0]!==currentYearKey;}).sort(function(a,b){return b[1]-a[1];})[0];
+  var optimisticFullYear = bestYearKey ? Math.round(bestYearKey[1] * (1 + Math.max(0, yoyGrowthRate))) : projectedFullYear;
+
   // CUSTOMER LIFETIME VALUE
   var customerPayments = {};
   if (useOrders && completedOrders.length > 0) {
@@ -714,7 +852,17 @@ function squareAnalyze(snap) {
       quarterlyRevenue: quarterlyRevenue,
       bestMonth: bestMonth, worstMonth: worstMonth,
       seasonalAvg: seasonalAvg,
-      totalMonths: Object.keys(monthlyRevenue).length
+      totalMonths: Object.keys(monthlyRevenue).length,
+      projections: {
+        ytdRevenue: ytdRevenue,
+        projectedFullYear: Math.round(projectedFullYear),
+        conservativeFullYear: Math.round(conservativeFullYear),
+        optimisticFullYear: Math.round(optimisticFullYear),
+        lastYearTotal: lastYearTotal,
+        projectedGrowth: projectedGrowth,
+        yoyGrowthRate: Math.round(yoyGrowthRate * 100),
+        monthProjections: monthProjections
+      }
     },
     customerInsights: {
       repeatCustomers: repeatCustomers,
@@ -745,7 +893,9 @@ function squareAnalyze(snap) {
       total: invoices.length, unpaid: unpaidInv.length, overdue: overdueInv.length,
       paid: paidInv.length, cancelled: cancelledInv.length,
       unpaidTotal: unpaidTotal, overdueTotal: overdueTotal,
-      collectionRate: invoices.length > 0 ? Math.round((paidInv.length / invoices.length)*100) : 0
+      collectionRate: invoices.length > 0 ? Math.round((paidInv.length / invoices.length)*100) : 0,
+      turnaround: { avg: avgInvoiceTurnaround, avgFormatted: fmtBizHours(avgInvoiceTurnaround), median: medianInvoiceTurnaround, medianFormatted: fmtBizHours(medianInvoiceTurnaround), fastest: fmtBizHours(fastestInvoice), slowest: fmtBizHours(slowestInvoice), sampleSize: invoiceTurnarounds.length },
+      paymentSpeed: { avgDays: Math.round(avgPaymentSpeed*10)/10, medianDays: medianPaymentSpeed, sameDay: paymentSpeedPct.sameDay, within3d: paymentSpeedPct.within3d, within7d: paymentSpeedPct.within7d, within30d: paymentSpeedPct.within30d, over30d: paymentSpeedPct.over30d, sampleSize: paymentSpeeds.length }
     },
     orders: {
       total: orders.length, topItemsByRevenue: topItems, topItemsByQty: topItemsByQty,
@@ -9483,7 +9633,6 @@ app.post('/chat/athena', async function(req, res) {
           athenaContext += 'RECENT MONTHS: ' + recentMonths.map(function(m){return m+': $'+sqA.trends.monthlyRevenue[m].toFixed(0);}).join(', ') + '\n';
           if (sqA.trends.bestMonth) athenaContext += 'Best Month: ' + sqA.trends.bestMonth[0] + ' ($' + sqA.trends.bestMonth[1].toFixed(0) + '), Worst: ' + sqA.trends.worstMonth[0] + ' ($' + sqA.trends.worstMonth[1].toFixed(0) + ')\n';
           athenaContext += 'Customers: ' + sqA.customers.total + ', Repeat Rate: ' + sqA.customerInsights.repeatRate + '%, Avg LTV: $' + sqA.customerInsights.avgLTV.toFixed(2) + '\n';
-          athenaContext += 'Unpaid Invoices: ' + sqA.invoices.unpaid + ' ($' + sqA.invoices.unpaidTotal.toFixed(2) + '), Overdue: ' + sqA.invoices.overdue + ', Collection Rate: ' + sqA.invoices.collectionRate + '%\n';
           athenaContext += 'Refunds: ' + sqA.refunds.count + ' ($' + sqA.refunds.total.toFixed(2) + ', ' + sqA.refunds.rate + '% rate), Disputes Open: ' + sqA.disputes.open + '\n';
           athenaContext += 'Top Items: ' + sqA.orders.topItemsByRevenue.slice(0,5).map(function(e){return e[0]+': $'+e[1].revenue.toFixed(0);}).join(', ') + '\n';
           athenaContext += 'Peak: ' + sqA.payments.peakDay + ' at ' + sqA.payments.peakHour + '\n';
@@ -13775,14 +13924,42 @@ app.get('/square/api/snapshot', async function(req, res) {
   try {
     var forceRefresh = req.query.refresh === '1';
     var snap = await squareFullSnapshot(forceRefresh);
-    var a = squareAnalyze(snap);
-    var payments = snap.payments || []; var customers = snap.customers || [];
-    var invoices = snap.invoices || []; var orders = snap.orders || [];
+    var locFilter = req.query.location || '';
+    var filteredSnap = snap;
+    if (locFilter && locFilter !== 'all') {
+      filteredSnap = {
+        locations: (snap.locations||[]).filter(function(l){return l.id===locFilter;}),
+        payments: (snap.payments||[]).filter(function(p){return p.location_id===locFilter;}),
+        orders: (snap.orders||[]).filter(function(o){return o.location_id===locFilter;}),
+        invoices: (snap.invoices||[]).filter(function(i){return (i.primary_recipient&&i.primary_recipient.location_id===locFilter)||(i.location_id===locFilter);}),
+        customers: snap.customers || [],
+        catalog: snap.catalog || [],
+        teamMembers: snap.teamMembers || [],
+        bankAccounts: snap.bankAccounts || [],
+        merchants: snap.merchants || [],
+        disputes: snap.disputes || [],
+        refunds: snap.refunds || [],
+        subscriptions: snap.subscriptions || [],
+        loyalty: snap.loyalty || [],
+        giftCards: snap.giftCards || [],
+        bookings: snap.bookings || [],
+        shifts: snap.shifts || [],
+        breakTypes: snap.breakTypes || [],
+        cashDrawers: snap.cashDrawers || [],
+        customerSegments: snap.customerSegments || [],
+        customerGroups: snap.customerGroups || []
+      };
+    }
+    var a = squareAnalyze(filteredSnap);
+    var payments = filteredSnap.payments || []; var customers = filteredSnap.customers || [];
+    var invoices = filteredSnap.invoices || []; var orders = filteredSnap.orders || [];
 
     res.json({
-      debug: { token_prefix: SQUARE_ACCESS_TOKEN ? SQUARE_ACCESS_TOKEN.substring(0,12)+'...' : 'NOT SET', base_url: SQUARE_BASE, square_env: process.env.SQUARE_ENV || 'NOT SET', raw_payments: (snap.payments||[]).length, raw_orders: (snap.orders||[]).length, raw_invoices: (snap.invoices||[]).length, raw_customers: (snap.customers||[]).length, locations: (snap.locations||[]).length, cached: squareDataStore.initialized, cache_age_sec: squareDataStore.lastIncrFetch ? Math.round((Date.now()-squareDataStore.lastIncrFetch)/1000) : 0 },
+      selectedLocation: locFilter || 'all',
+      debug: { token_prefix: SQUARE_ACCESS_TOKEN ? SQUARE_ACCESS_TOKEN.substring(0,12)+'...' : 'NOT SET', base_url: SQUARE_BASE, square_env: process.env.SQUARE_ENV || 'NOT SET', raw_payments: payments.length, raw_orders: orders.length, raw_invoices: invoices.length, raw_customers: customers.length, locations: (snap.locations||[]).length, filtered: locFilter ? true : false, cached: squareDataStore.initialized, cache_age_sec: squareDataStore.lastIncrFetch ? Math.round((Date.now()-squareDataStore.lastIncrFetch)/1000) : 0 },
+      allLocations: (snap.locations||[]).map(function(l) { return { id:l.id, name:l.name, city:l.address&&l.address.locality?l.address.locality:'', state:l.address&&l.address.administrative_district_level_1?l.address.administrative_district_level_1:'' }; }),
       analytics: a,
-      locations: (snap.locations||[]).map(function(l) { return { id:l.id, name:l.name, address:l.address, status:l.status, timezone:l.timezone, currency:l.currency, country:l.country, phone:l.phone_number, businessName:l.business_name, businessEmail:l.business_email, description:l.description, capabilities:l.capabilities }; }),
+      locations: (filteredSnap.locations||[]).map(function(l) { return { id:l.id, name:l.name, address:l.address, status:l.status, timezone:l.timezone, currency:l.currency, country:l.country, phone:l.phone_number, businessName:l.business_name, businessEmail:l.business_email, description:l.description, capabilities:l.capabilities }; }),
       recentPayments: payments.slice(0,30).map(function(p) {
         return { id:p.id, amount:squareMoney(p.amount_money), amountCents:sqCents(p.amount_money), tip:squareMoney(p.tip_money), tipCents:sqCents(p.tip_money), totalMoney:squareMoney(p.total_money), status:p.status, source:p.source_type, created:p.created_at, receiptUrl:p.receipt_url, orderId:p.order_id, locationId:p.location_id, employeeId:p.employee_id, customerId:p.customer_id, refundIds:p.refund_ids, riskEval:p.risk_evaluation?p.risk_evaluation.risk_level:null, cardBrand:p.card_details&&p.card_details.card?p.card_details.card.card_brand:'', last4:p.card_details&&p.card_details.card?p.card_details.card.last_4:'', entryMethod:p.card_details?p.card_details.entry_method:'', processingFee:p.processing_fee&&p.processing_fee[0]?squareMoney(p.processing_fee[0].amount_money):'', note:p.note, buyerEmail:p.buyer_email_address };
       }),
@@ -13827,10 +14004,15 @@ app.get('/square/api/debug', async function(req, res) {
     var rawAll = await squareFetch('/payments?limit=100&sort_order=DESC');
     var locs = await squareGetLocations();
     var locIds = locs.map(function(l){return l.id;});
-    // Try orders search across all locations
-    var ordersRaw = await squareFetch('/orders/search', 'POST', {
-      location_ids: locIds, query: { filter: { date_time_filter: { created_at: { start_at: today.toISOString() } } } }, limit: 100
-    });
+    // Try orders search across all locations (batched by 10)
+    var allOrders = [];
+    for (var di = 0; di < locIds.length; di += SQ_BATCH.ORDERS_LOCS) {
+      var dChunk = locIds.slice(di, di + SQ_BATCH.ORDERS_LOCS);
+      var ordersRaw = await squareFetch('/orders/search', 'POST', {
+        location_ids: dChunk, query: { filter: { date_time_filter: { created_at: { start_at: today.toISOString() } } } }, limit: 100
+      });
+      if (ordersRaw && ordersRaw.orders) allOrders = allOrders.concat(ordersRaw.orders);
+    }
     res.json({
       token_prefix: SQUARE_ACCESS_TOKEN ? SQUARE_ACCESS_TOKEN.substring(0,10) + '...' : 'NOT SET',
       base_url: SQUARE_BASE,
@@ -13838,7 +14020,7 @@ app.get('/square/api/debug', async function(req, res) {
       location_count: locs.length,
       payments_today_raw: raw,
       payments_all_raw: rawAll,
-      orders_today_raw: ordersRaw
+      orders_today_raw: { orders: allOrders, count: allOrders.length }
     });
   } catch (err) { res.json({ error: err.message, stack: err.stack }); }
 });
@@ -13888,6 +14070,24 @@ app.post('/square/api/analyze', express.json(), async function(req, res) {
     });
     context += '\n';
 
+    if (a.trends.projections) {
+      var pj = a.trends.projections;
+      context += '=== REVENUE PROJECTIONS (' + new Date().getFullYear() + ') ===\n';
+      context += 'YTD Revenue: $' + pj.ytdRevenue + ' | Last Year Total: $' + pj.lastYearTotal + '\n';
+      context += 'Projected Full Year: $' + pj.projectedFullYear + ' | Conservative: $' + pj.conservativeFullYear + ' | Optimistic: $' + pj.optimisticFullYear + '\n';
+      context += 'YoY Growth Rate: ' + pj.yoyGrowthRate + '% | Projected Growth: ' + pj.projectedGrowth + '%\n\n';
+    }
+    if (a.invoices.paymentSpeed) {
+      var ps = a.invoices.paymentSpeed;
+      context += '=== PAYMENT SPEED (invoice sent to payment received) ===\n';
+      context += 'Avg: ' + ps.avgDays + ' days | Median: ' + ps.medianDays + ' days | Sample: ' + ps.sampleSize + ' invoices\n';
+      context += 'Same Day: ' + ps.sameDay + '% | Within 3d: ' + ps.within3d + '% | Within 7d: ' + ps.within7d + '% | Within 30d: ' + ps.within30d + '% | Over 30d: ' + ps.over30d + '%\n\n';
+    }
+    if (a.invoices.turnaround) {
+      context += '=== INVOICE TURNAROUND (service to invoice, biz hours) ===\n';
+      context += 'Avg: ' + a.invoices.turnaround.avgFormatted + ' | Median: ' + a.invoices.turnaround.medianFormatted + ' | Fastest: ' + a.invoices.turnaround.fastest + ' | Slowest: ' + a.invoices.turnaround.slowest + '\n\n';
+    }
+
     context += '=== CUSTOMER INSIGHTS ===\nTotal Customers: ' + a.customers.total + ' | Unique Paying: ' + a.customerInsights.uniquePayingCustomers + '\n';
     context += 'Repeat Customers: ' + a.customerInsights.repeatCustomers + ' (' + a.customerInsights.repeatRate + '%) | Avg Lifetime Value: $' + a.customerInsights.avgLTV.toFixed(2) + '\n';
     context += 'Email Capture: ' + a.customers.emailCaptureRate + '% | New (30d): ' + a.customers.new30d + ' | New (7d): ' + a.customers.new7d + '\n';
@@ -13899,8 +14099,6 @@ app.post('/square/api/analyze', express.json(), async function(req, res) {
 
     context += '=== PAYMENTS ===\nAll-Time: ' + a.payments.total + ' | Completed: ' + a.payments.completed + ' | Failed: ' + a.payments.failed + ' | Peak: ' + a.payments.peakHour + ' ' + a.payments.peakDay + '\n';
     context += 'Methods: ' + Object.entries(a.payments.byMethod).map(function(e){return e[0]+': '+e[1].count+' ($'+e[1].total.toFixed(0)+')';}).join(', ') + '\n\n';
-
-    context += '=== INVOICES ===\nTotal: ' + a.invoices.total + ' | Paid: ' + a.invoices.paid + ' | Unpaid: ' + a.invoices.unpaid + ' ($' + a.invoices.unpaidTotal.toFixed(2) + ') | Overdue: ' + a.invoices.overdue + ' ($' + a.invoices.overdueTotal.toFixed(2) + ') | Collection Rate: ' + a.invoices.collectionRate + '%\n\n';
 
     context += '=== TOP SELLING ITEMS (all-time) ===\n' + a.orders.topItemsByRevenue.slice(0,20).map(function(e,i){return (i+1)+'. '+e[0]+': $'+e[1].revenue.toFixed(2)+' ('+e[1].qty+' sold, avg $'+(e[1].qty>0?(e[1].revenue/e[1].qty).toFixed(2):'0')+')';}).join('\n') + '\n\n';
 
@@ -13914,18 +14112,76 @@ app.post('/square/api/analyze', express.json(), async function(req, res) {
     context += '=== OTHER ===\nGift Cards: ' + a.giftCards.active + ' ($' + a.giftCards.totalBalance.toFixed(2) + ') | Subs: ' + a.subscriptions.active + ' | Payouts: $' + a.payouts.total.toFixed(2) + ' | Catalog Items: ' + a.catalog.items + ' | Team: ' + a.team.active + '\n';
 
     var prompt = 'You are ATHENA, the AI business intelligence engine for Wildwood Small Engine Repair. You have COMPLETE historical Square payment data going back to 2022.\n\n' + context;
-    prompt += '\n\nIMPORTANT INSTRUCTIONS:\n1. Use SPECIFIC dollar amounts, percentages, and dates in every insight.\n2. Compare year-over-year and month-over-month to show trends.\n3. For EVERY finding, give a CONCRETE RECOMMENDATION with a specific action Trace (the owner) should take.\n4. Identify the #1 most urgent action item.\n5. Call out any red flags (declining revenue, rising refunds, unpaid invoices, etc).\n6. Show growth trajectory — is the business growing, flat, or declining?\n7. Identify seasonal patterns and what to prepare for.\n8. Reference actual data — don\'t be vague.\n\n';
+    prompt += '\n\nIMPORTANT INSTRUCTIONS:\n1. Use SPECIFIC dollar amounts, percentages, and dates in every insight.\n2. Compare year-over-year and month-over-month to show trends.\n3. For EVERY finding, give a CONCRETE RECOMMENDATION with a specific action Trace (the owner) should take.\n4. Identify the #1 most urgent action item.\n5. Call out any red flags (declining revenue, rising refunds, etc).\n6. Show growth trajectory — is the business growing, flat, or declining?\n7. Identify seasonal patterns and what to prepare for.\n8. Reference actual data — don\'t be vague.\n9. Do NOT mention unpaid invoices, overdue invoices, collection rates, or outstanding balances — the owner manages collections separately.\n\n';
 
     if (topic === 'revenue') prompt += 'FOCUS: Revenue deep dive — year-over-year growth, monthly trends, seasonal patterns, ticket size evolution, fee impact, peak times. What months to push hard, what months are slow. Growth trajectory and revenue forecast. Give 5+ specific recommendations to increase revenue.';
-    else if (topic === 'collections') prompt += 'FOCUS: Collections and cash flow — every unpaid invoice, overdue amounts, collection rate trend, who owes what and when. Give a specific collection action plan with priority order.';
+    else if (topic === 'collections') prompt += 'FOCUS: Cash flow analysis — revenue timing, payout patterns, seasonal cash flow gaps, monthly burn rate. Give a specific plan for improving cash flow and maximizing revenue during peak months.';
     else if (topic === 'customers') prompt += 'FOCUS: Customer intelligence — repeat rate, lifetime value, acquisition trends, email capture gaps, top spenders to VIP, at-risk customers. Give 5+ specific recommendations to grow and retain customers.';
     else if (topic === 'labor') prompt += 'FOCUS: Labor optimization — hours vs revenue ratio, shift efficiency, scheduling patterns, break time, cost control. Give specific scheduling recommendations.';
     else if (topic === 'items') prompt += 'FOCUS: Product/service analysis — top sellers, pricing opportunities, underperforming items, discount effectiveness, catalog gaps. Give specific pricing and product recommendations.';
-    else prompt += 'COMPREHENSIVE BUSINESS INTELLIGENCE BRIEFING: Cover everything — revenue trajectory since 2022, year-over-year growth, seasonal patterns, customer health, collection issues, top items, labor efficiency, red flags, and TOP 10 specific action items ranked by impact.';
+    else prompt += 'COMPREHENSIVE BUSINESS INTELLIGENCE BRIEFING: Cover everything — revenue trajectory since 2022, year-over-year growth, seasonal patterns, customer health, top items, labor efficiency, red flags, and TOP 10 specific action items ranked by impact. Do NOT discuss invoice collections.';
 
     var analysis = await askClaude(prompt, [{ role: 'user', content: 'Analyze now. Be direct and specific. Use dollar amounts. Give actionable recommendations.' }]);
     res.json({ analysis: analysis });
   } catch (err) { res.json({ analysis: 'Error: ' + err.message }); }
+});
+
+// Square Voice Chat endpoint
+app.post('/square/api/voice', express.json(), async function(req, res) {
+  try {
+    var message = req.body.message || '';
+    var locFilter = req.body.location || 'all';
+    if (!message) return res.json({ error: 'No message provided' });
+    var snap = await squareFullSnapshot(false);
+    // Apply location filter
+    if (locFilter && locFilter !== 'all') {
+      snap = {
+        locations: (snap.locations||[]).filter(function(l){return l.id===locFilter;}),
+        payments: (snap.payments||[]).filter(function(p){return p.location_id===locFilter;}),
+        orders: (snap.orders||[]).filter(function(o){return o.location_id===locFilter;}),
+        invoices: (snap.invoices||[]).filter(function(i){return (i.primary_recipient&&i.primary_recipient.location_id===locFilter)||(i.location_id===locFilter);}),
+        customers: snap.customers || [], catalog: snap.catalog || [], teamMembers: snap.teamMembers || [],
+        bankAccounts: snap.bankAccounts || [], merchants: snap.merchants || [], disputes: snap.disputes || [],
+        refunds: snap.refunds || [], subscriptions: snap.subscriptions || [], loyalty: snap.loyalty || [],
+        giftCards: snap.giftCards || [], bookings: snap.bookings || [], shifts: snap.shifts || [],
+        breakTypes: snap.breakTypes || [], cashDrawers: snap.cashDrawers || [], customerSegments: snap.customerSegments || [], customerGroups: snap.customerGroups || []
+      };
+    }
+    var a = squareAnalyze(snap);
+    var locName = locFilter === 'all' ? 'All Locations' : ((snap.locations||[])[0] ? (snap.locations[0].name || snap.locations[0].id) : locFilter);
+    var ctx = 'SQUARE DATA FOR: ' + locName + '\\n';
+    ctx += 'Today: $' + a.revenue.today.toFixed(2) + ' | Week: $' + a.revenue.week.toFixed(2) + ' | 30d: $' + a.revenue.month30d.toFixed(2) + ' | All-Time: $' + a.revenue.allTimeTotal.toFixed(2) + '\\n';
+    ctx += 'Avg Ticket: $' + a.revenue.avgTicket.toFixed(2) + ' | Tips: $' + a.revenue.tips.toFixed(2) + '\\n';
+    ctx += 'YEARLY: ' + Object.keys(a.trends.yearlyRevenue).sort().map(function(y){return y+': $'+a.trends.yearlyRevenue[y].toFixed(0);}).join(', ') + '\\n';
+    var recentM = Object.keys(a.trends.monthlyRevenue).sort().slice(-6);
+    ctx += 'RECENT MONTHS: ' + recentM.map(function(m){return m+': $'+a.trends.monthlyRevenue[m].toFixed(0);}).join(', ') + '\\n';
+    if (a.trends.projections) {
+      ctx += 'PROJECTIONS: YTD $' + a.trends.projections.ytdRevenue + ' | Projected Year $' + a.trends.projections.projectedFullYear + ' | Growth ' + a.trends.projections.projectedGrowth + '%\\n';
+    }
+    ctx += 'Customers: ' + a.customers.total + ' | Repeat: ' + a.customerInsights.repeatRate + '% | LTV: $' + a.customerInsights.avgLTV.toFixed(2) + '\\n';
+    ctx += 'Invoices: ' + a.invoices.total + ' | Paid: ' + a.invoices.paid + ' | Collection: ' + a.invoices.collectionRate + '%\\n';
+    if (a.invoices.paymentSpeed) ctx += 'Payment Speed: Avg ' + a.invoices.paymentSpeed.avgDays + 'd | Same Day ' + a.invoices.paymentSpeed.sameDay + '% | 30d+ ' + a.invoices.paymentSpeed.over30d + '%\\n';
+    if (a.invoices.turnaround) ctx += 'Invoice Turnaround: Avg ' + a.invoices.turnaround.avgFormatted + ' | Fastest ' + a.invoices.turnaround.fastest + ' | Slowest ' + a.invoices.turnaround.slowest + '\\n';
+    ctx += 'Refunds: ' + a.refunds.count + ' ($' + a.refunds.total.toFixed(2) + ') | Rate: ' + a.refunds.rate + '%\\n';
+    ctx += 'Peak: ' + a.payments.peakDay + ' at ' + a.payments.peakHour + '\\n';
+    ctx += 'Top Items: ' + a.orders.topItemsByRevenue.slice(0,8).map(function(e){return e[0]+': $'+e[1].revenue.toFixed(0);}).join(', ') + '\\n';
+    ctx += 'SEASONALITY: ' + Object.keys(a.trends.seasonalAvg).sort().map(function(mo){return ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo)]+': $'+a.trends.seasonalAvg[mo];}).join(', ') + '\\n';
+    ctx += 'Locations: ' + (snap.locations||[]).length + ' total\\n';
+
+    var OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    var sysPrompt = 'You are the Square Data Voice Assistant for Wildwood Small Engine Repair. You answer questions about the business Square payment data. You have complete historical data since 2022.\\n\\nRULES:\\n- Be concise: 2-4 sentences max (you are being read aloud)\\n- Use specific dollar amounts, percentages, dates\\n- When comparing, show the actual numbers\\n- Sound confident and analytical\\n- No markdown, bullets, or formatting\\n- Do NOT mention unpaid invoices or collections\\n- If asked about a specific location, you may be viewing filtered data for that location\\n\\nDATA:\\n' + ctx;
+
+    var aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENAI_API_KEY },
+      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: message }], max_tokens: 300, temperature: 0.7 })
+    });
+    var aiData = await aiRes.json();
+    var response = aiData.choices && aiData.choices[0] ? aiData.choices[0].message.content : 'Could not generate a response.';
+    res.json({ response: response });
+  } catch(e) {
+    console.log('Square voice error:', e.message);
+    res.json({ error: e.message });
+  }
 });
 
 
@@ -13955,13 +14211,13 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
     html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
   } else { html += '<a href="/square" class="active">SQUARE</a>'; }
   html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
-  html += '<div class="container"><h1 style="display:inline;">SQUARE</h1> <button onclick="forceRefresh()" id="refreshBtn" style="background:#1a3a5a;color:#4af;border:1px solid #4af;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:10px;vertical-align:middle;">⟳ REFRESH DATA</button><div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
+  html += '<div class="container"><h1 style="display:inline;">SQUARE</h1> <button onclick="forceRefresh()" id="refreshBtn" style="background:#1a3a5a;color:#4af;border:1px solid #4af;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:10px;vertical-align:middle;">⟳ REFRESH DATA</button> <button onclick="toggleSquareVoice()" id="sqVoiceBtn" style="background:#1a3a5a;color:#a855f7;border:1px solid #a855f740;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:6px;vertical-align:middle;">🎙 VOICE</button><div style="margin:10px 0;"><select id="locationFilter" onchange="changeLocation()" style="background:#0a1520;color:#10b981;border:1px solid #10b98140;font-family:Orbitron,sans-serif;font-size:0.75em;padding:6px 14px;width:100%;max-width:500px;cursor:pointer;letter-spacing:1px;"><option value="all">📍 ALL LOCATIONS</option></select></div><div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
   html += '<div class="stats" id="statsGrid"><div style="color:#4a6a8a;padding:20px;grid-column:1/-1;">Loading Square data...</div></div>';
 
   // Locations panel
   html += '<div class="section-title">📍 LOCATIONS</div>';
   html += '<div id="locationsPanel" style="margin-bottom:15px;"><div style="color:#4a6a8a;">Loading...</div></div>';
-  html += '<div class="section-title">📈 REVENUE (30 DAYS)</div><div class="chart-area" id="revenueChart"></div>';
+  html += '<div class="section-title">📈 REVENUE <select id="revRange" onchange="renderChart()" style="background:#0a1520;color:#10b981;border:1px solid #10b98140;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="30">30 DAYS</option><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0">ALL TIME</option></select></div><div class="chart-area" id="revenueChart"></div>';
   html += '<div class="section-title">🕐 REVENUE BY HOUR</div><div class="chart-area" id="hourChart" style="height:55px;"></div>';
 
   // Monthly drill-down
@@ -13971,7 +14227,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div id="monthDetail" style="display:none;background:rgba(10,20,35,0.6);border:1px solid #10b98120;padding:15px;margin-bottom:15px;"></div>';
 
   // Bollinger Bands
-  html += '<div class="section-title">📊 BOLLINGER BANDS (20-DAY)</div>';
+  html += '<div class="section-title">📊 BOLLINGER BANDS <select id="bollingerRange" onchange="renderBollinger()" style="background:#0a1520;color:#a855f7;border:1px solid #a855f740;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0">ALL TIME</option></select></div>';
   html += '<div class="chart-area" id="bollingerChart" style="height:220px;"></div>';
 
   // Fibonacci Retracement
@@ -13995,12 +14251,14 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div class="chart-area" id="methodChart" style="height:150px;"></div>';
 
   // Moving averages
-  html += '<div class="section-title">📉 MOVING AVERAGES (7-DAY / 30-DAY)</div>';
+  html += '<div class="section-title">📉 MOVING AVERAGES <select id="maRange" onchange="renderMA()" style="background:#0a1520;color:#0af;border:1px solid #0af40;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0">ALL TIME</option></select></div>';
   html += '<div class="chart-area" id="maChart" style="height:200px;"></div>';
 
   // Revenue vs Refunds
   html += '<div class="section-title">↩️ REVENUE vs REFUNDS</div>';
   html += '<div class="chart-area" id="refundChart" style="height:160px;"></div>';
+  html += '<div class="section-title">💰 PAYMENT SPEED DISTRIBUTION</div><div class="chart-area" id="paySpeedChart" style="height:160px;"></div>';
+  html += '<div class="section-title">🔮 REVENUE PROJECTIONS (' + new Date().getFullYear() + ')</div><div class="chart-area" id="projChart" style="height:240px;"></div>';
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:18px 0;">';
   html += '<button class="action-btn" onclick="analyze(\'full\')">⚡ FULL BRIEFING</button>';
   html += '<button class="action-btn purple" onclick="analyze(\'revenue\')">💰 REVENUE</button>';
@@ -14009,6 +14267,18 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<button class="action-btn" onclick="analyze(\'labor\')" style="border-color:#a78bfa40;color:#a78bfa;">⏱️ LABOR</button>';
   html += '<button class="action-btn" onclick="analyze(\'items\')" style="border-color:#ec489940;color:#ec4899;">📦 ITEMS</button></div>';
   html += '<div id="analysisPanel"></div>';
+  // Square Voice Panel
+  html += '<div id="sqVoicePanel" style="display:none;margin-top:12px;background:rgba(10,20,35,0.9);border:1px solid #a855f730;padding:20px;position:relative;">';
+  html += '<div style="text-align:center;font-family:Orbitron;font-size:0.7em;letter-spacing:4px;color:#a855f7;margin-bottom:12px;">🎙 SQUARE VOICE ASSISTANT</div>';
+  html += '<div id="sqVoiceLog" style="height:200px;overflow-y:auto;margin-bottom:12px;padding:8px;background:rgba(5,10,20,0.5);border:1px solid #0a1a2a;"></div>';
+  html += '<div style="display:flex;align-items:center;gap:8px;">';
+  html += '<button id="sqMicBtn" onclick="toggleSquareMic()" style="width:50px;height:50px;border-radius:50%;background:rgba(168,85,247,0.15);border:2px solid #a855f7;color:#a855f7;cursor:pointer;font-size:1.4em;transition:all 0.3s;">🎤</button>';
+  html += '<input id="sqTextInput" type="text" placeholder="Or type your question about Square data..." style="flex:1;padding:10px 14px;background:rgba(10,20,35,0.8);border:1px solid #a855f730;color:#c0d8f0;font-family:Rajdhani,sans-serif;font-size:1em;outline:none;" onkeypress="if(event.key===\'Enter\')sendSquareText()">';
+  html += '<button onclick="sendSquareText()" style="padding:10px 18px;background:#a855f720;border:1px solid #a855f7;color:#a855f7;cursor:pointer;font-family:Orbitron;font-size:0.7em;">SEND</button>';
+  html += '</div>';
+  html += '<div id="sqVoiceStatus" style="text-align:center;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;color:#4a6a8a;margin-top:8px;">CLICK MIC TO SPEAK</div>';
+  html += '<canvas id="sqWaveCanvas" style="position:absolute;bottom:0;left:0;width:100%;height:3px;"></canvas>';
+  html += '</div>';
   html += '<div class="tab-row">';
   html += '<button class="tab-btn active" onclick="showTab(\'payments\',this)">💳 PAYMENTS</button>';
   html += '<button class="tab-btn" onclick="showTab(\'orders\',this)">📦 ORDERS</button>';
@@ -14024,8 +14294,8 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<button class="tab-btn" onclick="showTab(\'subs\',this)">🔄 SUBS</button></div>';
   html += '<div id="tabContent" style="overflow-x:auto;"><div style="color:#4a6a8a;">Loading...</div></div></div>';
   html += '<script>var D=null;var curTab="payments";';
-  html += 'async function loadAll(url){try{var r=await(await fetch(url||"/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderDebug();renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");document.getElementById("refreshBtn").textContent="⟳ REFRESH DATA";}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
-  html += 'async function forceRefresh(){document.getElementById("refreshBtn").textContent="⟳ REFRESHING...";document.getElementById("refreshBtn").style.color="#f59e0b";await loadAll("/square/api/snapshot?refresh=1");document.getElementById("refreshBtn").style.color="#4af";}';
+  html += 'async function loadAll(url){try{var r=await(await fetch(url||"/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderDebug();renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();renderPaySpeed();renderProjections();showTab("payments");document.getElementById("refreshBtn").textContent="⟳ REFRESH DATA";}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'async function forceRefresh(){document.getElementById("refreshBtn").textContent="⟳ REFRESHING...";document.getElementById("refreshBtn").style.color="#f59e0b";var locParam=curLocation&&curLocation!=="all"?"&location="+curLocation:"";await loadAll("/square/api/snapshot?refresh=1"+locParam);document.getElementById("refreshBtn").style.color="#4af";}';
 
   // Debug panel
   html += 'function renderDebug(){var d=D.debug;if(!d)return;var el=document.getElementById("locationsPanel");';
@@ -14062,6 +14332,9 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+=sc(a.payments.completed,a.payments.dataSource==="orders"?"ORDERS":"PAYMENTS","");h+=sc(a.payments.failed,"FAILED",a.payments.failed>0?"danger":"");';
   html += 'h+=sc(a.customers.total,"CUSTOMERS","");h+=sc(a.customers.new30d,"NEW 30D","blue");h+=sc(a.customers.emailCaptureRate+"%","EMAIL RATE",a.customers.emailCaptureRate<50?"warn":"");';
   html += 'h+=sc(a.invoices.unpaid,"UNPAID",a.invoices.unpaid>0?"warn":"");h+=sc("$"+a.invoices.unpaidTotal.toFixed(0),"OUTSTANDING",a.invoices.unpaidTotal>0?"warn":"");h+=sc(a.invoices.overdue,"OVERDUE",a.invoices.overdue>0?"danger":"");h+=sc(a.invoices.collectionRate+"%","COLLECT RATE",a.invoices.collectionRate<70?"warn":"");';
+  html += 'if(a.invoices.turnaround){h+=sc(a.invoices.turnaround.avgFormatted,"AVG INVOICE TIME","blue");h+=sc(a.invoices.turnaround.medianFormatted,"MEDIAN INV TIME","");h+=sc(a.invoices.turnaround.fastest,"FASTEST INVOICE","");h+=sc(a.invoices.turnaround.slowest,"SLOWEST INVOICE","warn");}';
+  html += 'if(a.invoices.paymentSpeed){var ps=a.invoices.paymentSpeed;h+=sc(ps.avgDays+"d","AVG PAY TIME","blue");h+=sc(ps.medianDays+"d","MEDIAN PAY","");h+=sc(ps.sameDay+"%","SAME DAY PAY","");h+=sc(ps.within3d+"%","PAID ≤3 DAYS","");h+=sc(ps.within7d+"%","PAID ≤7 DAYS","");h+=sc(ps.over30d+"%","PAID 30+ DAYS",ps.over30d>20?"danger":"");}';
+  html += 'if(a.trends&&a.trends.projections){var pj=a.trends.projections;h+="</div><div class=\\"section-title\\" style=\\"margin-top:18px;\\">📈 Revenue Projections ('+new Date().getFullYear()+')</div><div class=\\"stats-grid\\">";h+=sc("$"+Math.round(pj.ytdRevenue).toLocaleString(),"YTD REVENUE","blue");h+=sc("$"+Math.round(pj.projectedFullYear).toLocaleString(),"PROJECTED YEAR","blue");h+=sc("$"+Math.round(pj.conservativeFullYear).toLocaleString(),"CONSERVATIVE","");h+=sc("$"+Math.round(pj.optimisticFullYear).toLocaleString(),"OPTIMISTIC","");h+=sc("$"+Math.round(pj.lastYearTotal).toLocaleString(),"LAST YEAR TOTAL","");h+=sc((pj.projectedGrowth>=0?"+":"")+pj.projectedGrowth+"%","PROJ GROWTH",pj.projectedGrowth>0?"":"warn");}';
   html += 'h+=sc(a.refunds.count,"REFUNDS",a.refunds.count>0?"warn":"");h+=sc(a.refunds.rate+"%","REFUND RATE",parseFloat(a.refunds.rate)>5?"danger":"");h+=sc(a.disputes.open,"DISPUTES",a.disputes.open>0?"danger":"");';
   html += 'h+=sc(a.labor.totalHoursWorked+"h","LABOR 14D","blue");h+=sc(a.labor.avgShiftLength+"h","AVG SHIFT","");h+=sc(a.orders.uniqueItems,"ITEMS SOLD","");';
   html += 'h+=sc("$"+a.orders.discountTotal.toFixed(0),"DISCOUNTS","warn");h+=sc("$"+a.orders.taxCollected.toFixed(0),"TAX","");';
@@ -14080,7 +14353,9 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+=sc("$"+Math.round(a.revenue.allTimeTotal).toLocaleString(),"ALL-TIME GROSS","");';
   html += 'document.getElementById("statsGrid").innerHTML=h;}function sc(v,l,cls){return "<div class=\\"stat\\"><div class=\\"stat-val "+(cls||"")+"\\">"+v+"</div><div class=\\"stat-label\\">"+l+"</div></div>";}';
   // Charts
-  html += 'function renderChart(){var c=document.getElementById("revenueChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(!days.length){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">No data</div>";return;}var max=Math.max.apply(null,vals)||1;var bw=Math.max(4,Math.min(16,((c.offsetWidth-40)/days.length)-2));var h="<svg width=\\"100%\\" height=\\"140\\">";days.forEach(function(d,i){var pct=vals[i]/max;var bh=Math.max(2,pct*120);var x=20+i*(bw+2);h+="<rect x=\\""+x+"\\" y=\\""+Math.round(130-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\"#10b981\\" opacity=\\"0.7\\"><title>"+d+": $"+vals[i].toFixed(2)+"</title></rect>";});h+="<text x=\\"0\\" y=\\"12\\" fill=\\"#10b981\\" font-size=\\"9\\" font-family=\\"Orbitron\\">$"+max.toFixed(0)+"</text></svg>";c.innerHTML=h;}';
+  // Date filter helper
+  html += 'function filterDays(bd,rangeDays){if(!rangeDays||rangeDays==="0"||rangeDays===0)return bd;var cutoff=new Date(Date.now()-rangeDays*86400000).toISOString().substring(0,10);var out={};Object.keys(bd).forEach(function(k){if(k>=cutoff)out[k]=bd[k];});return out;}';
+  html += 'function renderChart(){var c=document.getElementById("revenueChart");if(!D||!D.analytics)return;var range=parseInt(document.getElementById("revRange").value)||30;var bd=filterDays(D.analytics.payments.byDay,range);var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(!days.length){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">No data for range</div>";return;}var max=Math.max.apply(null,vals)||1;var bw=Math.max(2,Math.min(16,((c.offsetWidth-40)/days.length)-2));var h="<svg width=\\"100%\\" height=\\"140\\">";days.forEach(function(d,i){var pct=vals[i]/max;var bh=Math.max(2,pct*120);var x=20+i*(bw+2);h+="<rect x=\\""+x+"\\" y=\\""+Math.round(130-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\"#10b981\\" opacity=\\"0.7\\"><title>"+d+": $"+vals[i].toFixed(2)+"</title></rect>";});h+="<text x=\\"0\\" y=\\"12\\" fill=\\"#10b981\\" font-size=\\"9\\" font-family=\\"Orbitron\\">$"+max.toFixed(0)+"</text></svg>";c.innerHTML=h;}';
   html += 'function renderHourChart(){var c=document.getElementById("hourChart");if(!D||!D.analytics)return;var bh=D.analytics.payments.byHour;var max=0;for(var k in bh){if(bh[k]>max)max=bh[k];}if(!max){c.innerHTML="";return;}var h="<svg width=\\"100%\\" height=\\"45\\">";for(var hr=0;hr<24;hr++){var v=bh[hr]||0;var opacity=Math.max(0.05,v/max);var x=(hr/24)*100;h+="<rect x=\\""+x+"%\\" y=\\"4\\" width=\\"3.8%\\" height=\\"25\\" fill=\\"#10b981\\" opacity=\\""+opacity.toFixed(2)+"\\" rx=\\"2\\"><title>"+hr+":00 $"+v.toFixed(0)+"</title></rect>";if(hr%3===0)h+="<text x=\\""+(x+0.5)+"%\\" y=\\"42\\" fill=\\"#4a6a8a\\" font-size=\\"7\\" font-family=\\"Orbitron\\">"+hr+"</text>";}h+="</svg>";c.innerHTML=h;}';
 
   // SVG chart helper
@@ -14116,7 +14391,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '+"</div>";}';
 
   // BOLLINGER BANDS
-  html += 'function renderBollinger(){var c=document.getElementById("bollingerChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<5){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need more data for Bollinger Bands</div>";return;}';
+  html += 'function renderBollinger(){var c=document.getElementById("bollingerChart");if(!D||!D.analytics)return;var range=parseInt(document.getElementById("bollingerRange").value)||90;var bd=filterDays(D.analytics.payments.byDay,range);var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<5){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need more data for Bollinger Bands</div>";return;}';
   html += 'var period=Math.min(20,Math.floor(days.length/2));var ma=[];var upper=[];var lower=[];';
   html += 'for(var i=0;i<vals.length;i++){if(i<period-1){ma.push(null);upper.push(null);lower.push(null);continue;}';
   html += 'var slice=vals.slice(i-period+1,i+1);var avg=slice.reduce(function(a,b){return a+b;},0)/period;';
@@ -14221,7 +14496,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+="</svg>";c.innerHTML=h;}';
 
   // MOVING AVERAGES (7-day & 30-day)
-  html += 'function renderMA(){var c=document.getElementById("maChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">Need more data</div>";return;}';
+  html += 'function renderMA(){var c=document.getElementById("maChart");if(!D||!D.analytics)return;var range=parseInt(document.getElementById("maRange").value)||90;var bd=filterDays(D.analytics.payments.byDay,range);var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">Need more data</div>";return;}';
   html += 'function calcMA(data,p){var r=[];for(var i=0;i<data.length;i++){if(i<p-1){r.push(null);continue;}var sum=0;for(var j=i-p+1;j<=i;j++)sum+=data[j];r.push(sum/p);}return r;}';
   html += 'var ma7=calcMA(vals,Math.min(7,vals.length));var ma30=calcMA(vals,Math.min(30,vals.length));';
   html += 'var allV=vals.concat(ma7.filter(function(v){return v!==null;}));var maxY=Math.max.apply(null,allV)||1;';
@@ -14251,6 +14526,10 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+="<text x=\\"5\\" y=\\"12\\" fill=\\"#10b981\\" font-size=\\"8\\" font-family=\\"Orbitron\\">REVENUE</text>";';
   html += 'h+="</svg>";c.innerHTML=h;}';
   // Tabs
+  html += 'function renderPaySpeed(){var c=document.getElementById("paySpeedChart");if(!D||!D.analytics||!D.analytics.invoices||!D.analytics.invoices.paymentSpeed)return;var ps=D.analytics.invoices.paymentSpeed;var buckets=[{label:"Same Day",pct:ps.sameDay,color:"#10b981"},{label:"1-3 Days",pct:ps.within3d,color:"#34d399"},{label:"4-7 Days",pct:ps.within7d,color:"#f59e0b"},{label:"8-30 Days",pct:ps.within30d,color:"#f97316"},{label:"30+ Days",pct:ps.over30d,color:"#ef4444"}];var maxP=Math.max.apply(null,buckets.map(function(b){return b.pct;}))||1;var h="<div style=\\"display:flex;align-items:flex-end;height:120px;gap:8px;padding:0 20px;\\">";buckets.forEach(function(b){var barH=Math.max(4,(b.pct/maxP)*100);h+="<div style=\\"flex:1;text-align:center;\\"><div style=\\"color:"+b.color+";font-size:11px;font-weight:700;margin-bottom:4px;\\">"+b.pct+"%</div><div style=\\"height:"+barH+"px;background:"+b.color+";border-radius:4px 4px 0 0;margin:0 auto;width:80%;\\"></div><div style=\\"color:#4a6a8a;font-size:9px;margin-top:4px;\\">"+b.label+"</div></div>";});h+="</div><div style=\\"text-align:center;color:#4a6a8a;font-size:10px;margin-top:6px;\\">Avg: "+ps.avgDays+"d · Median: "+ps.medianDays+"d · Sample: "+ps.sampleSize+" invoices</div>";c.innerHTML=h;}';
+
+  html += 'function renderProjections(){var c=document.getElementById("projChart");if(!D||!D.analytics||!D.analytics.trends||!D.analytics.trends.projections)return;var pj=D.analytics.trends.projections;var mp=pj.monthProjections;var labels=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];var months=["01","02","03","04","05","06","07","08","09","10","11","12"];var vals=[];var isProj=[];months.forEach(function(mo){var d=mp[mo];if(d){if(d.projected&&d.estimate!==undefined){vals.push(d.estimate);isProj.push(true);}else{vals.push(d.actual||0);isProj.push(false);}}else{vals.push(0);isProj.push(true);}});var maxV=Math.max.apply(null,vals)||1;var sa=D.analytics.trends.seasonalAvg||{};var h="<div style=\\"position:relative;height:180px;padding:0 10px;\\">";h+="<div style=\\"display:flex;align-items:flex-end;height:160px;gap:4px;\\">";months.forEach(function(mo,i){var barH=Math.max(2,(vals[i]/maxV)*140);var color=isProj[i]?"rgba(99,102,241,0.6)":"#10b981";var border=isProj[i]?"2px dashed #6366f1":"none";var saVal=sa[mo]||0;var saH=Math.max(0,(saVal/maxV)*140);h+="<div style=\\"flex:1;text-align:center;position:relative;\\"><div style=\\"color:"+(isProj[i]?"#818cf8":"#10b981")+";font-size:9px;font-weight:700;margin-bottom:2px;\\">$"+(vals[i]>=1000?Math.round(vals[i]/1000)+"k":vals[i])+"</div><div style=\\"position:relative;height:"+barH+"px;\\"><div style=\\"position:absolute;bottom:0;width:100%;height:"+barH+"px;background:"+color+";border-radius:3px 3px 0 0;"+(isProj[i]?"border-top:"+border:"")+"\\"></div>"+(saVal>0?"<div style=\\"position:absolute;bottom:"+saH+"px;width:100%;height:2px;background:#f59e0b40;\\"></div>":"")+"</div><div style=\\"color:#4a6a8a;font-size:8px;margin-top:3px;\\">"+labels[i]+"</div></div>";});h+="</div></div>";h+="<div style=\\"display:flex;justify-content:center;gap:20px;margin-top:4px;font-size:9px;\\">";h+="<span style=\\"color:#10b981;\\">■ Actual</span>";h+="<span style=\\"color:#6366f1;\\">▪ Projected</span>";h+="<span style=\\"color:#f59e0b40;\\">— Seasonal Avg</span>";h+="</div>";h+="<div style=\\"text-align:center;color:#a0b8d0;font-size:11px;margin-top:6px;font-weight:700;\\">";h+="Projected: $"+pj.projectedFullYear.toLocaleString()+" · Conservative: $"+pj.conservativeFullYear.toLocaleString()+" · vs Last Year: "+(pj.projectedGrowth>=0?"+":"")+pj.projectedGrowth+"%</div>";c.innerHTML=h;}';
+
   html += 'function showTab(tab,el){curTab=tab;document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});if(el)el.classList.add("active");var c=document.getElementById("tabContent");if(!D){c.innerHTML="Loading...";return;}';
   html += 'if(tab==="payments")rPay(c);else if(tab==="orders")rOrd(c);else if(tab==="invoices")rInv(c);else if(tab==="customers")rCust(c);else if(tab==="items")rItems(c);else if(tab==="refunds")rRef(c);else if(tab==="disputes")rDisp(c);else if(tab==="payouts")rPay2(c);else if(tab==="shifts")rShift(c);else if(tab==="catalog")rCat(c);else if(tab==="giftcards")rGC(c);else if(tab==="subs")rSub(c);}';
   // Table renderers
@@ -14271,6 +14550,34 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'function rGC(c){var g=D.giftCards||[];if(!g.length){c.innerHTML="No gift cards";return;}var h="<table><thead><tr><th>GAN</th><th>STATE</th><th>BALANCE</th><th>TYPE</th><th>CREATED</th></tr></thead><tbody>";g.forEach(function(x){var s=x.state==="ACTIVE"?"pill-green":"pill-yellow";h+="<tr><td>"+(x.gan||"—")+"</td><td><span class=\\"pill "+s+"\\">"+x.state+"</span></td><td style=\\"color:#10b981;font-weight:700;\\">"+x.balance+"</td><td>"+(x.type||"")+"</td><td>"+(x.created?new Date(x.created).toLocaleDateString():"")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
   html += 'function rSub(c){var s=D.subscriptions||[];if(!s.length){c.innerHTML="No subscriptions";return;}var h="<table><thead><tr><th>CUSTOMER</th><th>STATUS</th><th>START</th><th>CHARGED THRU</th><th>CANCELLED</th></tr></thead><tbody>";s.forEach(function(x){var sc=x.status==="ACTIVE"?"pill-green":"pill-red";h+="<tr><td>"+(x.customerId||"").substring(0,10)+"</td><td><span class=\\"pill "+sc+"\\">"+x.status+"</span></td><td>"+(x.startDate||"—")+"</td><td>"+(x.chargedThroughDate||"—")+"</td><td>"+(x.canceledDate||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
   html += 'async function analyze(topic){var p=document.getElementById("analysisPanel");p.style.display="block";p.textContent="⚡ ATHENA analyzing...";try{var r=await(await fetch("/square/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:topic})})).json();p.textContent=r.analysis;}catch(e){p.textContent="Error: "+e.message;}}';
+
+  // Location dropdown
+  html += 'var curLocation="all";';
+  html += 'function populateLocations(){if(!D||!D.allLocations)return;var sel=document.getElementById("locationFilter");sel.innerHTML="<option value=\\"all\\">📍 ALL LOCATIONS ("+D.allLocations.length+")</option>";D.allLocations.forEach(function(l){var label=l.name||(l.city+", "+l.state);sel.innerHTML+="<option value=\\""+l.id+"\\">"+(l.city?l.city+", "+l.state+" — ":"")+label+"</option>";});if(D.selectedLocation&&D.selectedLocation!=="all")sel.value=D.selectedLocation;}';
+  html += 'function changeLocation(){var sel=document.getElementById("locationFilter");curLocation=sel.value;document.getElementById("refreshBtn").textContent="⟳ LOADING...";loadAll("/square/api/snapshot?location="+curLocation);}';
+
+  // Override loadAll to populate locations
+  html += 'var _origLoadAll=loadAll;';
+  html += 'loadAll=async function(url){await _origLoadAll(url);populateLocations();};';
+
+  // Square Voice Panel JS
+  html += 'var sqVoiceOpen=false;var sqListening=false;var sqSpeaking=false;var sqRecog=null;var synth2=window.speechSynthesis;';
+  html += 'function toggleSquareVoice(){sqVoiceOpen=!sqVoiceOpen;document.getElementById("sqVoicePanel").style.display=sqVoiceOpen?"block":"none";var btn=document.getElementById("sqVoiceBtn");btn.style.color=sqVoiceOpen?"#ff4757":"#a855f7";btn.style.borderColor=sqVoiceOpen?"#ff475740":"#a855f740";if(!sqVoiceOpen&&sqListening)stopSqListening();}';
+  html += 'function toggleSquareMic(){if(sqListening){stopSqListening();return;}if(!("webkitSpeechRecognition" in window)&&!("SpeechRecognition" in window)){alert("Speech recognition not supported. Use Chrome.");return;}var SR=window.SpeechRecognition||window.webkitSpeechRecognition;sqRecog=new SR();sqRecog.continuous=false;sqRecog.interimResults=false;sqRecog.lang="en-US";sqRecog.onstart=function(){sqListening=true;document.getElementById("sqMicBtn").style.background="rgba(168,85,247,0.5)";document.getElementById("sqMicBtn").style.boxShadow="0 0 20px #a855f760";document.getElementById("sqVoiceStatus").textContent="LISTENING...";document.getElementById("sqVoiceStatus").style.color="#a855f7";startSqWave();};sqRecog.onresult=function(e){var text=e.results[0][0].transcript;stopSqListening();addSqMsg("user",text);sendSqVoice(text);};sqRecog.onerror=function(e){stopSqListening();document.getElementById("sqVoiceStatus").textContent="ERROR: "+e.error;document.getElementById("sqVoiceStatus").style.color="#ff4757";};sqRecog.onend=function(){stopSqListening();};sqRecog.start();}';
+  html += 'function stopSqListening(){sqListening=false;if(sqRecog)try{sqRecog.stop();}catch(e){}document.getElementById("sqMicBtn").style.background="rgba(168,85,247,0.15)";document.getElementById("sqMicBtn").style.boxShadow="none";document.getElementById("sqVoiceStatus").textContent="CLICK MIC TO SPEAK";document.getElementById("sqVoiceStatus").style.color="#4a6a8a";stopSqWave();}';
+  html += 'function sendSquareText(){var inp=document.getElementById("sqTextInput");var text=inp.value.trim();if(!text)return;inp.value="";addSqMsg("user",text);sendSqVoice(text);}';
+  html += 'function sendSqVoice(text){document.getElementById("sqVoiceStatus").textContent="PROCESSING...";document.getElementById("sqVoiceStatus").style.color="#c084fc";startSqWave();fetch("/square/api/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:text,location:curLocation})}).then(function(r){return r.json();}).then(function(data){stopSqWave();if(data.error){addSqMsg("assistant","Error: "+data.error);return;}addSqMsg("assistant",data.response);speakSq(data.response);}).catch(function(e){stopSqWave();addSqMsg("assistant","Connection error.");});}';
+
+  // Square TTS
+  html += 'function speakSq(text){sqSpeaking=true;document.getElementById("sqVoiceStatus").textContent="SPEAKING...";document.getElementById("sqVoiceStatus").style.color="#a855f7";startSqWave();fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:text,voice:"athena"})}).then(function(r){if(!r.ok)throw new Error("TTS failed");return r.blob();}).then(function(blob){if(blob.size<1000)throw new Error("too small");var url=URL.createObjectURL(blob);var audio=new Audio(url);audio.onended=function(){sqSpeaking=false;stopSqWave();document.getElementById("sqVoiceStatus").textContent="CLICK MIC TO SPEAK";document.getElementById("sqVoiceStatus").style.color="#4a6a8a";URL.revokeObjectURL(url);};audio.onerror=function(){URL.revokeObjectURL(url);sqBrowserSpeak(text);};audio.play().catch(function(){sqBrowserSpeak(text);});}).catch(function(){sqBrowserSpeak(text);});}';
+  html += 'function sqBrowserSpeak(text){var utter=new SpeechSynthesisUtterance(text);utter.rate=1.0;utter.pitch=1.1;var voices=synth2.getVoices();for(var v=0;v<voices.length;v++){if(voices[v].name.includes("Samantha")||voices[v].name.includes("Google UK English Female")||voices[v].name.includes("Female")){utter.voice=voices[v];break;}}utter.onend=function(){sqSpeaking=false;stopSqWave();document.getElementById("sqVoiceStatus").textContent="CLICK MIC TO SPEAK";document.getElementById("sqVoiceStatus").style.color="#4a6a8a";};synth2.speak(utter);}';
+
+  // Voice log
+  html += 'function addSqMsg(who,text){var log=document.getElementById("sqVoiceLog");var div=document.createElement("div");div.style.cssText="padding:8px 12px;margin-bottom:6px;border-radius:8px;"+(who==="user"?"background:rgba(0,170,255,0.1);border-left:3px solid #0af;":"background:rgba(168,85,247,0.1);border-left:3px solid #a855f7;");div.innerHTML="<div style=\\"font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:"+(who==="user"?"#0af":"#a855f7")+";margin-bottom:4px;\\">"+(who==="user"?"YOU":"SQUARE AI")+"</div><div style=\\"color:#c0d8f0;font-size:0.92em;line-height:1.5;\\">"+text+"</div>";log.appendChild(div);log.scrollTop=log.scrollHeight;}';
+
+  // Wave animation
+  html += 'var sqWaveAnim=null;function startSqWave(){var cv=document.getElementById("sqWaveCanvas");if(!cv)return;cv.style.height="30px";var ctx=cv.getContext("2d");cv.width=cv.offsetWidth;cv.height=30;var t=0;function draw(){ctx.clearRect(0,0,cv.width,cv.height);ctx.beginPath();for(var x=0;x<cv.width;x++){ctx.lineTo(x,15+Math.sin(x*0.03+t)*10*Math.sin(t*0.5));}ctx.strokeStyle="#a855f780";ctx.lineWidth=2;ctx.stroke();t+=0.08;sqWaveAnim=requestAnimationFrame(draw);}draw();}function stopSqWave(){if(sqWaveAnim)cancelAnimationFrame(sqWaveAnim);var cv=document.getElementById("sqWaveCanvas");if(cv){cv.style.height="3px";var ctx=cv.getContext("2d");cv.width=cv.offsetWidth;cv.height=3;ctx.clearRect(0,0,cv.width,cv.height);}}';
+
   html += 'loadAll();</script></body></html>';
   res.send(html);
   } catch(err) { console.log('Square page error:', err.message, err.stack); res.status(500).send('Square page error: ' + err.message); }
