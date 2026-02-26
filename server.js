@@ -1,4 +1,4 @@
-0; // LINE_GUARD — do not remove
+; // LINE_GUARD — do not remove
 // ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
@@ -442,20 +442,15 @@ function squareAnalyze(snap) {
 
   // Use orders as primary revenue source if we have more orders than payments
   var useOrders = false; // Always use payments for revenue — orders include inflated invoice amounts
-  var completedOrders = orders.filter(function(o){return o.state!=='CANCELED'&&o.state!=='DRAFT'&&sqCents(o.total_money)>0&&(o.state==='COMPLETED'||(o.tenders&&o.tenders.length>0));});
+  var completedOrders = orders.filter(function(o){return o.state==='COMPLETED'&&sqCents(o.total_money)>0;});
 
-  // Use TENDER amounts (actual $ collected), NOT total_money which includes unpaid invoice amounts
-  function orderCollected(o) {
-    if (!o.tenders || !o.tenders.length) return 0;
-    var sum = 0;
-    o.tenders.forEach(function(t) { sum += sqCents(t.amount_money); });
-    return sum;
-  }
+  // Revenue helper — use total_money on COMPLETED orders (confirmed paid)
+  function orderRev(o) { return sqCents(o.total_money); }
 
   if (useOrders && completedOrders.length > 0) {
     // Calculate revenue from orders — use TENDER amounts (actual $ collected), NOT total_money
     completedOrders.forEach(function(o) {
-      var amt = orderCollected(o);
+      var amt = orderRev(o);
       if (amt <= 0) return; // skip orders with no actual collection
       var tip = sqCents(o.total_tip_money);
       var tax = sqCents(o.total_tax_money);
@@ -689,7 +684,7 @@ function squareAnalyze(snap) {
     completedOrders.forEach(function(o) {
       var month = (o.created_at || '').substring(0, 7);
       if (!month) return;
-      monthlyRevenue[month] = (monthlyRevenue[month] || 0) + orderCollected(o);
+      monthlyRevenue[month] = (monthlyRevenue[month] || 0) + orderRev(o);
       monthlyPaymentCount[month] = (monthlyPaymentCount[month] || 0) + 1;
     });
   } else {
@@ -810,7 +805,7 @@ function squareAnalyze(snap) {
       var cid = o.customer_id || (o.tenders && o.tenders[0] ? o.tenders[0].customer_id : null);
       if (cid) {
         if (!customerPayments[cid]) customerPayments[cid] = { total: 0, count: 0, first: o.created_at, last: o.created_at };
-        customerPayments[cid].total += orderCollected(o);
+        customerPayments[cid].total += orderRev(o);
         customerPayments[cid].count++;
         if (o.created_at < customerPayments[cid].first) customerPayments[cid].first = o.created_at;
         if (o.created_at > customerPayments[cid].last) customerPayments[cid].last = o.created_at;
@@ -10891,9 +10886,18 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     // Toolbar
     html += '<div class="toolbar">';
     html += '<label>MARKET</label>';
-    html += '<select id="market-select">';
-    Object.keys(allSeries).forEach(function(name) {
-      html += '<option value="' + name + '">' + name + '</option>';
+    html += '<select id="market-select" onchange="updateAll()">';
+    var sortedMarkets = Object.keys(allSeries).sort(function(a, b) {
+      if (a === 'ALL LOCATIONS') return -1;
+      if (b === 'ALL LOCATIONS') return 1;
+      if (a === 'SQUARE REVENUE ($)') return -1;
+      if (b === 'SQUARE REVENUE ($)') return 1;
+      return a.localeCompare(b);
+    });
+    sortedMarkets.forEach(function(name) {
+      var dataCount = Object.keys(allSeries[name]).length;
+      if (dataCount < 2) return; // skip markets with too little data
+      html += '<option value="' + name.replace(/"/g, '&quot;') + '"' + (name === 'ALL LOCATIONS' ? ' selected' : '') + '>' + name + ' (' + dataCount + 'mo)</option>';
     });
     html += '</select>';
     html += '<div class="sep"></div>';
@@ -10916,14 +10920,14 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '</div>';
 
     // Chart containers
-    html += '<div id="main-chart"></div>';
+    html += '<div id="main-chart" style="width:100%;height:400px;"></div>';
     html += '<div class="legend" id="main-legend"></div>';
     html += '<div class="indicator-label">RSI (14)</div>';
-    html += '<div id="rsi-chart"></div>';
+    html += '<div id="rsi-chart" style="width:100%;height:120px;"></div>';
     html += '<div class="indicator-label">MACD (12, 26, 9)</div>';
-    html += '<div id="macd-chart"></div>';
+    html += '<div id="macd-chart" style="width:100%;height:120px;"></div>';
     html += '<div class="indicator-label">BOLLINGER BAND WIDTH (Squeeze Detector)</div>';
-    html += '<div id="bbw-chart"></div>';
+    html += '<div id="bbw-chart" style="width:100%;height:100px;"></div>';
 
     // Add Square revenue data to chart series
     try {
@@ -10934,13 +10938,12 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
         // Per-location revenue
         var locRevenue = {};
         (sqSnap.orders || []).forEach(function(o) {
-          if (o.state === 'CANCELED' || o.state === 'DRAFT') return;
-          if (!o.tenders || !o.tenders.length) return;
+          if (o.state !== 'COMPLETED') return;
           var locId = o.location_id || 'unknown';
           var month = (o.created_at || '').substring(0, 7);
           if (!month) return;
-          var amt = 0;
-          o.tenders.forEach(function(t) { amt += (t.amount_money && t.amount_money.amount ? t.amount_money.amount / 100 : 0); });
+          var amt = o.total_money && o.total_money.amount ? o.total_money.amount / 100 : 0;
+          if (amt <= 0) return;
           if (!locRevenue[locId]) locRevenue[locId] = {};
           locRevenue[locId][month] = (locRevenue[locId][month] || 0) + amt;
         });
@@ -11086,12 +11089,12 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '}';
 
     // Update all indicators
-    html += 'function updateAll() {';
+    html += 'function updateAll() { try {';
     html += '  var market = document.getElementById("market-select").value;';
     html += '  var raw = allData[market] || {};';
     html += '  var months = Object.keys(raw).sort();';
     html += '  var data = months.map(function(k) { return { time: k + "-01", value: raw[k] }; });';
-    html += '  if (data.length < 2) return;';
+    html += '  if (data.length < 2) { document.getElementById("main-legend").innerHTML="<span style=\\"color:#f59e0b;\\">Not enough data for "+market+" ("+data.length+" months). Select a different market.</span>"; return; }';
 
     html += '  mainSeries.setData(data);';
 
@@ -11151,7 +11154,7 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '  rsiChart.timeScale().fitContent();';
     html += '  macdChart.timeScale().fitContent();';
     html += '  bbwChart.timeScale().fitContent();';
-    html += '}';
+    html += '} catch(e) { console.error("updateAll error:", e); } }';
 
     // Toggle functions
     html += 'function toggleBB() { showBB = !showBB; document.getElementById("btn-bb").classList.toggle("active"); updateAll(); }';
@@ -11162,10 +11165,10 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += 'function clearDrawings() { drawings.forEach(function(d) { try { mainSeries.removePriceLine(d); } catch(e) {} }); drawings = []; mainSeries.setMarkers([]); }';
 
     // Market change
-    html += 'document.getElementById("market-select").addEventListener("change", updateAll);';
+    // Market change handled by onchange attr on select
 
     // Init
-    html += 'createCharts(); updateAll();';
+    html += 'try { createCharts(); updateAll(); } catch(e) { console.error("Chart init error:", e); document.getElementById("main-chart").innerHTML="<div style=\\"color:#ef4444;padding:20px;\\">Chart Error: "+e.message+"</div>"; }';
 
     // Resize
     html += 'window.addEventListener("resize", function() {';
@@ -12605,7 +12608,7 @@ async function buildAdsContext() {
       "metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.average_cpm, " +
       "metrics.search_impression_share, metrics.cost_per_conversion, " +
       "metrics.all_conversions, metrics.interactions, metrics.interaction_rate " +
-      "FROM campaign WHERE segments.date DURING LAST_365_DAYS AND campaign.status != 'REMOVED' " +
+      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 365*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' AND campaign.status != 'REMOVED' " +
       "ORDER BY metrics.cost_micros DESC"
     );
     if (campaignData) {
@@ -12638,7 +12641,7 @@ async function buildAdsContext() {
       "SELECT ad_group.id, ad_group.name, ad_group.status, campaign.name, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
-      "FROM ad_group WHERE segments.date DURING LAST_90_DAYS AND ad_group.status != 'REMOVED' " +
+      "FROM ad_group WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' AND ad_group.status != 'REMOVED' " +
       "ORDER BY metrics.cost_micros DESC LIMIT 100"
     );
     if (adGroupData) {
@@ -12664,7 +12667,7 @@ async function buildAdsContext() {
       "campaign.name, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion, " +
       "metrics.search_impression_share " +
-      "FROM keyword_view WHERE segments.date DURING LAST_90_DAYS " +
+      "FROM keyword_view WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' " +
       "ORDER BY metrics.cost_micros DESC LIMIT 200"
     );
     if (kwData) {
@@ -12716,7 +12719,7 @@ async function buildAdsContext() {
       "campaign_criterion.location.geo_target_constant, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
-      "FROM geographic_view WHERE segments.date DURING LAST_90_DAYS " +
+      "FROM geographic_view WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' " +
       "ORDER BY metrics.impressions DESC LIMIT 100"
     );
     if (geoData) {
@@ -12739,7 +12742,7 @@ async function buildAdsContext() {
     var deviceData = await executeGAQL(
       "SELECT segments.device, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
-      "FROM campaign WHERE segments.date DURING LAST_90_DAYS"
+      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "'"
     );
     if (deviceData) {
       var deviceMap = {};
@@ -12799,7 +12802,7 @@ async function buildAdsContext() {
     var dowData = await executeGAQL(
       "SELECT segments.day_of_week, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.ctr " +
-      "FROM campaign WHERE segments.date DURING LAST_90_DAYS"
+      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "'"
     );
     if (dowData) {
       var dowMap = {};
@@ -12829,7 +12832,7 @@ async function buildAdsContext() {
     var monthData = await executeGAQL(
       "SELECT segments.month, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc " +
-      "FROM campaign WHERE segments.date DURING LAST_365_DAYS"
+      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 365*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "'"
     );
     if (monthData) {
       var monthMap = {};
@@ -12863,7 +12866,7 @@ async function buildAdsContext() {
     var dayData = await executeGAQL(
       "SELECT segments.date, metrics.impressions, metrics.clicks, metrics.cost_micros, " +
       "metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc " +
-      "FROM campaign WHERE segments.date DURING LAST_90_DAYS ORDER BY segments.date"
+      "FROM campaign WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' ORDER BY segments.date"
     );
     if (dayData) {
       var dayMap = {};
@@ -14279,7 +14282,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div id="monthDetail" style="display:none;background:rgba(10,20,35,0.6);border:1px solid #10b98120;padding:15px;margin-bottom:15px;"></div>';
 
   // Bollinger Bands
-  html += '<div class="section-title">📊 BOLLINGER BANDS <select id="bollingerRange" onchange="renderBollinger()" style="background:#0a1520;color:#a855f7;border:1px solid #a855f740;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0">ALL TIME</option></select></div>';
+  html += '<div class="section-title">📊 BOLLINGER BANDS <select id="bollingerRange" onchange="renderBollinger()" style="background:#0a1520;color:#a855f7;border:1px solid #a855f740;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="0" selected>ALL TIME</option><option value="365">1 YEAR</option><option value="730">2 YEARS</option><option value="180">6 MONTHS</option></select></div>';
   html += '<div class="chart-area" id="bollingerChart" style="height:220px;"></div>';
 
   // Fibonacci Retracement
@@ -14303,7 +14306,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div class="chart-area" id="methodChart" style="height:150px;"></div>';
 
   // Moving averages
-  html += '<div class="section-title">📉 MOVING AVERAGES <select id="maRange" onchange="renderMA()" style="background:#0a1520;color:#0af;border:1px solid #0af40;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0">ALL TIME</option></select></div>';
+  html += '<div class="section-title">📉 MOVING AVERAGES <select id="maRange" onchange="renderMA()" style="background:#0a1520;color:#0af;border:1px solid #0af40;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="0" selected>ALL TIME</option><option value="365">1 YEAR</option><option value="730">2 YEARS</option><option value="180">6 MONTHS</option></select></div>';
   html += '<div class="chart-area" id="maChart" style="height:200px;"></div>';
 
   // Revenue vs Refunds
@@ -14462,8 +14465,8 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '+"</div>";}';
 
   // BOLLINGER BANDS
-  html += 'function renderBollinger(){var c=document.getElementById("bollingerChart");if(!D||!D.analytics)return;var range=parseInt(document.getElementById("bollingerRange").value)||90;var bd=filterDays(D.analytics.payments.byDay,range);var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<5){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need more data for Bollinger Bands</div>";return;}';
-  html += 'var period=Math.min(20,Math.floor(days.length/2));var ma=[];var upper=[];var lower=[];';
+  html += 'function renderBollinger(){var c=document.getElementById("bollingerChart");if(!D||!D.analytics||!D.analytics.trends)return;var mr=D.analytics.trends.monthlyRevenue;var months=Object.keys(mr).sort();var range=parseInt(document.getElementById("bollingerRange").value)||0;if(range>0){var cutoff=new Date(Date.now()-range*86400000).toISOString().substring(0,7);months=months.filter(function(m){return m>=cutoff;});}var vals=months.map(function(k){return mr[k];});if(months.length<5){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need 5+ months — select a wider range</div>";return;}';
+  html += 'var period=Math.min(20,Math.floor(months.length/2));var ma=[];var upper=[];var lower=[];';
   html += 'for(var i=0;i<vals.length;i++){if(i<period-1){ma.push(null);upper.push(null);lower.push(null);continue;}';
   html += 'var slice=vals.slice(i-period+1,i+1);var avg=slice.reduce(function(a,b){return a+b;},0)/period;';
   html += 'var variance=slice.reduce(function(a,b){return a+Math.pow(b-avg,2);},0)/period;var std=Math.sqrt(variance);';
@@ -14495,7 +14498,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+="</svg>";c.innerHTML=h;}';
 
   // FIBONACCI RETRACEMENT
-  html += 'function renderFib(){var c=document.getElementById("fibChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need more data</div>";return;}';
+  html += 'function renderFib(){var c=document.getElementById("fibChart");if(!D||!D.analytics||!D.analytics.trends)return;var mr=D.analytics.trends.monthlyRevenue;var days=Object.keys(mr).sort();var vals=days.map(function(k){return mr[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need more data</div>";return;}';
   // Cumulative cash flow
   html += 'var cum=[];var running=0;vals.forEach(function(v){running+=v;cum.push(running);});';
   html += 'var high=Math.max.apply(null,cum);var low=Math.min.apply(null,cum);var diff=high-low;';
@@ -14567,7 +14570,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+="</svg>";c.innerHTML=h;}';
 
   // MOVING AVERAGES (7-day & 30-day)
-  html += 'function renderMA(){var c=document.getElementById("maChart");if(!D||!D.analytics)return;var range=parseInt(document.getElementById("maRange").value)||90;var bd=filterDays(D.analytics.payments.byDay,range);var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">Need more data</div>";return;}';
+  html += 'function renderMA(){var c=document.getElementById("maChart");if(!D||!D.analytics||!D.analytics.trends)return;var range=parseInt(document.getElementById("maRange").value)||0;var mr=D.analytics.trends.monthlyRevenue;var days=Object.keys(mr).sort();if(range>0){var cutoff=new Date(Date.now()-range*86400000).toISOString().substring(0,7);days=days.filter(function(m){return m>=cutoff;});}var vals=days.map(function(k){return mr[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">Need more data</div>";return;}';
   html += 'function calcMA(data,p){var r=[];for(var i=0;i<data.length;i++){if(i<p-1){r.push(null);continue;}var sum=0;for(var j=i-p+1;j<=i;j++)sum+=data[j];r.push(sum/p);}return r;}';
   html += 'var ma7=calcMA(vals,Math.min(7,vals.length));var ma30=calcMA(vals,Math.min(30,vals.length));';
   html += 'var allV=vals.concat(ma7.filter(function(v){return v!==null;}));var maxY=Math.max.apply(null,allV)||1;';
