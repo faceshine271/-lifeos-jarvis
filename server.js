@@ -1,4 +1,4 @@
-// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
+/ ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -134,17 +134,19 @@ async function squareGetCustomers() {
 }
 
 // ---- INVOICES ----
-async function squareGetInvoices(locationId) {
-  if (!locationId) { var locs = await squareGetLocations(); if (!locs.length) return []; locationId = locs[0].id; }
-  return await squareFetchAll('/invoices/search', 'POST', { query: { filter: { location_ids: [locationId] }, sort: { field: 'INVOICE_SORT_DATE', order: 'DESC' } } }, 'invoices');
+async function squareGetInvoices(locationIds) {
+  if (!locationIds) { var locs = await squareGetLocations(); if (!locs.length) return []; locationIds = locs.map(function(l){return l.id;}); }
+  if (!Array.isArray(locationIds)) locationIds = [locationIds];
+  return await squareFetchAll('/invoices/search', 'POST', { query: { filter: { location_ids: locationIds }, sort: { field: 'INVOICE_SORT_DATE', order: 'DESC' } } }, 'invoices');
 }
 
 // ---- ORDERS (with full line items) ----
-async function squareGetOrders(locationId, days) {
-  if (!locationId) { var locs = await squareGetLocations(); if (!locs.length) return []; locationId = locs[0].id; }
+async function squareGetOrders(locationIds, days) {
+  if (!locationIds) { var locs = await squareGetLocations(); if (!locs.length) return []; locationIds = locs.map(function(l){return l.id;}); }
+  if (!Array.isArray(locationIds)) locationIds = [locationIds];
   var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
   var d = await squareFetch('/orders/search', 'POST', {
-    location_ids: [locationId], query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 200
+    location_ids: locationIds, query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 200
   });
   return d && d.orders ? d.orders : [];
 }
@@ -281,8 +283,8 @@ async function squareFullSnapshot() {
   var [payments, customers, invoices, orders, catalog, team, refunds, disputes, payouts, shifts, giftCards, subscriptions, bookings, devices, custGroups, custSegments] = await Promise.all([
     squareGetPayments(30),
     squareGetCustomers(),
-    locId ? squareGetInvoices(locId) : Promise.resolve([]),
-    locId ? squareGetOrders(locId, 30) : Promise.resolve([]),
+    locIds.length ? squareGetInvoices(locIds) : Promise.resolve([]),
+    locIds.length ? squareGetOrders(locIds, 1500) : Promise.resolve([]),
     squareGetCatalog(),
     squareGetTeamMembers(),
     squareGetRefunds(30),
@@ -303,7 +305,12 @@ async function squareFullSnapshot() {
 
   // Try cash drawers
   var cashDrawers = [];
-  try { if (locId) cashDrawers = await squareGetCashDrawerShifts(locId); } catch(e){}
+  try { 
+    for (var ci = 0; ci < locations.length; ci++) {
+      var cdShifts = await squareGetCashDrawerShifts(locations[ci].id);
+      cashDrawers = cashDrawers.concat(cdShifts);
+    }
+  } catch(e){}
 
   // Try bank accounts
   var bankAccounts = [];
@@ -13650,7 +13657,7 @@ app.get('/square/api/snapshot', async function(req, res) {
 app.get('/square/api/customers', async function(req, res) { try { res.json({ customers: await squareGetCustomers() }); } catch (err) { res.json({ customers: [], error: err.message }); } });
 app.get('/square/api/payments', async function(req, res) { try { res.json({ payments: await squareGetPayments(parseInt(req.query.days)||30) }); } catch (err) { res.json({ payments: [], error: err.message }); } });
 app.get('/square/api/catalog', async function(req, res) { try { res.json({ catalog: await squareGetCatalog() }); } catch (err) { res.json({ catalog: [], error: err.message }); } });
-app.get('/square/api/orders', async function(req, res) { try { var locs = await squareGetLocations(); res.json({ orders: locs.length ? await squareGetOrders(locs[0].id, parseInt(req.query.days)||30) : [] }); } catch (err) { res.json({ orders: [], error: err.message }); } });
+app.get('/square/api/orders', async function(req, res) { try { var locs = await squareGetLocations(); var locIds = locs.map(function(l){return l.id;}); res.json({ orders: locIds.length ? await squareGetOrders(locIds, parseInt(req.query.days)||1500) : [] }); } catch (err) { res.json({ orders: [], error: err.message }); } });
 app.get('/square/api/shifts', async function(req, res) { try { res.json({ shifts: await squareGetShifts(parseInt(req.query.days)||14) }); } catch (err) { res.json({ shifts: [], error: err.message }); } });
 app.get('/square/api/payouts', async function(req, res) { try { res.json({ payouts: await squareGetPayouts(parseInt(req.query.days)||30) }); } catch (err) { res.json({ payouts: [], error: err.message }); } });
 
@@ -13763,6 +13770,44 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div class="stats" id="statsGrid"><div style="color:#4a6a8a;padding:20px;grid-column:1/-1;">Loading Square data...</div></div>';
   html += '<div class="section-title">📈 REVENUE (30 DAYS)</div><div class="chart-area" id="revenueChart"></div>';
   html += '<div class="section-title">🕐 REVENUE BY HOUR</div><div class="chart-area" id="hourChart" style="height:55px;"></div>';
+
+  // Monthly drill-down
+  html += '<div class="section-title">📅 MONTHLY BREAKDOWN</div>';
+  html += '<div id="yearTabs" class="tab-row" style="margin-bottom:5px;"></div>';
+  html += '<div class="chart-area" id="monthlyChart" style="height:220px;"></div>';
+  html += '<div id="monthDetail" style="display:none;background:rgba(10,20,35,0.6);border:1px solid #10b98120;padding:15px;margin-bottom:15px;"></div>';
+
+  // Bollinger Bands
+  html += '<div class="section-title">📊 BOLLINGER BANDS (20-DAY)</div>';
+  html += '<div class="chart-area" id="bollingerChart" style="height:220px;"></div>';
+
+  // Fibonacci Retracement
+  html += '<div class="section-title">🔢 FIBONACCI CASH FLOW LEVELS</div>';
+  html += '<div class="chart-area" id="fibChart" style="height:220px;"></div>';
+
+  // YoY comparison
+  html += '<div class="section-title">📈 YEAR OVER YEAR COMPARISON</div>';
+  html += '<div class="chart-area" id="yoyChart" style="height:200px;"></div>';
+
+  // Customer growth
+  html += '<div class="section-title">👥 CUSTOMER ACQUISITION TREND</div>';
+  html += '<div class="chart-area" id="custGrowthChart" style="height:180px;"></div>';
+
+  // Seasonal pattern
+  html += '<div class="section-title">🌡️ SEASONAL REVENUE PATTERN</div>';
+  html += '<div class="chart-area" id="seasonChart" style="height:180px;"></div>';
+
+  // Payment methods
+  html += '<div class="section-title">💳 PAYMENT METHODS</div>';
+  html += '<div class="chart-area" id="methodChart" style="height:150px;"></div>';
+
+  // Moving averages
+  html += '<div class="section-title">📉 MOVING AVERAGES (7-DAY / 30-DAY)</div>';
+  html += '<div class="chart-area" id="maChart" style="height:200px;"></div>';
+
+  // Revenue vs Refunds
+  html += '<div class="section-title">↩️ REVENUE vs REFUNDS</div>';
+  html += '<div class="chart-area" id="refundChart" style="height:160px;"></div>';
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:18px 0;">';
   html += '<button class="action-btn" onclick="analyze(\'full\')">⚡ FULL BRIEFING</button>';
   html += '<button class="action-btn purple" onclick="analyze(\'revenue\')">💰 REVENUE</button>';
@@ -13786,7 +13831,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<button class="tab-btn" onclick="showTab(\'subs\',this)">🔄 SUBS</button></div>';
   html += '<div id="tabContent" style="overflow-x:auto;"><div style="color:#4a6a8a;">Loading...</div></div></div>';
   html += '<script>var D=null;var curTab="payments";';
-  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderStats();renderChart();renderHourChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
   html += 'function renderStats(){if(!D||!D.analytics)return;var a=D.analytics;var h="";';
   html += 'h+=sc("$"+a.revenue.today.toFixed(0),"TODAY","");h+=sc("$"+a.revenue.week.toFixed(0),"THIS WEEK","");h+=sc((a.revenue.weekGrowth>=0?"+":"")+a.revenue.weekGrowth+"%","WEEK GROWTH",a.revenue.weekGrowth>=0?"":"danger");';
   html += 'h+=sc("$"+a.revenue.month30d.toFixed(0),"30-DAY REV","");h+=sc("$"+a.revenue.net.toFixed(0),"NET REVENUE","blue");h+=sc("$"+a.revenue.tips.toFixed(0),"TIPS","");h+=sc("$"+a.revenue.fees.toFixed(0),"FEES","warn");';
@@ -13814,6 +13859,174 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   // Charts
   html += 'function renderChart(){var c=document.getElementById("revenueChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(!days.length){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">No data</div>";return;}var max=Math.max.apply(null,vals)||1;var bw=Math.max(4,Math.min(16,((c.offsetWidth-40)/days.length)-2));var h="<svg width=\\"100%\\" height=\\"140\\">";days.forEach(function(d,i){var pct=vals[i]/max;var bh=Math.max(2,pct*120);var x=20+i*(bw+2);h+="<rect x=\\""+x+"\\" y=\\""+Math.round(130-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\"#10b981\\" opacity=\\"0.7\\"><title>"+d+": $"+vals[i].toFixed(2)+"</title></rect>";});h+="<text x=\\"0\\" y=\\"12\\" fill=\\"#10b981\\" font-size=\\"9\\" font-family=\\"Orbitron\\">$"+max.toFixed(0)+"</text></svg>";c.innerHTML=h;}';
   html += 'function renderHourChart(){var c=document.getElementById("hourChart");if(!D||!D.analytics)return;var bh=D.analytics.payments.byHour;var max=0;for(var k in bh){if(bh[k]>max)max=bh[k];}if(!max){c.innerHTML="";return;}var h="<svg width=\\"100%\\" height=\\"45\\">";for(var hr=0;hr<24;hr++){var v=bh[hr]||0;var opacity=Math.max(0.05,v/max);var x=(hr/24)*100;h+="<rect x=\\""+x+"%\\" y=\\"4\\" width=\\"3.8%\\" height=\\"25\\" fill=\\"#10b981\\" opacity=\\""+opacity.toFixed(2)+"\\" rx=\\"2\\"><title>"+hr+":00 $"+v.toFixed(0)+"</title></rect>";if(hr%3===0)h+="<text x=\\""+(x+0.5)+"%\\" y=\\"42\\" fill=\\"#4a6a8a\\" font-size=\\"7\\" font-family=\\"Orbitron\\">"+hr+"</text>";}h+="</svg>";c.innerHTML=h;}';
+
+  // SVG chart helper
+  html += 'function svgLine(pts,color,w,h,maxY,dash){var path="";pts.forEach(function(p,i){var x=(i/(pts.length-1))*w;var y=h-(p/maxY)*h;path+=(i===0?"M":"L")+x.toFixed(1)+","+y.toFixed(1);});return "<path d=\\""+path+"\\" stroke=\\""+color+"\\" fill=\\"none\\" stroke-width=\\"1.5\\" "+(dash?"stroke-dasharray=\\"4,3\\"":"")+" />";}';
+  html += 'function svgArea(pts,color,w,h,maxY){var path="M0,"+h;pts.forEach(function(p,i){var x=(i/(pts.length-1))*w;var y=h-(p/maxY)*h;path+="L"+x.toFixed(1)+","+y.toFixed(1);});path+="L"+w+","+h+"Z";return "<path d=\\""+path+"\\" fill=\\""+color+"\\" opacity=\\"0.15\\" />";}';
+
+  // MONTHLY BREAKDOWN with year tabs
+  html += 'function renderMonthly(){if(!D||!D.analytics||!D.analytics.trends)return;var mr=D.analytics.trends.monthlyRevenue;var mc=D.analytics.trends.monthlyPaymentCount;var years={};Object.keys(mr).forEach(function(m){var y=m.substring(0,4);if(!years[y])years[y]=[];years[y].push({month:m,rev:mr[m],count:mc[m]||0});});';
+  html += 'var yrs=Object.keys(years).sort();var tb=document.getElementById("yearTabs");var h="";yrs.forEach(function(y,i){h+="<button class=\\"tab-btn "+(i===yrs.length-1?"active":"")+"\\" onclick=\\"renderMonthBars(\'"+y+"\',this)\\">"+y+"</button>";});tb.innerHTML=h;';
+  html += 'if(yrs.length>0)renderMonthBars(yrs[yrs.length-1]);}';
+
+  html += 'var monthlyData={};function renderMonthBars(year,el){if(!D||!D.analytics)return;var mr=D.analytics.trends.monthlyRevenue;var mc=D.analytics.trends.monthlyPaymentCount;var mat=D.analytics.trends.monthlyAvgTicket;';
+  html += 'if(el){document.querySelectorAll("#yearTabs .tab-btn").forEach(function(b){b.classList.remove("active");});el.classList.add("active");}';
+  html += 'var months=[];for(var i=1;i<=12;i++){var key=year+"-"+(i<10?"0":"")+i;months.push({month:key,label:["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][i],rev:mr[key]||0,count:mc[key]||0,avg:mat[key]||0});}';
+  html += 'monthlyData=months;var max=0;months.forEach(function(m){if(m.rev>max)max=m.rev;});if(!max)max=1;';
+  html += 'var c=document.getElementById("monthlyChart");var W=c.offsetWidth-60;var bw=Math.max(20,(W/12)-8);';
+  html += 'var h="<svg width=\\"100%\\" height=\\"210\\">";';
+  html += 'months.forEach(function(m,i){var bh=Math.max(2,(m.rev/max)*160);var x=40+i*(bw+6);var clr=m.rev>0?"#10b981":"#1a2a3a";';
+  html += 'h+="<rect x=\\""+x+"\\" y=\\""+Math.round(175-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\""+clr+"\\" rx=\\"2\\" style=\\"cursor:pointer\\" onclick=\\"showMonthDetail("+i+")\\" ><title>"+m.label+" "+year+": $"+m.rev.toFixed(2)+" ("+m.count+" payments, avg $"+m.avg+")</title></rect>";';
+  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\"192\\" fill=\\"#4a6a8a\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">"+m.label+"</text>";';
+  html += 'if(m.rev>0)h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(170-bh)+"\\" fill=\\"#10b981\\" font-size=\\"7\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">$"+Math.round(m.rev)+"</text>";});';
+  html += 'h+="<text x=\\"5\\" y=\\"12\\" fill=\\"#4a6a8a\\" font-size=\\"8\\" font-family=\\"Orbitron\\">$"+Math.round(max)+"</text>";';
+  html += 'h+="<line x1=\\"40\\" y1=\\"175\\" x2=\\""+Math.round(40+12*(bw+6))+"\\" y2=\\"175\\" stroke=\\"#1a3a5a\\"/></svg>";c.innerHTML=h;}';
+
+  // Month detail panel
+  html += 'function showMonthDetail(i){var m=monthlyData[i];if(!m||m.rev===0){document.getElementById("monthDetail").style.display="none";return;}';
+  html += 'var d=document.getElementById("monthDetail");d.style.display="block";';
+  html += 'd.innerHTML="<div style=\\"font-family:Orbitron;font-size:0.7em;color:#10b981;letter-spacing:3px;margin-bottom:8px;\\">"+m.label.toUpperCase()+" "+m.month.substring(0,4)+"</div>"';
+  html += '+"<div style=\\"display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;\\">"';
+  html += '+"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#10b981;\\">$"+m.rev.toFixed(2)+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">REVENUE</div></div>"';
+  html += '+"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#0af;\\">"+m.count+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">PAYMENTS</div></div>"';
+  html += '+"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#a78bfa;\\">$"+m.avg+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">AVG TICKET</div></div>"';
+  html += '+"</div>";}';
+
+  // BOLLINGER BANDS
+  html += 'function renderBollinger(){var c=document.getElementById("bollingerChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<5){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need more data for Bollinger Bands</div>";return;}';
+  html += 'var period=Math.min(20,Math.floor(days.length/2));var ma=[];var upper=[];var lower=[];';
+  html += 'for(var i=0;i<vals.length;i++){if(i<period-1){ma.push(null);upper.push(null);lower.push(null);continue;}';
+  html += 'var slice=vals.slice(i-period+1,i+1);var avg=slice.reduce(function(a,b){return a+b;},0)/period;';
+  html += 'var variance=slice.reduce(function(a,b){return a+Math.pow(b-avg,2);},0)/period;var std=Math.sqrt(variance);';
+  html += 'ma.push(avg);upper.push(avg+2*std);lower.push(avg-2*std);}';
+  html += 'var allVals=vals.concat(upper.filter(function(v){return v!==null;}));var maxY=Math.max.apply(null,allVals)||1;var minY=0;';
+  html += 'var W=c.offsetWidth-20;var H=200;';
+  html += 'var h="<svg width=\\"100%\\" height=\\""+H+"\\">";';
+  // Upper band area fill
+  html += 'var areaPath="";var started=false;for(var i=0;i<vals.length;i++){if(upper[i]===null)continue;var x=(i/(vals.length-1))*W+10;if(!started){areaPath+="M"+x.toFixed(1)+","+(H-(upper[i]/maxY)*H).toFixed(1);started=true;}else{areaPath+="L"+x.toFixed(1)+","+(H-(upper[i]/maxY)*H).toFixed(1);}}';
+  html += 'for(var i=vals.length-1;i>=0;i--){if(lower[i]===null)continue;var x=(i/(vals.length-1))*W+10;areaPath+="L"+x.toFixed(1)+","+(H-(Math.max(0,lower[i])/maxY)*H).toFixed(1);}areaPath+="Z";';
+  html += 'h+="<path d=\\""+areaPath+"\\" fill=\\"#7c3aed\\" opacity=\\"0.1\\" />";';
+  // Price line
+  html += 'var pricePath="";vals.forEach(function(v,i){var x=(i/(vals.length-1))*W+10;var y=H-(v/maxY)*H;pricePath+=(i===0?"M":"L")+x.toFixed(1)+","+y.toFixed(1);});';
+  html += 'h+="<path d=\\""+pricePath+"\\" stroke=\\"#10b981\\" fill=\\"none\\" stroke-width=\\"1.5\\" />";';
+  // MA line
+  html += 'var maPath="";var maStarted=false;ma.forEach(function(v,i){if(v===null)return;var x=(i/(vals.length-1))*W+10;var y=H-(v/maxY)*H;maPath+=(maStarted?"L":"M")+x.toFixed(1)+","+y.toFixed(1);maStarted=true;});';
+  html += 'h+="<path d=\\""+maPath+"\\" stroke=\\"#f59e0b\\" fill=\\"none\\" stroke-width=\\"1.5\\" stroke-dasharray=\\"4,3\\" />";';
+  // Upper band
+  html += 'var upPath="";var upStarted=false;upper.forEach(function(v,i){if(v===null)return;var x=(i/(vals.length-1))*W+10;var y=H-(v/maxY)*H;upPath+=(upStarted?"L":"M")+x.toFixed(1)+","+y.toFixed(1);upStarted=true;});';
+  html += 'h+="<path d=\\""+upPath+"\\" stroke=\\"#7c3aed\\" fill=\\"none\\" stroke-width=\\"1\\" opacity=\\"0.5\\" />";';
+  // Lower band
+  html += 'var loPath="";var loStarted=false;lower.forEach(function(v,i){if(v===null)return;var x=(i/(vals.length-1))*W+10;var y=H-(Math.max(0,v)/maxY)*H;loPath+=(loStarted?"L":"M")+x.toFixed(1)+","+y.toFixed(1);loStarted=true;});';
+  html += 'h+="<path d=\\""+loPath+"\\" stroke=\\"#7c3aed\\" fill=\\"none\\" stroke-width=\\"1\\" opacity=\\"0.5\\" />";';
+  // Labels
+  html += 'h+="<text x=\\""+W+"\\" y=\\"12\\" fill=\\"#10b981\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"end\\">PRICE</text>";';
+  html += 'h+="<text x=\\""+W+"\\" y=\\"22\\" fill=\\"#f59e0b\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"end\\">MA"+period+"</text>";';
+  html += 'h+="<text x=\\""+W+"\\" y=\\"32\\" fill=\\"#7c3aed\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"end\\">±2σ BANDS</text>";';
+  html += 'h+="<text x=\\"5\\" y=\\"12\\" fill=\\"#4a6a8a\\" font-size=\\"8\\" font-family=\\"Orbitron\\">$"+Math.round(maxY)+"</text>";';
+  html += 'h+="</svg>";c.innerHTML=h;}';
+
+  // FIBONACCI RETRACEMENT
+  html += 'function renderFib(){var c=document.getElementById("fibChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:80px;\\">Need more data</div>";return;}';
+  // Cumulative cash flow
+  html += 'var cum=[];var running=0;vals.forEach(function(v){running+=v;cum.push(running);});';
+  html += 'var high=Math.max.apply(null,cum);var low=Math.min.apply(null,cum);var diff=high-low;';
+  html += 'var fibs=[{level:0,pct:"0%",val:high},{level:0.236,pct:"23.6%",val:high-diff*0.236},{level:0.382,pct:"38.2%",val:high-diff*0.382},{level:0.5,pct:"50%",val:high-diff*0.5},{level:0.618,pct:"61.8%",val:high-diff*0.618},{level:0.786,pct:"78.6%",val:high-diff*0.786},{level:1,pct:"100%",val:low}];';
+  html += 'var maxY=high*1.05;if(maxY===0)maxY=1;var W=c.offsetWidth-80;var H=200;';
+  html += 'var h="<svg width=\\"100%\\" height=\\""+H+"\\">";';
+  // Cash flow line
+  html += 'var path="";cum.forEach(function(v,i){var x=70+(i/(cum.length-1))*W;var y=H*0.05+((maxY-v)/maxY)*(H*0.9);path+=(i===0?"M":"L")+x.toFixed(1)+","+y.toFixed(1);});';
+  html += 'h+="<path d=\\""+path+"\\" stroke=\\"#10b981\\" fill=\\"none\\" stroke-width=\\"2\\" />";';
+  // Fib levels
+  html += 'var colors=["#10b981","#0af","#0af","#f59e0b","#f59e0b","#ef4444","#ef4444"];';
+  html += 'fibs.forEach(function(f,i){var y=H*0.05+((maxY-f.val)/maxY)*(H*0.9);';
+  html += 'h+="<line x1=\\"70\\" y1=\\""+y.toFixed(1)+"\\" x2=\\""+(70+W)+"\\" y2=\\""+y.toFixed(1)+"\\" stroke=\\""+colors[i]+"\\" stroke-width=\\"1\\" stroke-dasharray=\\"3,3\\" opacity=\\"0.6\\" />";';
+  html += 'h+="<text x=\\"2\\" y=\\""+(y+3).toFixed(1)+"\\" fill=\\""+colors[i]+"\\" font-size=\\"7\\" font-family=\\"Orbitron\\">"+f.pct+"</text>";';
+  html += 'h+="<text x=\\"30\\" y=\\""+(y+3).toFixed(1)+"\\" fill=\\"#4a6a8a\\" font-size=\\"7\\" font-family=\\"Orbitron\\">$"+Math.round(f.val)+"</text>";});';
+  html += 'h+="</svg>";c.innerHTML=h;}';
+
+  // YEAR OVER YEAR
+  html += 'function renderYoY(){var c=document.getElementById("yoyChart");if(!D||!D.analytics||!D.analytics.trends)return;var yr=D.analytics.trends.yearlyRevenue;var yp=D.analytics.trends.yearlyPayments;var yrs=Object.keys(yr).sort();if(!yrs.length){c.innerHTML="";return;}';
+  html += 'var max=0;yrs.forEach(function(y){if(yr[y]>max)max=yr[y];});if(!max)max=1;';
+  html += 'var W=c.offsetWidth-40;var bw=Math.max(40,Math.min(80,(W/yrs.length)-20));';
+  html += 'var h="<svg width=\\"100%\\" height=\\"180\\">";yrs.forEach(function(y,i){var bh=Math.max(2,(yr[y]/max)*140);var x=30+i*(bw+15);var growth="";';
+  html += 'if(i>0){var prev=yr[yrs[i-1]];var pct=prev>0?Math.round(((yr[y]-prev)/prev)*100):0;growth=(pct>=0?"+":"")+pct+"%";}';
+  html += 'h+="<rect x=\\""+x+"\\" y=\\""+Math.round(155-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\"#10b981\\" rx=\\"3\\" opacity=\\"0.8\\"><title>"+y+": $"+yr[y].toFixed(2)+" ("+yp[y]+" payments)</title></rect>";';
+  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\"170\\" fill=\\"#c0d8f0\\" font-size=\\"11\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\" font-weight=\\"700\\">"+y+"</text>";';
+  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(150-bh)+"\\" fill=\\"#10b981\\" font-size=\\"9\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">$"+Math.round(yr[y])+"</text>";';
+  html += 'if(growth){var gc=growth.startsWith("+")?  "#10b981":"#ef4444";h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(140-bh)+"\\" fill=\\""+gc+"\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">"+growth+"</text>";}});';
+  html += 'h+="</svg>";c.innerHTML=h;}';
+
+  // CUSTOMER GROWTH
+  html += 'function renderCustGrowth(){var c=document.getElementById("custGrowthChart");if(!D||!D.analytics||!D.analytics.trends)return;var mc=D.analytics.trends.monthlyCustomers;var months=Object.keys(mc).sort();if(!months.length){c.innerHTML="";return;}';
+  html += 'var vals=months.map(function(m){return mc[m];});var cum=[];var running=0;vals.forEach(function(v){running+=v;cum.push(running);});';
+  html += 'var max=Math.max.apply(null,cum)||1;var W=c.offsetWidth-40;var H=160;';
+  html += 'var h="<svg width=\\"100%\\" height=\\""+H+"\\">";';
+  // Area fill
+  html += 'var aPath="M20,"+H;cum.forEach(function(v,i){var x=20+(i/(cum.length-1))*W;var y=H-(v/max)*(H-20);aPath+="L"+x.toFixed(1)+","+y.toFixed(1);});aPath+="L"+(20+W)+","+H+"Z";';
+  html += 'h+="<path d=\\""+aPath+"\\" fill=\\"#0af\\" opacity=\\"0.1\\" />";';
+  // Line
+  html += 'var lPath="";cum.forEach(function(v,i){var x=20+(i/(cum.length-1))*W;var y=H-(v/max)*(H-20);lPath+=(i===0?"M":"L")+x.toFixed(1)+","+y.toFixed(1);});';
+  html += 'h+="<path d=\\""+lPath+"\\" stroke=\\"#0af\\" fill=\\"none\\" stroke-width=\\"2\\" />";';
+  // Monthly bars underneath
+  html += 'var bMax=Math.max.apply(null,vals)||1;vals.forEach(function(v,i){var x=20+(i/(vals.length-1))*W;var bh=(v/bMax)*40;h+="<rect x=\\""+(x-2)+"\\" y=\\""+(H-bh)+"\\" width=\\"4\\" height=\\""+bh+"\\" fill=\\"#7c3aed\\" opacity=\\"0.4\\" />";});';
+  html += 'h+="<text x=\\"5\\" y=\\"12\\" fill=\\"#0af\\" font-size=\\"8\\" font-family=\\"Orbitron\\">"+max+" total</text>";';
+  html += 'h+="<text x=\\""+W+"\\" y=\\"12\\" fill=\\"#7c3aed\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"end\\">Monthly New</text>";';
+  html += 'h+="</svg>";c.innerHTML=h;}';
+
+  // SEASONAL PATTERN
+  html += 'function renderSeason(){var c=document.getElementById("seasonChart");if(!D||!D.analytics||!D.analytics.trends)return;var sa=D.analytics.trends.seasonalAvg;var months=["01","02","03","04","05","06","07","08","09","10","11","12"];var labels=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];';
+  html += 'var vals=months.map(function(m){return sa[m]||0;});var max=Math.max.apply(null,vals)||1;';
+  html += 'var W=c.offsetWidth-40;var bw=Math.max(15,(W/12)-6);var H=160;';
+  html += 'var h="<svg width=\\"100%\\" height=\\""+H+"\\">";vals.forEach(function(v,i){var bh=Math.max(2,(v/max)*130);var x=20+i*(bw+5);';
+  html += 'var pct=v/max;var clr=pct>0.8?"#10b981":pct>0.5?"#0af":pct>0.3?"#f59e0b":"#ef4444";';
+  html += 'h+="<rect x=\\""+x+"\\" y=\\""+Math.round(145-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\""+clr+"\\" rx=\\"2\\" opacity=\\"0.8\\"><title>"+labels[i]+": avg $"+v+"</title></rect>";';
+  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\"158\\" fill=\\"#4a6a8a\\" font-size=\\"7\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">"+labels[i]+"</text>";';
+  html += 'if(v>0)h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(140-bh)+"\\" fill=\\""+clr+"\\" font-size=\\"7\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">$"+v+"</text>";});';
+  html += 'h+="</svg>";c.innerHTML=h;}';
+
+  // PAYMENT METHODS
+  html += 'function renderMethods(){var c=document.getElementById("methodChart");if(!D||!D.analytics)return;var bm=D.analytics.payments.byMethod;var entries=Object.entries(bm).sort(function(a,b){return b[1].total-a[1].total;});if(!entries.length){c.innerHTML="";return;}';
+  html += 'var total=entries.reduce(function(s,e){return s+e[1].total;},0)||1;var colors=["#10b981","#0af","#7c3aed","#f59e0b","#ef4444","#ec4899","#a78bfa"];';
+  html += 'var W=c.offsetWidth;var H=130;var h="<svg width=\\"100%\\" height=\\""+H+"\\">";';
+  // Stacked bar
+  html += 'var cx=20;entries.forEach(function(e,i){var pct=e[1].total/total;var bw=Math.max(4,pct*(W-40));';
+  html += 'h+="<rect x=\\""+cx+"\\" y=\\"10\\" width=\\""+bw+"\\" height=\\"40\\" fill=\\""+colors[i%colors.length]+"\\" rx=\\"2\\"><title>"+e[0]+": $"+e[1].total.toFixed(0)+" ("+e[1].count+" payments)</title></rect>";cx+=bw+2;});';
+  // Legend
+  html += 'var ly=70;entries.forEach(function(e,i){var pct=Math.round((e[1].total/total)*100);';
+  html += 'h+="<rect x=\\"20\\" y=\\""+ly+"\\" width=\\"12\\" height=\\"12\\" fill=\\""+colors[i%colors.length]+"\\" rx=\\"2\\" />";';
+  html += 'h+="<text x=\\"38\\" y=\\""+(ly+10)+"\\" fill=\\"#c0d8f0\\" font-size=\\"10\\" font-family=\\"Rajdhani\\">"+e[0]+" — $"+Math.round(e[1].total)+" ("+pct+"%) — "+e[1].count+" payments</text>";ly+=18;});';
+  html += 'h+="</svg>";c.innerHTML=h;}';
+
+  // MOVING AVERAGES (7-day & 30-day)
+  html += 'function renderMA(){var c=document.getElementById("maChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(days.length<3){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">Need more data</div>";return;}';
+  html += 'function calcMA(data,p){var r=[];for(var i=0;i<data.length;i++){if(i<p-1){r.push(null);continue;}var sum=0;for(var j=i-p+1;j<=i;j++)sum+=data[j];r.push(sum/p);}return r;}';
+  html += 'var ma7=calcMA(vals,Math.min(7,vals.length));var ma30=calcMA(vals,Math.min(30,vals.length));';
+  html += 'var allV=vals.concat(ma7.filter(function(v){return v!==null;}));var maxY=Math.max.apply(null,allV)||1;';
+  html += 'var W=c.offsetWidth-20;var H=180;var h="<svg width=\\"100%\\" height=\\""+H+"\\">";';
+  // Raw data
+  html += 'vals.forEach(function(v,i){var x=10+(i/(vals.length-1))*W;var bh=(v/maxY)*(H-20);h+="<rect x=\\""+(x-1)+"\\" y=\\""+(H-bh)+"\\" width=\\"3\\" height=\\""+bh+"\\" fill=\\"#10b981\\" opacity=\\"0.3\\" />";});';
+  // 7-day MA
+  html += 'var p7="";var s7=false;ma7.forEach(function(v,i){if(v===null)return;var x=10+(i/(vals.length-1))*W;var y=H-(v/maxY)*(H-20);p7+=(s7?"L":"M")+x.toFixed(1)+","+y.toFixed(1);s7=true;});';
+  html += 'h+="<path d=\\""+p7+"\\" stroke=\\"#0af\\" fill=\\"none\\" stroke-width=\\"2\\" />";';
+  // 30-day MA
+  html += 'var p30="";var s30=false;ma30.forEach(function(v,i){if(v===null)return;var x=10+(i/(vals.length-1))*W;var y=H-(v/maxY)*(H-20);p30+=(s30?"L":"M")+x.toFixed(1)+","+y.toFixed(1);s30=true;});';
+  html += 'if(p30)h+="<path d=\\""+p30+"\\" stroke=\\"#f59e0b\\" fill=\\"none\\" stroke-width=\\"2\\" />";';
+  // Legend
+  html += 'h+="<text x=\\""+W+"\\" y=\\"12\\" fill=\\"#0af\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"end\\">7-DAY MA</text>";';
+  html += 'h+="<text x=\\""+W+"\\" y=\\"22\\" fill=\\"#f59e0b\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"end\\">30-DAY MA</text>";';
+  html += 'h+="<text x=\\"5\\" y=\\"12\\" fill=\\"#4a6a8a\\" font-size=\\"8\\" font-family=\\"Orbitron\\">$"+Math.round(maxY)+"</text>";';
+  html += 'h+="</svg>";c.innerHTML=h;}';
+
+  // REVENUE vs REFUNDS
+  html += 'function renderRefundChart(){var c=document.getElementById("refundChart");if(!D||!D.analytics)return;var mr=D.analytics.trends.monthlyRevenue;if(!mr){c.innerHTML="";return;}var months=Object.keys(mr).sort();if(!months.length){c.innerHTML="";return;}';
+  html += 'var vals=months.map(function(m){return mr[m];});var max=Math.max.apply(null,vals)||1;';
+  html += 'var refTotal=D.analytics.refunds.total;var refRate=D.analytics.refunds.rate;';
+  html += 'var W=c.offsetWidth-40;var H=140;var bw=Math.max(3,(W/months.length)-2);';
+  html += 'var h="<svg width=\\"100%\\" height=\\""+H+"\\">";months.forEach(function(m,i){var v=mr[m];var bh=Math.max(1,(v/max)*110);var x=20+i*(bw+2);';
+  html += 'h+="<rect x=\\""+x+"\\" y=\\""+Math.round(120-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\"#10b981\\" opacity=\\"0.7\\" rx=\\"1\\"><title>"+m+": $"+v.toFixed(0)+"</title></rect>";});';
+  html += 'h+="<text x=\\""+W+"\\" y=\\"12\\" fill=\\"#ef4444\\" font-size=\\"9\\" font-family=\\"Orbitron\\" text-anchor=\\"end\\">REFUNDS: $"+refTotal.toFixed(0)+" ("+refRate+"%)</text>";';
+  html += 'h+="<text x=\\"5\\" y=\\"12\\" fill=\\"#10b981\\" font-size=\\"8\\" font-family=\\"Orbitron\\">REVENUE</text>";';
+  html += 'h+="</svg>";c.innerHTML=h;}';
   // Tabs
   html += 'function showTab(tab,el){curTab=tab;document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});if(el)el.classList.add("active");var c=document.getElementById("tabContent");if(!D){c.innerHTML="Loading...";return;}';
   html += 'if(tab==="payments")rPay(c);else if(tab==="orders")rOrd(c);else if(tab==="invoices")rInv(c);else if(tab==="customers")rCust(c);else if(tab==="items")rItems(c);else if(tab==="refunds")rRef(c);else if(tab==="disputes")rDisp(c);else if(tab==="payouts")rPay2(c);else if(tab==="shifts")rShift(c);else if(tab==="catalog")rCat(c);else if(tab==="giftcards")rGC(c);else if(tab==="subs")rSub(c);}';
