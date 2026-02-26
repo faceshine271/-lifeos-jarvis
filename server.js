@@ -1,3 +1,4 @@
+// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -73,6 +74,545 @@ const FOLLOWUP_OPENAI_KEY = process.env.FOLLOWUP_OPENAI_KEY || '';
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || '';
 var discordCache = { channels: null, messages: {}, time: 0 };
+
+// Square API config
+const SQUARE_ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN || '';
+const SQUARE_BASE = process.env.SQUARE_ENV === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
+var squareCache = { time: 0 };
+
+async function squareFetch(endpoint, method, body) {
+  if (!SQUARE_ACCESS_TOKEN) return null;
+  try {
+    var opts = {
+      method: method || 'GET',
+      headers: { 'Authorization': 'Bearer ' + SQUARE_ACCESS_TOKEN, 'Content-Type': 'application/json', 'Square-Version': '2024-12-18' }
+    };
+    if (body) opts.body = JSON.stringify(body);
+    var r = await fetch(SQUARE_BASE + '/v2' + endpoint, opts);
+    if (!r.ok) { console.log('Square API error ' + endpoint + ':', r.status); return null; }
+    return await r.json();
+  } catch (err) { console.log('Square fetch error:', err.message); return null; }
+}
+
+// Paginated fetcher — handles any Square list endpoint
+async function squareFetchAll(endpoint, method, body, listKey, maxPages) {
+  var all = []; var cursor = '';
+  for (var i = 0; i < (maxPages || 50); i++) {
+    var url = endpoint;
+    var reqBody = body ? JSON.parse(JSON.stringify(body)) : null;
+    if (method === 'GET') {
+      url += (url.includes('?') ? '&' : '?') + 'limit=100';
+      if (cursor) url += '&cursor=' + cursor;
+    } else if (reqBody) {
+      reqBody.limit = 100;
+      if (cursor) reqBody.cursor = cursor;
+    }
+    var d = await squareFetch(url, method, reqBody);
+    if (!d) break;
+    if (d[listKey]) all = all.concat(d[listKey]);
+    if (!d.cursor) break;
+    cursor = d.cursor;
+  }
+  return all;
+}
+
+// ---- LOCATIONS ----
+async function squareGetLocations() {
+  var d = await squareFetch('/locations');
+  return d && d.locations ? d.locations : [];
+}
+
+// ---- PAYMENTS (last N days) ----
+async function squareGetPayments(days) { // default: all since 2022
+  var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
+  return await squareFetchAll('/payments?begin_time=' + encodeURIComponent(begin) + '&end_time=' + encodeURIComponent(new Date().toISOString()) + '&sort_order=DESC', 'GET', null, 'payments');
+}
+
+// ---- CUSTOMERS ----
+async function squareGetCustomers() {
+  return await squareFetchAll('/customers', 'GET', null, 'customers');
+}
+
+// ---- INVOICES ----
+async function squareGetInvoices(locationId) {
+  if (!locationId) { var locs = await squareGetLocations(); if (!locs.length) return []; locationId = locs[0].id; }
+  return await squareFetchAll('/invoices/search', 'POST', { query: { filter: { location_ids: [locationId] }, sort: { field: 'INVOICE_SORT_DATE', order: 'DESC' } } }, 'invoices');
+}
+
+// ---- ORDERS (with full line items) ----
+async function squareGetOrders(locationId, days) {
+  if (!locationId) { var locs = await squareGetLocations(); if (!locs.length) return []; locationId = locs[0].id; }
+  var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
+  var d = await squareFetch('/orders/search', 'POST', {
+    location_ids: [locationId], query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 200
+  });
+  return d && d.orders ? d.orders : [];
+}
+
+// ---- CATALOG (items, variations, categories, discounts, taxes, modifiers) ----
+async function squareGetCatalog() {
+  return await squareFetchAll('/catalog/list?types=ITEM,ITEM_VARIATION,CATEGORY,DISCOUNT,TAX,MODIFIER,MODIFIER_LIST,IMAGE', 'GET', null, 'objects');
+}
+
+// ---- INVENTORY COUNTS ----
+async function squareGetInventory() {
+  var d = await squareFetch('/inventory/counts/batch-retrieve', 'POST', { limit: 100 });
+  return d && d.counts ? d.counts : [];
+}
+
+// ---- TEAM MEMBERS ----
+async function squareGetTeamMembers() {
+  var d = await squareFetch('/team-members/search', 'POST', { limit: 100 });
+  return d && d.team_members ? d.team_members : [];
+}
+
+// ---- LABOR / SHIFTS ----
+async function squareGetShifts(days) {
+  var begin = new Date(Date.now() - (days || 14) * 86400000).toISOString();
+  var d = await squareFetch('/labor/shifts/search', 'POST', {
+    query: { filter: { start: { start_at: begin } }, sort: { field: 'START_AT', order: 'DESC' } }, limit: 200
+  });
+  return d && d.shifts ? d.shifts : [];
+}
+
+// ---- BREAK TYPES ----
+async function squareGetBreakTypes() {
+  var locs = await squareGetLocations();
+  if (!locs.length) return [];
+  var d = await squareFetch('/labor/break-types?location_id=' + locs[0].id);
+  return d && d.break_types ? d.break_types : [];
+}
+
+// ---- REFUNDS ----
+async function squareGetRefunds(days) {
+  var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
+  return await squareFetchAll('/refunds?begin_time=' + encodeURIComponent(begin), 'GET', null, 'refunds');
+}
+
+// ---- DISPUTES ----
+async function squareGetDisputes() {
+  var d = await squareFetch('/disputes?limit=50');
+  return d && d.disputes ? d.disputes : [];
+}
+
+// ---- PAYOUTS (bank deposits) ----
+async function squareGetPayouts(days) {
+  var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
+  var d = await squareFetch('/payouts?begin_time=' + encodeURIComponent(begin) + '&limit=50');
+  return d && d.payouts ? d.payouts : [];
+}
+
+// ---- LOYALTY PROGRAM ----
+async function squareGetLoyaltyProgram() {
+  var d = await squareFetch('/loyalty/programs/main');
+  return d && d.program ? d.program : null;
+}
+
+async function squareGetLoyaltyAccounts() {
+  var d = await squareFetch('/loyalty/accounts/search', 'POST', { limit: 100 });
+  return d && d.loyalty_accounts ? d.loyalty_accounts : [];
+}
+
+// ---- GIFT CARDS ----
+async function squareGetGiftCards() {
+  var d = await squareFetch('/gift-cards?limit=100');
+  return d && d.gift_cards ? d.gift_cards : [];
+}
+
+// ---- BOOKINGS / APPOINTMENTS ----
+async function squareGetBookings(days) {
+  var begin = new Date(Date.now() - (days || 14) * 86400000).toISOString();
+  var d = await squareFetch('/bookings?start_at_min=' + encodeURIComponent(begin) + '&limit=100');
+  return d && d.bookings ? d.bookings : [];
+}
+
+// ---- SUBSCRIPTIONS ----
+async function squareGetSubscriptions() {
+  var d = await squareFetch('/subscriptions/search', 'POST', { limit: 100 });
+  return d && d.subscriptions ? d.subscriptions : [];
+}
+
+// ---- CASH DRAWERS ----
+async function squareGetCashDrawerShifts(locationId) {
+  if (!locationId) { var locs = await squareGetLocations(); if (!locs.length) return []; locationId = locs[0].id; }
+  var d = await squareFetch('/cash-drawers/shifts?location_id=' + locationId + '&limit=50');
+  return d && d.items ? d.items : [];
+}
+
+// ---- DEVICES / TERMINALS ----
+async function squareGetDevices() {
+  var d = await squareFetch('/devices');
+  return d && d.devices ? d.devices : [];
+}
+
+// ---- BANK ACCOUNTS ----
+async function squareGetBankAccounts() {
+  var d = await squareFetch('/bank-accounts');
+  return d && d.bank_accounts ? d.bank_accounts : [];
+}
+
+// ---- CUSTOMER GROUPS / SEGMENTS ----
+async function squareGetCustomerGroups() {
+  var d = await squareFetch('/customers/groups?limit=100');
+  return d && d.groups ? d.groups : [];
+}
+
+async function squareGetCustomerSegments() {
+  var d = await squareFetch('/customers/segments?limit=100');
+  return d && d.segments ? d.segments : [];
+}
+
+function squareMoney(amtObj) {
+  if (!amtObj || amtObj.amount === undefined) return '$0.00';
+  return '$' + (amtObj.amount / 100).toFixed(2);
+}
+function sqCents(amtObj) { return amtObj && amtObj.amount ? amtObj.amount / 100 : 0; }
+
+// ---- FULL SNAPSHOT (cached 5min) ----
+async function squareFullSnapshot() {
+  var now = Date.now();
+  if (squareCache.payments && (now - squareCache.time) < 300000) return squareCache;
+
+  var locations = await squareGetLocations();
+  var locId = locations.length > 0 ? locations[0].id : '';
+  var locIds = locations.map(function(l){return l.id;});
+
+  // Parallel fetch for speed
+  var [payments, customers, invoices, orders, catalog, team, refunds, disputes, payouts, shifts, giftCards, subscriptions, bookings, devices, custGroups, custSegments] = await Promise.all([
+    squareGetPayments(30),
+    squareGetCustomers(),
+    locId ? squareGetInvoices(locId) : Promise.resolve([]),
+    locId ? squareGetOrders(locId, 30) : Promise.resolve([]),
+    squareGetCatalog(),
+    squareGetTeamMembers(),
+    squareGetRefunds(30),
+    squareGetDisputes(),
+    squareGetPayouts(30),
+    squareGetShifts(14),
+    squareGetGiftCards(),
+    squareGetSubscriptions(),
+    squareGetBookings(14),
+    squareGetDevices(),
+    squareGetCustomerGroups(),
+    squareGetCustomerSegments()
+  ]);
+
+  // Try loyalty (may 404 if not enabled)
+  var loyalty = null; var loyaltyAccounts = [];
+  try { loyalty = await squareGetLoyaltyProgram(); if (loyalty) loyaltyAccounts = await squareGetLoyaltyAccounts(); } catch(e){}
+
+  // Try cash drawers
+  var cashDrawers = [];
+  try { if (locId) cashDrawers = await squareGetCashDrawerShifts(locId); } catch(e){}
+
+  // Try bank accounts
+  var bankAccounts = [];
+  try { bankAccounts = await squareGetBankAccounts(); } catch(e){}
+
+  squareCache = {
+    payments: payments, customers: customers, invoices: invoices, orders: orders,
+    catalog: catalog, locations: locations, team: team, refunds: refunds,
+    disputes: disputes, payouts: payouts, shifts: shifts, giftCards: giftCards,
+    subscriptions: subscriptions, bookings: bookings, devices: devices,
+    loyalty: loyalty, loyaltyAccounts: loyaltyAccounts, cashDrawers: cashDrawers,
+    bankAccounts: bankAccounts, custGroups: custGroups, custSegments: custSegments,
+    locIds: locIds, time: now
+  };
+  return squareCache;
+}
+
+// ---- DEEP ANALYTICS ENGINE ----
+function squareAnalyze(snap) {
+  var payments = snap.payments || []; var customers = snap.customers || [];
+  var invoices = snap.invoices || []; var orders = snap.orders || [];
+  var refunds = snap.refunds || []; var disputes = snap.disputes || [];
+  var payouts = snap.payouts || []; var shifts = snap.shifts || [];
+  var catalog = snap.catalog || []; var team = snap.team || [];
+
+  var today = new Date().toISOString().substring(0, 10);
+  var weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  var prevWeekStart = new Date(Date.now() - 14 * 86400000).toISOString();
+  var completed = payments.filter(function(p){return p.status==='COMPLETED';});
+
+  // Revenue breakdown
+  var totalRev = 0; var todayRev = 0; var weekRev = 0; var prevWeekRev = 0;
+  var grossRev = 0; var totalTips = 0; var totalFees = 0;
+  var paymentsByDay = {}; var paymentsByHour = {}; var paymentsByDayOfWeek = {};
+  var paymentsByMethod = {}; var paymentsByLocation = {};
+  var avgTickets = []; var tipsByEmployee = {};
+
+  completed.forEach(function(p) {
+    var amt = sqCents(p.amount_money);
+    var tip = sqCents(p.tip_money);
+    var fee = sqCents(p.processing_fee ? p.processing_fee[0] : null);
+    grossRev += amt; totalTips += tip; totalFees += Math.abs(fee);
+    totalRev += amt;
+    avgTickets.push(amt);
+
+    var day = (p.created_at || '').substring(0, 10);
+    var hour = new Date(p.created_at).getHours();
+    var dow = new Date(p.created_at).toLocaleDateString('en-US', { weekday: 'short' });
+    if (day === today) todayRev += amt;
+    if (p.created_at >= weekAgo) weekRev += amt;
+    if (p.created_at >= prevWeekStart && p.created_at < weekAgo) prevWeekRev += amt;
+    paymentsByDay[day] = (paymentsByDay[day] || 0) + amt;
+    paymentsByHour[hour] = (paymentsByHour[hour] || 0) + amt;
+    paymentsByDayOfWeek[dow] = (paymentsByDayOfWeek[dow] || 0) + amt;
+
+    var method = p.source_type || 'OTHER';
+    if (!paymentsByMethod[method]) paymentsByMethod[method] = { count: 0, total: 0 };
+    paymentsByMethod[method].count++; paymentsByMethod[method].total += amt;
+
+    var locName = p.location_id || 'unknown';
+    if (!paymentsByLocation[locName]) paymentsByLocation[locName] = { count: 0, total: 0 };
+    paymentsByLocation[locName].count++; paymentsByLocation[locName].total += amt;
+
+    // Tips by employee
+    if (p.employee_id && tip > 0) {
+      if (!tipsByEmployee[p.employee_id]) tipsByEmployee[p.employee_id] = { tips: 0, count: 0 };
+      tipsByEmployee[p.employee_id].tips += tip; tipsByEmployee[p.employee_id].count++;
+    }
+  });
+
+  var avgTicket = avgTickets.length > 0 ? avgTickets.reduce(function(a,b){return a+b;},0) / avgTickets.length : 0;
+  var medianTicket = 0;
+  if (avgTickets.length > 0) { avgTickets.sort(function(a,b){return a-b;}); medianTicket = avgTickets[Math.floor(avgTickets.length/2)]; }
+  var maxTicket = avgTickets.length > 0 ? Math.max.apply(null, avgTickets) : 0;
+  var minTicket = avgTickets.length > 0 ? Math.min.apply(null, avgTickets) : 0;
+  var weekGrowth = prevWeekRev > 0 ? Math.round(((weekRev - prevWeekRev) / prevWeekRev) * 100) : 0;
+  var netRev = grossRev - totalFees;
+
+  // Peak hour/day
+  var peakHour = Object.entries(paymentsByHour).sort(function(a,b){return b[1]-a[1];})[0];
+  var peakDay = Object.entries(paymentsByDayOfWeek).sort(function(a,b){return b[1]-a[1];})[0];
+  var slowHour = Object.entries(paymentsByHour).sort(function(a,b){return a[1]-b[1];})[0];
+
+  // Customer analytics
+  var newCustomers30d = customers.filter(function(c) { return c.created_at && c.created_at >= new Date(Date.now()-30*86400000).toISOString(); }).length;
+  var newCustomers7d = customers.filter(function(c) { return c.created_at && c.created_at >= weekAgo; }).length;
+  var custWithEmail = customers.filter(function(c){return c.email_address;}).length;
+  var custWithPhone = customers.filter(function(c){return c.phone_number;}).length;
+  var custWithNote = customers.filter(function(c){return c.note;}).length;
+
+  // Invoice analytics
+  var unpaidInv = invoices.filter(function(i){return i.status==='UNPAID'||i.status==='SENT'||i.status==='SCHEDULED';});
+  var overdueInv = invoices.filter(function(i){return i.status==='OVERDUE';});
+  var paidInv = invoices.filter(function(i){return i.status==='PAID';});
+  var cancelledInv = invoices.filter(function(i){return i.status==='CANCELED';});
+  var unpaidTotal = 0; var overdueTotal = 0;
+  unpaidInv.forEach(function(inv){ if(inv.payment_requests) inv.payment_requests.forEach(function(pr){ if(pr.computed_amount_money) unpaidTotal+=pr.computed_amount_money.amount/100; }); });
+  overdueInv.forEach(function(inv){ if(inv.payment_requests) inv.payment_requests.forEach(function(pr){ if(pr.computed_amount_money) overdueTotal+=pr.computed_amount_money.amount/100; }); });
+
+  // Order line item analytics
+  var itemSales = {}; var discountsApplied = 0; var discountTotal = 0;
+  var taxTotal = 0; var serviceChargeTotal = 0;
+  orders.forEach(function(o) {
+    if (o.line_items) o.line_items.forEach(function(li) {
+      var name = li.name || li.catalog_object_id || 'Unknown';
+      if (!itemSales[name]) itemSales[name] = { count: 0, revenue: 0, qty: 0 };
+      itemSales[name].count++;
+      itemSales[name].qty += parseInt(li.quantity || '1');
+      itemSales[name].revenue += sqCents(li.total_money);
+    });
+    if (o.discounts) o.discounts.forEach(function(disc) {
+      discountsApplied++; discountTotal += sqCents(disc.applied_money);
+    });
+    if (o.taxes) o.taxes.forEach(function(t) { taxTotal += sqCents(t.applied_money); });
+    if (o.service_charges) o.service_charges.forEach(function(sc) { serviceChargeTotal += sqCents(sc.total_money); });
+  });
+  var topItems = Object.entries(itemSales).sort(function(a,b){return b[1].revenue-a[1].revenue;}).slice(0,20);
+  var topItemsByQty = Object.entries(itemSales).sort(function(a,b){return b[1].qty-a[1].qty;}).slice(0,20);
+
+  // Refund analytics
+  var refundTotal = 0; var refundReasons = {};
+  refunds.forEach(function(r) {
+    refundTotal += sqCents(r.amount_money);
+    var reason = r.reason || 'No reason';
+    refundReasons[reason] = (refundReasons[reason] || 0) + 1;
+  });
+  var refundRate = completed.length > 0 ? ((refunds.length / completed.length) * 100).toFixed(1) : '0';
+
+  // Payout analytics
+  var payoutTotal = 0; var payoutsByStatus = {};
+  payouts.forEach(function(p) {
+    payoutTotal += sqCents(p.amount);
+    payoutsByStatus[p.status] = (payoutsByStatus[p.status] || 0) + 1;
+  });
+
+  // Shift/labor analytics
+  var totalHoursWorked = 0; var shiftsByEmployee = {}; var totalBreakMins = 0;
+  shifts.forEach(function(s) {
+    var start = new Date(s.start_at); var end = s.end_at ? new Date(s.end_at) : new Date();
+    var hours = (end - start) / 3600000;
+    totalHoursWorked += hours;
+    var emp = s.employee_id || s.team_member_id || 'unknown';
+    if (!shiftsByEmployee[emp]) shiftsByEmployee[emp] = { hours: 0, shifts: 0, breaks: 0 };
+    shiftsByEmployee[emp].hours += hours; shiftsByEmployee[emp].shifts++;
+    if (s.breaks) s.breaks.forEach(function(b) {
+      var bStart = new Date(b.start_at); var bEnd = b.end_at ? new Date(b.end_at) : new Date();
+      var bMins = (bEnd - bStart) / 60000;
+      totalBreakMins += bMins; shiftsByEmployee[emp].breaks += bMins;
+    });
+  });
+  var laborCostEstimate = totalHoursWorked * 15; // rough est
+
+  // MONTHLY REVENUE TRENDS (all-time since 2022)
+  var monthlyRevenue = {}; var monthlyPaymentCount = {}; var monthlyCustomers = {};
+  completed.forEach(function(p) {
+    var month = (p.created_at || '').substring(0, 7);
+    if (!month) return;
+    monthlyRevenue[month] = (monthlyRevenue[month] || 0) + sqCents(p.amount_money);
+    monthlyPaymentCount[month] = (monthlyPaymentCount[month] || 0) + 1;
+  });
+  customers.forEach(function(c) {
+    var month = (c.created_at || '').substring(0, 7);
+    if (month) monthlyCustomers[month] = (monthlyCustomers[month] || 0) + 1;
+  });
+
+  // YEARLY COMPARISONS
+  var yearlyRevenue = {}; var yearlyPayments = {}; var yearlyCustomers = {};
+  Object.keys(monthlyRevenue).forEach(function(m) {
+    var y = m.substring(0, 4);
+    yearlyRevenue[y] = (yearlyRevenue[y] || 0) + monthlyRevenue[m];
+    yearlyPayments[y] = (yearlyPayments[y] || 0) + (monthlyPaymentCount[m] || 0);
+  });
+  Object.keys(monthlyCustomers).forEach(function(m) {
+    var y = m.substring(0, 4);
+    yearlyCustomers[y] = (yearlyCustomers[y] || 0) + monthlyCustomers[m];
+  });
+
+  // QUARTERLY
+  var quarterlyRevenue = {};
+  Object.keys(monthlyRevenue).forEach(function(m) {
+    var y = m.substring(0, 4); var mo = parseInt(m.substring(5, 7));
+    var q = y + '-Q' + (mo <= 3 ? '1' : mo <= 6 ? '2' : mo <= 9 ? '3' : '4');
+    quarterlyRevenue[q] = (quarterlyRevenue[q] || 0) + monthlyRevenue[m];
+  });
+
+  var monthEntries = Object.entries(monthlyRevenue).sort(function(a, b) { return b[1] - a[1]; });
+  var bestMonth = monthEntries.length > 0 ? monthEntries[0] : null;
+  var worstMonth = monthEntries.length > 0 ? monthEntries[monthEntries.length - 1] : null;
+  var monthlyAvgTicket = {};
+  Object.keys(monthlyRevenue).forEach(function(m) { monthlyAvgTicket[m] = monthlyPaymentCount[m] > 0 ? Math.round(monthlyRevenue[m] / monthlyPaymentCount[m]) : 0; });
+
+  // SEASONALITY
+  var seasonality = {};
+  Object.keys(monthlyRevenue).forEach(function(m) {
+    var mo = m.substring(5, 7);
+    if (!seasonality[mo]) seasonality[mo] = { total: 0, count: 0 };
+    seasonality[mo].total += monthlyRevenue[m]; seasonality[mo].count++;
+  });
+  var seasonalAvg = {};
+  Object.keys(seasonality).forEach(function(mo) { seasonalAvg[mo] = Math.round(seasonality[mo].total / seasonality[mo].count); });
+
+  // CUSTOMER LIFETIME VALUE
+  var customerPayments = {};
+  completed.forEach(function(p) {
+    if (p.customer_id) {
+      if (!customerPayments[p.customer_id]) customerPayments[p.customer_id] = { total: 0, count: 0, first: p.created_at, last: p.created_at };
+      customerPayments[p.customer_id].total += sqCents(p.amount_money);
+      customerPayments[p.customer_id].count++;
+      if (p.created_at < customerPayments[p.customer_id].first) customerPayments[p.customer_id].first = p.created_at;
+      if (p.created_at > customerPayments[p.customer_id].last) customerPayments[p.customer_id].last = p.created_at;
+    }
+  });
+  var topSpenders = Object.entries(customerPayments).sort(function(a, b) { return b[1].total - a[1].total; }).slice(0, 20);
+  var repeatCustomers = Object.values(customerPayments).filter(function(c) { return c.count > 1; }).length;
+  var avgLTV = Object.values(customerPayments).length > 0 ? Object.values(customerPayments).reduce(function(s, c) { return s + c.total; }, 0) / Object.values(customerPayments).length : 0;
+
+  // Catalog breakdown
+  var items = catalog.filter(function(c){return c.type==='ITEM';});
+  var variations = catalog.filter(function(c){return c.type==='ITEM_VARIATION';});
+  var categories = catalog.filter(function(c){return c.type==='CATEGORY';});
+  var discounts = catalog.filter(function(c){return c.type==='DISCOUNT';});
+  var taxes = catalog.filter(function(c){return c.type==='TAX';});
+  var modifiers = catalog.filter(function(c){return c.type==='MODIFIER'||c.type==='MODIFIER_LIST';});
+
+  // Gift card analytics
+  var gcActive = (snap.giftCards||[]).filter(function(g){return g.state==='ACTIVE';});
+  var gcTotalBalance = gcActive.reduce(function(s,g){return s+sqCents(g.balance_money);},0);
+  var subsActive = (snap.subscriptions||[]).filter(function(s){return s.status==='ACTIVE';});
+  var subsCancelled = (snap.subscriptions||[]).filter(function(s){return s.status==='CANCELED';});
+
+  return {
+    revenue: {
+      today: todayRev, week: weekRev, prevWeek: prevWeekRev, month30d: totalRev,
+      gross: grossRev, net: netRev, tips: totalTips, fees: totalFees,
+      weekGrowth: weekGrowth, avgTicket: avgTicket, medianTicket: medianTicket,
+      maxTicket: maxTicket, minTicket: minTicket,
+      avgDailyRev: Object.keys(paymentsByDay).length > 0 ? totalRev / Object.keys(paymentsByDay).length : 0,
+      allTimeTotal: grossRev
+    },
+    trends: {
+      monthlyRevenue: monthlyRevenue, monthlyPaymentCount: monthlyPaymentCount,
+      monthlyCustomers: monthlyCustomers, monthlyAvgTicket: monthlyAvgTicket,
+      yearlyRevenue: yearlyRevenue, yearlyPayments: yearlyPayments, yearlyCustomers: yearlyCustomers,
+      quarterlyRevenue: quarterlyRevenue,
+      bestMonth: bestMonth, worstMonth: worstMonth,
+      seasonalAvg: seasonalAvg,
+      totalMonths: Object.keys(monthlyRevenue).length
+    },
+    customerInsights: {
+      repeatCustomers: repeatCustomers,
+      repeatRate: Object.keys(customerPayments).length > 0 ? Math.round((repeatCustomers / Object.keys(customerPayments).length) * 100) : 0,
+      avgLTV: avgLTV,
+      topSpenders: topSpenders.map(function(e) { return { id: e[0], total: e[1].total, visits: e[1].count }; }),
+      uniquePayingCustomers: Object.keys(customerPayments).length
+    },
+    payments: {
+      total: payments.length, completed: completed.length,
+      failed: payments.filter(function(p){return p.status==='FAILED';}).length,
+      cancelled: payments.filter(function(p){return p.status==='CANCELED';}).length,
+      pending: payments.filter(function(p){return p.status==='PENDING';}).length,
+      byDay: paymentsByDay, byHour: paymentsByHour, byDayOfWeek: paymentsByDayOfWeek,
+      byMethod: paymentsByMethod, byLocation: paymentsByLocation,
+      peakHour: peakHour ? peakHour[0] + ':00' : '—', peakDay: peakDay ? peakDay[0] : '—',
+      slowHour: slowHour ? slowHour[0] + ':00' : '—',
+      tipsByEmployee: tipsByEmployee
+    },
+    customers: {
+      total: customers.length, new30d: newCustomers30d, new7d: newCustomers7d,
+      withEmail: custWithEmail, withPhone: custWithPhone, withNote: custWithNote,
+      emailCaptureRate: customers.length > 0 ? Math.round((custWithEmail/customers.length)*100) : 0,
+      groups: (snap.custGroups||[]).length, segments: (snap.custSegments||[]).length
+    },
+    invoices: {
+      total: invoices.length, unpaid: unpaidInv.length, overdue: overdueInv.length,
+      paid: paidInv.length, cancelled: cancelledInv.length,
+      unpaidTotal: unpaidTotal, overdueTotal: overdueTotal,
+      collectionRate: invoices.length > 0 ? Math.round((paidInv.length / invoices.length)*100) : 0
+    },
+    orders: {
+      total: orders.length, topItemsByRevenue: topItems, topItemsByQty: topItemsByQty,
+      discountsApplied: discountsApplied, discountTotal: discountTotal,
+      taxCollected: taxTotal, serviceCharges: serviceChargeTotal,
+      uniqueItems: Object.keys(itemSales).length
+    },
+    refunds: { count: refunds.length, total: refundTotal, rate: refundRate, reasons: refundReasons },
+    disputes: {
+      total: disputes.length,
+      open: disputes.filter(function(d){return d.state!=='WON'&&d.state!=='LOST'&&d.state!=='ACCEPTED';}).length,
+      won: disputes.filter(function(d){return d.state==='WON';}).length,
+      lost: disputes.filter(function(d){return d.state==='LOST';}).length
+    },
+    payouts: { count: payouts.length, total: payoutTotal, byStatus: payoutsByStatus },
+    labor: {
+      totalHoursWorked: Math.round(totalHoursWorked * 10) / 10,
+      totalShifts: shifts.length, totalBreakMins: Math.round(totalBreakMins),
+      byEmployee: shiftsByEmployee, laborCostEstimate: laborCostEstimate,
+      avgShiftLength: shifts.length > 0 ? Math.round((totalHoursWorked / shifts.length)*10)/10 : 0
+    },
+    catalog: { items: items.length, variations: variations.length, categories: categories.length, discounts: discounts.length, taxes: taxes.length, modifiers: modifiers.length },
+    giftCards: { active: gcActive.length, totalBalance: gcTotalBalance, total: (snap.giftCards||[]).length },
+    subscriptions: { active: subsActive.length, cancelled: subsCancelled.length, total: (snap.subscriptions||[]).length },
+    loyalty: snap.loyalty ? { programName: snap.loyalty.terminology ? snap.loyalty.terminology.one : 'Points', accounts: (snap.loyaltyAccounts||[]).length } : null,
+    bookings: { total: (snap.bookings||[]).length },
+    devices: { total: (snap.devices||[]).length },
+    cashDrawers: { total: (snap.cashDrawers||[]).length },
+    team: { total: team.length, active: team.filter(function(t){return t.status==='ACTIVE';}).length },
+    locations: (snap.locations||[]).length
+  };
+}
 
 // ==============================
 // VOICE AUTH SYSTEM
@@ -4631,7 +5171,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -7062,7 +7602,7 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
@@ -8763,8 +9303,30 @@ app.post('/chat/athena', async function(req, res) {
         } catch (de) {}
       }
 
+      // Add Square payment data (with full historical analytics)
+      if (SQUARE_ACCESS_TOKEN) {
+        try {
+          var sq = await squareFullSnapshot();
+          var sqA = squareAnalyze(sq);
+          athenaContext += '\n\nSQUARE DATA (historical since 2022):\n';
+          athenaContext += 'Today: $' + sqA.revenue.today.toFixed(2) + ', This Week: $' + sqA.revenue.week.toFixed(2) + ', Week Growth: ' + sqA.revenue.weekGrowth + '%\n';
+          athenaContext += 'All-Time Gross: $' + sqA.revenue.allTimeTotal.toFixed(2) + ', Avg Ticket: $' + sqA.revenue.avgTicket.toFixed(2) + '\n';
+          // Yearly
+          athenaContext += 'YEARLY: ' + Object.keys(sqA.trends.yearlyRevenue).sort().map(function(y){return y+': $'+sqA.trends.yearlyRevenue[y].toFixed(0)+' ('+sqA.trends.yearlyPayments[y]+' payments)';}).join(', ') + '\n';
+          // Recent months
+          var recentMonths = Object.keys(sqA.trends.monthlyRevenue).sort().slice(-6);
+          athenaContext += 'RECENT MONTHS: ' + recentMonths.map(function(m){return m+': $'+sqA.trends.monthlyRevenue[m].toFixed(0);}).join(', ') + '\n';
+          if (sqA.trends.bestMonth) athenaContext += 'Best Month: ' + sqA.trends.bestMonth[0] + ' ($' + sqA.trends.bestMonth[1].toFixed(0) + '), Worst: ' + sqA.trends.worstMonth[0] + ' ($' + sqA.trends.worstMonth[1].toFixed(0) + ')\n';
+          athenaContext += 'Customers: ' + sqA.customers.total + ', Repeat Rate: ' + sqA.customerInsights.repeatRate + '%, Avg LTV: $' + sqA.customerInsights.avgLTV.toFixed(2) + '\n';
+          athenaContext += 'Unpaid Invoices: ' + sqA.invoices.unpaid + ' ($' + sqA.invoices.unpaidTotal.toFixed(2) + '), Overdue: ' + sqA.invoices.overdue + ', Collection Rate: ' + sqA.invoices.collectionRate + '%\n';
+          athenaContext += 'Refunds: ' + sqA.refunds.count + ' ($' + sqA.refunds.total.toFixed(2) + ', ' + sqA.refunds.rate + '% rate), Disputes Open: ' + sqA.disputes.open + '\n';
+          athenaContext += 'Top Items: ' + sqA.orders.topItemsByRevenue.slice(0,5).map(function(e){return e[0]+': $'+e[1].revenue.toFixed(0);}).join(', ') + '\n';
+          athenaContext += 'Peak: ' + sqA.payments.peakDay + ' at ' + sqA.payments.peakHour + '\n';
+        } catch (sqe) {}
+      }
+
       history = {
-        systemPrompt: "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. You are speaking through a voice interface to Trace, the owner.\n\nRULES:\n- You are ATHENA, not Jarvis. You are the business intelligence brain.\n- You know EVERYTHING about the business across every dashboard:\n  * CRM: bookings, conversion rates, cancellations, growth trends, monthly/weekly volume\n  * FINANCIAL: revenue, expenses, profit, margins, tech payouts, daily averages, ad spend\n  * GOOGLE ADS: spend, clicks, conversions, ROAS, cost per lead, campaign performance\n  * TECHNICIANS: job counts, completion rates, equipment specialties, workload balance\n  * EMPLOYEES: follow-up submissions, on-time rates, late streaks, AI audit scores\n  * DISPATCH: active Tookan tasks, completed today, tech assignments\n  * EQUIPMENT & BRANDS: what you fix most, brand trends\n  * LOCATIONS: top markets, calls by city, new expansion areas\n  * CALL PATTERNS: monthly trends, seasonal patterns, busiest periods\n  * REVIEWS & OPS: customer feedback, operational data\n  * SOPs: Standard Operating Procedures, contracts, checklists for each role\n  * TEAM ROLES: who is a tech, receptionist, or admin and their current performance\n  * DISCORD: team communication messages, who's active, response quality\n- You can recommend WHAT NEEDS FOCUS based on the data.\n- You can recommend WHO SHOULD DO IT by matching the task to the right team member.\n- When asked about Discord or team communication, analyze message quality, response times, who's active vs quiet, and suggest improvements.\n- Give specific numbers when asked. Be precise.\n- Keep responses to 2-5 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound confident, analytical, and sharp.\n\nBUSINESS DATA:\n" + athenaContext,
+        systemPrompt: "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. You are speaking through a voice interface to Trace, the owner.\n\nRULES:\n- You are ATHENA, not Jarvis. You are the business intelligence brain.\n- You know EVERYTHING about the business across every dashboard:\n  * CRM: bookings, conversion rates, cancellations, growth trends, monthly/weekly volume\n  * FINANCIAL: revenue, expenses, profit, margins, tech payouts, daily averages, ad spend\n  * GOOGLE ADS: spend, clicks, conversions, ROAS, cost per lead, campaign performance\n  * TECHNICIANS: job counts, completion rates, equipment specialties, workload balance\n  * EMPLOYEES: follow-up submissions, on-time rates, late streaks, AI audit scores\n  * DISPATCH: active Tookan tasks, completed today, tech assignments\n  * EQUIPMENT & BRANDS: what you fix most, brand trends\n  * LOCATIONS: top markets, calls by city, new expansion areas\n  * CALL PATTERNS: monthly trends, seasonal patterns, busiest periods\n  * REVIEWS & OPS: customer feedback, operational data\n  * SOPs: Standard Operating Procedures, contracts, checklists for each role\n  * TEAM ROLES: who is a tech, receptionist, or admin and their current performance\n  * DISCORD: team communication messages, who's active, response quality\n  * SQUARE: COMPLETE historical data since 2022 — payments, revenue by year/month/quarter, customers, invoices, refunds, disputes, catalog items, team members, payment methods, customer lifetime value, repeat rates, seasonal patterns, yearly comparisons, best/worst months\n- You can recommend WHAT NEEDS FOCUS based on the data.\n- You can recommend WHO SHOULD DO IT by matching the task to the right team member.\n- When asked about Discord or team communication, analyze message quality, response times, who's active vs quiet, and suggest improvements.\n- Give specific numbers when asked. Be precise.\n- Keep responses to 2-5 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound confident, analytical, and sharp.\n\nBUSINESS DATA:\n" + athenaContext,
         messages: [],
       };
     }
@@ -9541,7 +10103,7 @@ app.get('/tookan', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     // Status overview cards
@@ -9997,7 +10559,7 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" class="active">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
@@ -13038,6 +13600,243 @@ app.post('/discord/api/improve', express.json(), async function(req, res) {
     );
     res.json({ analysis: analysis });
   } catch (err) { res.json({ analysis: 'Error: ' + err.message }); }
+});
+
+
+// ==============================
+// SQUARE API ENDPOINTS
+// ==============================
+app.get('/square/api/snapshot', async function(req, res) {
+  try {
+    var snap = await squareFullSnapshot();
+    var a = squareAnalyze(snap);
+    var payments = snap.payments || []; var customers = snap.customers || [];
+    var invoices = snap.invoices || []; var orders = snap.orders || [];
+
+    res.json({
+      analytics: a,
+      locations: (snap.locations||[]).map(function(l) { return { id:l.id, name:l.name, address:l.address, status:l.status, timezone:l.timezone, currency:l.currency, country:l.country, phone:l.phone_number, businessName:l.business_name, businessEmail:l.business_email, description:l.description, capabilities:l.capabilities }; }),
+      recentPayments: payments.slice(0,30).map(function(p) {
+        return { id:p.id, amount:squareMoney(p.amount_money), amountCents:sqCents(p.amount_money), tip:squareMoney(p.tip_money), tipCents:sqCents(p.tip_money), totalMoney:squareMoney(p.total_money), status:p.status, source:p.source_type, created:p.created_at, receiptUrl:p.receipt_url, orderId:p.order_id, locationId:p.location_id, employeeId:p.employee_id, customerId:p.customer_id, refundIds:p.refund_ids, riskEval:p.risk_evaluation?p.risk_evaluation.risk_level:null, cardBrand:p.card_details&&p.card_details.card?p.card_details.card.card_brand:'', last4:p.card_details&&p.card_details.card?p.card_details.card.last_4:'', entryMethod:p.card_details?p.card_details.entry_method:'', processingFee:p.processing_fee&&p.processing_fee[0]?squareMoney(p.processing_fee[0].amount_money):'', note:p.note, buyerEmail:p.buyer_email_address };
+      }),
+      recentCustomers: customers.slice(0,30).map(function(c) {
+        return { id:c.id, givenName:c.given_name, familyName:c.family_name, name:(c.given_name||'')+' '+(c.family_name||''), email:c.email_address, phone:c.phone_number, company:c.company_name, nickname:c.nickname, created:c.created_at, updated:c.updated_at, note:c.note, birthday:c.birthday, address:c.address, referenceId:c.reference_id, groupIds:c.group_ids, segmentIds:c.segment_ids };
+      }),
+      unpaidInvoices: invoices.filter(function(i){return i.status!=='PAID'&&i.status!=='CANCELED';}).slice(0,20).map(function(inv) {
+        var amt=''; var due='';
+        if(inv.payment_requests&&inv.payment_requests[0]){ if(inv.payment_requests[0].computed_amount_money) amt=squareMoney(inv.payment_requests[0].computed_amount_money); due=inv.payment_requests[0].due_date||''; }
+        return { id:inv.id, invoiceNumber:inv.invoice_number, status:inv.status, amount:amt, due:due, created:inv.created_at, title:inv.title, description:inv.description, deliveryMethod:inv.delivery_method, saleOrServiceDate:inv.sale_or_service_date };
+      }),
+      recentOrders: orders.slice(0,20).map(function(o) {
+        return { id:o.id, state:o.state, created:o.created_at, total:squareMoney(o.total_money), totalTax:squareMoney(o.total_tax_money), totalDiscount:squareMoney(o.total_discount_money), totalTip:squareMoney(o.total_tip_money), source:o.source?o.source.name:'', items:(o.line_items||[]).map(function(li){ return { name:li.name, qty:li.quantity, total:squareMoney(li.total_money), variationName:li.variation_name, modifiers:(li.modifiers||[]).map(function(m){return m.name;}) }; }), discounts:(o.discounts||[]).map(function(d){ return { name:d.name, type:d.type, amount:squareMoney(d.applied_money) }; }) };
+      }),
+      recentRefunds: (snap.refunds||[]).slice(0,15).map(function(r) { return { id:r.id, amount:squareMoney(r.amount_money), status:r.status, reason:r.reason, created:r.created_at, paymentId:r.payment_id }; }),
+      disputes: (snap.disputes||[]).slice(0,15).map(function(d) { return { id:d.dispute_id, amount:squareMoney(d.amount_money), reason:d.reason, state:d.state, created:d.created_at, due:d.due_at, cardBrand:d.card_brand }; }),
+      payouts: (snap.payouts||[]).slice(0,15).map(function(p) { return { id:p.id, amount:squareMoney(p.amount), status:p.status, created:p.created_at, arrivalDate:p.arrival_date, type:p.type, destination:p.destination?p.destination.type:'' }; }),
+      shifts: (snap.shifts||[]).slice(0,20).map(function(s) { var hrs=s.end_at?((new Date(s.end_at)-new Date(s.start_at))/3600000):0; return { id:s.id, employeeId:s.employee_id||s.team_member_id, start:s.start_at, end:s.end_at, hours:Math.round(hrs*10)/10, wage:s.wage?squareMoney(s.wage.hourly_rate):'', title:s.wage?s.wage.title:'', breaks:(s.breaks||[]).map(function(b){ return { name:b.name, paid:b.is_paid }; }) }; }),
+      team: (snap.team||[]).map(function(t) { return { id:t.id, name:(t.given_name||'')+' '+(t.family_name||''), status:t.status, email:t.email_address, phone:t.phone_number }; }),
+      catalog: { items:(snap.catalog||[]).filter(function(c){return c.type==='ITEM';}).slice(0,30).map(function(i){ var d=i.item_data||{}; return { id:i.id, name:d.name, description:d.description, variations:(d.variations||[]).map(function(v){ var vd=v.item_variation_data||{}; return { name:vd.name, price:squareMoney(vd.price_money), sku:vd.sku }; }) }; }), categories:(snap.catalog||[]).filter(function(c){return c.type==='CATEGORY';}).map(function(c){ return { id:c.id, name:c.category_data?c.category_data.name:'' }; }), discounts:(snap.catalog||[]).filter(function(c){return c.type==='DISCOUNT';}).map(function(d){ var dd=d.discount_data||{}; return { name:dd.name, type:dd.discount_type, pct:dd.percentage, amount:squareMoney(dd.amount_money) }; }), taxes:(snap.catalog||[]).filter(function(c){return c.type==='TAX';}).map(function(t){ var td=t.tax_data||{}; return { name:td.name, pct:td.percentage }; }) },
+      giftCards: (snap.giftCards||[]).slice(0,15).map(function(g) { return { id:g.id, state:g.state, balance:squareMoney(g.balance_money), type:g.type, created:g.created_at, gan:g.gan }; }),
+      subscriptions: (snap.subscriptions||[]).slice(0,15).map(function(s) { return { id:s.id, customerId:s.customer_id, status:s.status, startDate:s.start_date, canceledDate:s.canceled_date, chargedThroughDate:s.charged_through_date }; }),
+      loyalty: snap.loyalty ? { program:snap.loyalty, accounts:(snap.loyaltyAccounts||[]).slice(0,20).map(function(a){ return { id:a.id, customerId:a.customer_id, balance:a.balance, lifetime:a.lifetime_points }; }) } : null,
+      bookings: (snap.bookings||[]).slice(0,15).map(function(b) { return { id:b.id, status:b.status, startAt:b.start_at, customerId:b.customer_id }; }),
+      devices: (snap.devices||[]).map(function(d) { return { id:d.id, name:d.name, productType:d.product_type }; }),
+      customerGroups: (snap.custGroups||[]).map(function(g) { return { id:g.id, name:g.name }; }),
+      customerSegments: (snap.custSegments||[]).map(function(s) { return { id:s.id, name:s.name }; })
+    });
+  } catch (err) { res.json({ error: err.message }); }
+});
+
+app.get('/square/api/customers', async function(req, res) { try { res.json({ customers: await squareGetCustomers() }); } catch (err) { res.json({ customers: [], error: err.message }); } });
+app.get('/square/api/payments', async function(req, res) { try { res.json({ payments: await squareGetPayments(parseInt(req.query.days)||30) }); } catch (err) { res.json({ payments: [], error: err.message }); } });
+app.get('/square/api/catalog', async function(req, res) { try { res.json({ catalog: await squareGetCatalog() }); } catch (err) { res.json({ catalog: [], error: err.message }); } });
+app.get('/square/api/orders', async function(req, res) { try { var locs = await squareGetLocations(); res.json({ orders: locs.length ? await squareGetOrders(locs[0].id, parseInt(req.query.days)||30) : [] }); } catch (err) { res.json({ orders: [], error: err.message }); } });
+app.get('/square/api/shifts', async function(req, res) { try { res.json({ shifts: await squareGetShifts(parseInt(req.query.days)||14) }); } catch (err) { res.json({ shifts: [], error: err.message }); } });
+app.get('/square/api/payouts', async function(req, res) { try { res.json({ payouts: await squareGetPayouts(parseInt(req.query.days)||30) }); } catch (err) { res.json({ payouts: [], error: err.message }); } });
+
+app.post('/square/api/analyze', express.json(), async function(req, res) {
+  try {
+    var snap = await squareFullSnapshot();
+    var a = squareAnalyze(snap);
+    var topic = req.body.topic || 'full';
+    var context = 'SQUARE COMPLETE HISTORICAL DATA — WILDWOOD SMALL ENGINE REPAIR (since 2022):\n\n';
+
+    context += '=== CURRENT SNAPSHOT ===\nToday: $' + a.revenue.today.toFixed(2) + ' | Week: $' + a.revenue.week.toFixed(2) + ' | Last Week: $' + a.revenue.prevWeek.toFixed(2) + ' | Growth: ' + a.revenue.weekGrowth + '%\n';
+    context += 'All-Time Gross: $' + a.revenue.allTimeTotal.toFixed(2) + ' | Net: $' + a.revenue.net.toFixed(2) + ' | Total Fees Paid: $' + a.revenue.fees.toFixed(2) + ' | Tips Earned: $' + a.revenue.tips.toFixed(2) + '\n';
+    context += 'Avg Ticket: $' + a.revenue.avgTicket.toFixed(2) + ' | Median: $' + a.revenue.medianTicket.toFixed(2) + ' | Highest Single: $' + a.revenue.maxTicket.toFixed(2) + '\n\n';
+
+    context += '=== YEARLY COMPARISON ===\n';
+    Object.keys(a.trends.yearlyRevenue).sort().forEach(function(y) {
+      context += y + ': $' + a.trends.yearlyRevenue[y].toFixed(2) + ' revenue, ' + (a.trends.yearlyPayments[y]||0) + ' payments, ' + (a.trends.yearlyCustomers[y]||0) + ' new customers\n';
+    });
+    context += '\n';
+
+    context += '=== QUARTERLY REVENUE ===\n';
+    Object.keys(a.trends.quarterlyRevenue).sort().forEach(function(q) {
+      context += q + ': $' + a.trends.quarterlyRevenue[q].toFixed(2) + '\n';
+    });
+    context += '\n';
+
+    context += '=== MONTHLY REVENUE TREND ===\n';
+    Object.keys(a.trends.monthlyRevenue).sort().forEach(function(m) {
+      context += m + ': $' + a.trends.monthlyRevenue[m].toFixed(2) + ' (' + (a.trends.monthlyPaymentCount[m]||0) + ' payments, avg ticket $' + (a.trends.monthlyAvgTicket[m]||0) + ')\n';
+    });
+    context += '\n';
+
+    if (a.trends.bestMonth) context += 'BEST MONTH EVER: ' + a.trends.bestMonth[0] + ' — $' + a.trends.bestMonth[1].toFixed(2) + '\n';
+    if (a.trends.worstMonth) context += 'WORST MONTH: ' + a.trends.worstMonth[0] + ' — $' + a.trends.worstMonth[1].toFixed(2) + '\n\n';
+
+    context += '=== SEASONALITY (avg revenue by calendar month across all years) ===\n';
+    var monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    Object.keys(a.trends.seasonalAvg).sort().forEach(function(mo) {
+      context += monthNames[parseInt(mo)] + ': $' + a.trends.seasonalAvg[mo] + ' avg\n';
+    });
+    context += '\n';
+
+    context += '=== CUSTOMER INSIGHTS ===\nTotal Customers: ' + a.customers.total + ' | Unique Paying: ' + a.customerInsights.uniquePayingCustomers + '\n';
+    context += 'Repeat Customers: ' + a.customerInsights.repeatCustomers + ' (' + a.customerInsights.repeatRate + '%) | Avg Lifetime Value: $' + a.customerInsights.avgLTV.toFixed(2) + '\n';
+    context += 'Email Capture: ' + a.customers.emailCaptureRate + '% | New (30d): ' + a.customers.new30d + ' | New (7d): ' + a.customers.new7d + '\n';
+    context += 'TOP 10 SPENDERS:\n' + a.customerInsights.topSpenders.slice(0,10).map(function(s) { return 'Customer ' + s.id.substring(0,8) + ': $' + s.total.toFixed(2) + ' over ' + s.visits + ' visits'; }).join('\n') + '\n\n';
+
+    context += '=== MONTHLY NEW CUSTOMERS ===\n';
+    Object.keys(a.trends.monthlyCustomers).sort().forEach(function(m) { context += m + ': ' + a.trends.monthlyCustomers[m] + ' new\n'; });
+    context += '\n';
+
+    context += '=== PAYMENTS ===\nAll-Time: ' + a.payments.total + ' | Completed: ' + a.payments.completed + ' | Failed: ' + a.payments.failed + ' | Peak: ' + a.payments.peakHour + ' ' + a.payments.peakDay + '\n';
+    context += 'Methods: ' + Object.entries(a.payments.byMethod).map(function(e){return e[0]+': '+e[1].count+' ($'+e[1].total.toFixed(0)+')';}).join(', ') + '\n\n';
+
+    context += '=== INVOICES ===\nTotal: ' + a.invoices.total + ' | Paid: ' + a.invoices.paid + ' | Unpaid: ' + a.invoices.unpaid + ' ($' + a.invoices.unpaidTotal.toFixed(2) + ') | Overdue: ' + a.invoices.overdue + ' ($' + a.invoices.overdueTotal.toFixed(2) + ') | Collection Rate: ' + a.invoices.collectionRate + '%\n\n';
+
+    context += '=== TOP SELLING ITEMS (all-time) ===\n' + a.orders.topItemsByRevenue.slice(0,20).map(function(e,i){return (i+1)+'. '+e[0]+': $'+e[1].revenue.toFixed(2)+' ('+e[1].qty+' sold, avg $'+(e[1].qty>0?(e[1].revenue/e[1].qty).toFixed(2):'0')+')';}).join('\n') + '\n\n';
+
+    context += '=== REFUNDS ===\n' + a.refunds.count + ' total, $' + a.refunds.total.toFixed(2) + ', Rate: ' + a.refunds.rate + '%\n';
+    context += 'Reasons: ' + Object.entries(a.refunds.reasons).map(function(e){return e[0]+': '+e[1];}).join(', ') + '\n\n';
+
+    context += '=== DISPUTES ===\nOpen: ' + a.disputes.open + ' | Won: ' + a.disputes.won + ' | Lost: ' + a.disputes.lost + '\n\n';
+
+    context += '=== LABOR ===\nHours (14d): ' + a.labor.totalHoursWorked + ' | Shifts: ' + a.labor.totalShifts + ' | Avg Shift: ' + a.labor.avgShiftLength + 'h | Est Cost: $' + a.labor.laborCostEstimate.toFixed(0) + '\n\n';
+
+    context += '=== OTHER ===\nGift Cards: ' + a.giftCards.active + ' ($' + a.giftCards.totalBalance.toFixed(2) + ') | Subs: ' + a.subscriptions.active + ' | Payouts: $' + a.payouts.total.toFixed(2) + ' | Catalog Items: ' + a.catalog.items + ' | Team: ' + a.team.active + '\n';
+
+    var prompt = 'You are ATHENA, the AI business intelligence engine for Wildwood Small Engine Repair. You have COMPLETE historical Square payment data going back to 2022.\n\n' + context;
+    prompt += '\n\nIMPORTANT INSTRUCTIONS:\n1. Use SPECIFIC dollar amounts, percentages, and dates in every insight.\n2. Compare year-over-year and month-over-month to show trends.\n3. For EVERY finding, give a CONCRETE RECOMMENDATION with a specific action Trace (the owner) should take.\n4. Identify the #1 most urgent action item.\n5. Call out any red flags (declining revenue, rising refunds, unpaid invoices, etc).\n6. Show growth trajectory — is the business growing, flat, or declining?\n7. Identify seasonal patterns and what to prepare for.\n8. Reference actual data — don\'t be vague.\n\n';
+
+    if (topic === 'revenue') prompt += 'FOCUS: Revenue deep dive — year-over-year growth, monthly trends, seasonal patterns, ticket size evolution, fee impact, peak times. What months to push hard, what months are slow. Growth trajectory and revenue forecast. Give 5+ specific recommendations to increase revenue.';
+    else if (topic === 'collections') prompt += 'FOCUS: Collections and cash flow — every unpaid invoice, overdue amounts, collection rate trend, who owes what and when. Give a specific collection action plan with priority order.';
+    else if (topic === 'customers') prompt += 'FOCUS: Customer intelligence — repeat rate, lifetime value, acquisition trends, email capture gaps, top spenders to VIP, at-risk customers. Give 5+ specific recommendations to grow and retain customers.';
+    else if (topic === 'labor') prompt += 'FOCUS: Labor optimization — hours vs revenue ratio, shift efficiency, scheduling patterns, break time, cost control. Give specific scheduling recommendations.';
+    else if (topic === 'items') prompt += 'FOCUS: Product/service analysis — top sellers, pricing opportunities, underperforming items, discount effectiveness, catalog gaps. Give specific pricing and product recommendations.';
+    else prompt += 'COMPREHENSIVE BUSINESS INTELLIGENCE BRIEFING: Cover everything — revenue trajectory since 2022, year-over-year growth, seasonal patterns, customer health, collection issues, top items, labor efficiency, red flags, and TOP 10 specific action items ranked by impact.';
+
+    var analysis = await askClaude(prompt, [{ role: 'user', content: 'Analyze now. Be direct and specific. Use dollar amounts. Give actionable recommendations.' }]);
+    res.json({ analysis: analysis });
+  } catch (err) { res.json({ analysis: 'Error: ' + err.message }); }
+});
+
+
+// ==============================
+// SQUARE DASHBOARD PAGE
+// ==============================
+app.get('/square', requireAuth('owner'), async function(req, res) {
+  var session = getVoiceSession(req);
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+  html += '<title>WILDWOOD — SQUARE</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">';
+  html += '<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;min-height:100vh;}';
+  html += '.nav{display:flex;gap:0;border-bottom:1px solid #0a1a2a;overflow-x:auto;}.nav a{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);white-space:nowrap;}.nav a:hover{color:#c0d8f0;}.nav a.active{color:#10b981;border-color:#10b981;background:rgba(16,185,129,0.08);}';
+  html += '.container{max-width:1400px;margin:0 auto;padding:30px 20px;}h1{font-family:Orbitron;font-size:2em;letter-spacing:10px;background:linear-gradient(135deg,#10b981,#0af);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:5px;}.subtitle{font-family:Orbitron;font-size:0.65em;letter-spacing:6px;color:#1a3a5a;margin-bottom:30px;}';
+  html += '.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px;margin-bottom:20px;}.stat{background:rgba(10,20,35,0.6);border:1px solid #0a1a2a;padding:10px;text-align:center;}.stat-val{font-family:Orbitron;font-size:1.3em;color:#10b981;}.stat-val.warn{color:#f59e0b;}.stat-val.danger{color:#ef4444;}.stat-val.blue{color:#0af;}.stat-label{font-family:Orbitron;font-size:0.42em;letter-spacing:2px;color:#4a6a8a;margin-top:3px;}';
+  html += '.section-title{font-family:Orbitron;font-size:0.65em;letter-spacing:4px;color:#10b981;margin:18px 0 8px;}table{width:100%;border-collapse:collapse;}th{font-family:Orbitron;font-size:0.48em;letter-spacing:2px;color:#10b981;text-align:left;padding:5px;border-bottom:1px solid #10b98120;}td{padding:5px;border-bottom:1px solid #0a1520;font-size:0.88em;color:#a0b8d0;}';
+  html += '.pill{display:inline-block;padding:2px 8px;font-size:0.68em;font-family:Orbitron;letter-spacing:1px;}.pill-green{background:#10b98120;color:#10b981;}.pill-yellow{background:#f59e0b20;color:#f59e0b;}.pill-red{background:#ef444420;color:#ef4444;}.pill-blue{background:#0af20;color:#0af;}.pill-purple{background:#7c3aed20;color:#a78bfa;}';
+  html += '.action-btn{padding:8px 18px;background:rgba(16,185,129,0.1);border:1px solid #10b98140;color:#10b981;font-family:Orbitron;font-size:0.52em;letter-spacing:2px;cursor:pointer;transition:all 0.3s;}.action-btn:hover{background:rgba(16,185,129,0.2);}.action-btn.purple{background:rgba(124,58,237,0.1);border-color:#7c3aed40;color:#7c3aed;}.action-btn.orange{background:rgba(245,158,11,0.1);border-color:#f59e0b40;color:#f59e0b;}.action-btn.blue{background:rgba(0,170,255,0.1);border-color:#0af40;color:#0af;}';
+  html += '#analysisPanel{background:rgba(10,20,35,0.8);border:1px solid #10b98115;padding:25px;color:#a0b8d0;line-height:1.8;white-space:pre-wrap;margin-top:12px;display:none;}.chart-area{background:rgba(10,20,35,0.4);border:1px solid #0a1a2a;padding:12px;margin-bottom:12px;height:160px;position:relative;overflow:hidden;}';
+  html += '.tab-row{display:flex;gap:0;margin-bottom:12px;overflow-x:auto;}.tab-btn{padding:7px 15px;font-family:Orbitron;font-size:0.48em;letter-spacing:2px;border:1px solid #1a2a3a;background:rgba(5,10,20,0.6);color:#4a6a8a;cursor:pointer;white-space:nowrap;}.tab-btn.active{color:#10b981;border-color:#10b981;background:rgba(16,185,129,0.08);}';
+  html += '@media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr);}.nav a{padding:8px 10px;font-size:0.5em;letter-spacing:1px;}}</style></head><body>';
+  // Nav
+  html += '<div class="nav">';
+  if (session && session.access === 'all') {
+    html += '<a href="/dashboard">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a>';
+    html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
+  } else { html += '<a href="/square" class="active">SQUARE</a>'; }
+  html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
+  html += '<div class="container"><h1>SQUARE</h1><div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
+  html += '<div class="stats" id="statsGrid"><div style="color:#4a6a8a;padding:20px;grid-column:1/-1;">Loading Square data...</div></div>';
+  html += '<div class="section-title">📈 REVENUE (30 DAYS)</div><div class="chart-area" id="revenueChart"></div>';
+  html += '<div class="section-title">🕐 REVENUE BY HOUR</div><div class="chart-area" id="hourChart" style="height:55px;"></div>';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:18px 0;">';
+  html += '<button class="action-btn" onclick="analyze(\'full\')">⚡ FULL BRIEFING</button>';
+  html += '<button class="action-btn purple" onclick="analyze(\'revenue\')">💰 REVENUE</button>';
+  html += '<button class="action-btn orange" onclick="analyze(\'collections\')">📋 COLLECTIONS</button>';
+  html += '<button class="action-btn blue" onclick="analyze(\'customers\')">👥 CUSTOMERS</button>';
+  html += '<button class="action-btn" onclick="analyze(\'labor\')" style="border-color:#a78bfa40;color:#a78bfa;">⏱️ LABOR</button>';
+  html += '<button class="action-btn" onclick="analyze(\'items\')" style="border-color:#ec489940;color:#ec4899;">📦 ITEMS</button></div>';
+  html += '<div id="analysisPanel"></div>';
+  html += '<div class="tab-row">';
+  html += '<button class="tab-btn active" onclick="showTab(\'payments\',this)">💳 PAYMENTS</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'orders\',this)">📦 ORDERS</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'invoices\',this)">📋 INVOICES</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'customers\',this)">👥 CUSTOMERS</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'items\',this)">🏷️ TOP ITEMS</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'refunds\',this)">↩️ REFUNDS</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'disputes\',this)">⚠️ DISPUTES</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'payouts\',this)">🏦 PAYOUTS</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'shifts\',this)">⏱️ LABOR</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'catalog\',this)">📋 CATALOG</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'giftcards\',this)">🎁 GIFT CARDS</button>';
+  html += '<button class="tab-btn" onclick="showTab(\'subs\',this)">🔄 SUBS</button></div>';
+  html += '<div id="tabContent" style="overflow-x:auto;"><div style="color:#4a6a8a;">Loading...</div></div></div>';
+  html += '<script>var D=null;var curTab="payments";';
+  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderStats();renderChart();renderHourChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'function renderStats(){if(!D||!D.analytics)return;var a=D.analytics;var h="";';
+  html += 'h+=sc("$"+a.revenue.today.toFixed(0),"TODAY","");h+=sc("$"+a.revenue.week.toFixed(0),"THIS WEEK","");h+=sc((a.revenue.weekGrowth>=0?"+":"")+a.revenue.weekGrowth+"%","WEEK GROWTH",a.revenue.weekGrowth>=0?"":"danger");';
+  html += 'h+=sc("$"+a.revenue.month30d.toFixed(0),"30-DAY REV","");h+=sc("$"+a.revenue.net.toFixed(0),"NET REVENUE","blue");h+=sc("$"+a.revenue.tips.toFixed(0),"TIPS","");h+=sc("$"+a.revenue.fees.toFixed(0),"FEES","warn");';
+  html += 'h+=sc("$"+a.revenue.avgTicket.toFixed(0),"AVG TICKET","");h+=sc("$"+a.revenue.medianTicket.toFixed(0),"MEDIAN","blue");h+=sc("$"+a.revenue.avgDailyRev.toFixed(0),"AVG DAILY","");';
+  html += 'h+=sc(a.payments.completed,"PAYMENTS","");h+=sc(a.payments.failed,"FAILED",a.payments.failed>0?"danger":"");';
+  html += 'h+=sc(a.customers.total,"CUSTOMERS","");h+=sc(a.customers.new30d,"NEW 30D","blue");h+=sc(a.customers.emailCaptureRate+"%","EMAIL RATE",a.customers.emailCaptureRate<50?"warn":"");';
+  html += 'h+=sc(a.invoices.unpaid,"UNPAID",a.invoices.unpaid>0?"warn":"");h+=sc("$"+a.invoices.unpaidTotal.toFixed(0),"OUTSTANDING",a.invoices.unpaidTotal>0?"warn":"");h+=sc(a.invoices.overdue,"OVERDUE",a.invoices.overdue>0?"danger":"");h+=sc(a.invoices.collectionRate+"%","COLLECT RATE",a.invoices.collectionRate<70?"warn":"");';
+  html += 'h+=sc(a.refunds.count,"REFUNDS",a.refunds.count>0?"warn":"");h+=sc(a.refunds.rate+"%","REFUND RATE",parseFloat(a.refunds.rate)>5?"danger":"");h+=sc(a.disputes.open,"DISPUTES",a.disputes.open>0?"danger":"");';
+  html += 'h+=sc(a.labor.totalHoursWorked+"h","LABOR 14D","blue");h+=sc(a.labor.avgShiftLength+"h","AVG SHIFT","");h+=sc(a.orders.uniqueItems,"ITEMS SOLD","");';
+  html += 'h+=sc("$"+a.orders.discountTotal.toFixed(0),"DISCOUNTS","warn");h+=sc("$"+a.orders.taxCollected.toFixed(0),"TAX","");';
+  html += 'h+=sc(a.giftCards.active,"GIFT CARDS","");h+=sc("$"+a.giftCards.totalBalance.toFixed(0),"GC BALANCE","blue");h+=sc(a.subscriptions.active,"SUBS","");';
+  html += 'h+=sc(a.team.active+"/"+a.team.total,"TEAM","");h+=sc(a.devices.total,"DEVICES","");h+=sc(a.payments.peakHour,"PEAK HOUR","blue");h+=sc(a.payments.peakDay,"PEAK DAY","blue");';
+  // Add yearly revenue cards
+  html += 'if(a.trends){var yrs=Object.keys(a.trends.yearlyRevenue).sort();yrs.forEach(function(y){h+=sc("$"+Math.round(a.trends.yearlyRevenue[y]).toLocaleString(),y+" REVENUE","blue");});';
+  html += 'if(a.trends.bestMonth)h+=sc("$"+Math.round(a.trends.bestMonth[1]).toLocaleString(),"BEST: "+a.trends.bestMonth[0],"");';
+  html += 'if(a.trends.worstMonth)h+=sc("$"+Math.round(a.trends.worstMonth[1]).toLocaleString(),"WORST: "+a.trends.worstMonth[0],"warn");';
+  html += 'h+=sc(a.trends.totalMonths,"MONTHS DATA","blue");}';
+  // Customer insights
+  html += 'if(a.customerInsights){h+=sc(a.customerInsights.repeatRate+"%","REPEAT RATE",a.customerInsights.repeatRate<20?"warn":"");';
+  html += 'h+=sc("$"+Math.round(a.customerInsights.avgLTV),"AVG LIFETIME VALUE","");';
+  html += 'h+=sc(a.customerInsights.uniquePayingCustomers,"PAYING CUSTOMERS","");';
+  html += 'h+=sc(a.customerInsights.repeatCustomers,"REPEAT BUYERS","blue");}';
+  html += 'h+=sc("$"+Math.round(a.revenue.allTimeTotal).toLocaleString(),"ALL-TIME GROSS","");';
+  html += 'document.getElementById("statsGrid").innerHTML=h;}function sc(v,l,cls){return "<div class=\\"stat\\"><div class=\\"stat-val "+(cls||"")+"\\">"+v+"</div><div class=\\"stat-label\\">"+l+"</div></div>";}';
+  // Charts
+  html += 'function renderChart(){var c=document.getElementById("revenueChart");if(!D||!D.analytics)return;var bd=D.analytics.payments.byDay;var days=Object.keys(bd).sort();var vals=days.map(function(k){return bd[k];});if(!days.length){c.innerHTML="<div style=\\"color:#4a6a8a;text-align:center;padding-top:60px;\\">No data</div>";return;}var max=Math.max.apply(null,vals)||1;var bw=Math.max(4,Math.min(16,((c.offsetWidth-40)/days.length)-2));var h="<svg width=\\"100%\\" height=\\"140\\">";days.forEach(function(d,i){var pct=vals[i]/max;var bh=Math.max(2,pct*120);var x=20+i*(bw+2);h+="<rect x=\\""+x+"\\" y=\\""+Math.round(130-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\"#10b981\\" opacity=\\"0.7\\"><title>"+d+": $"+vals[i].toFixed(2)+"</title></rect>";});h+="<text x=\\"0\\" y=\\"12\\" fill=\\"#10b981\\" font-size=\\"9\\" font-family=\\"Orbitron\\">$"+max.toFixed(0)+"</text></svg>";c.innerHTML=h;}';
+  html += 'function renderHourChart(){var c=document.getElementById("hourChart");if(!D||!D.analytics)return;var bh=D.analytics.payments.byHour;var max=0;for(var k in bh){if(bh[k]>max)max=bh[k];}if(!max){c.innerHTML="";return;}var h="<svg width=\\"100%\\" height=\\"45\\">";for(var hr=0;hr<24;hr++){var v=bh[hr]||0;var opacity=Math.max(0.05,v/max);var x=(hr/24)*100;h+="<rect x=\\""+x+"%\\" y=\\"4\\" width=\\"3.8%\\" height=\\"25\\" fill=\\"#10b981\\" opacity=\\""+opacity.toFixed(2)+"\\" rx=\\"2\\"><title>"+hr+":00 $"+v.toFixed(0)+"</title></rect>";if(hr%3===0)h+="<text x=\\""+(x+0.5)+"%\\" y=\\"42\\" fill=\\"#4a6a8a\\" font-size=\\"7\\" font-family=\\"Orbitron\\">"+hr+"</text>";}h+="</svg>";c.innerHTML=h;}';
+  // Tabs
+  html += 'function showTab(tab,el){curTab=tab;document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});if(el)el.classList.add("active");var c=document.getElementById("tabContent");if(!D){c.innerHTML="Loading...";return;}';
+  html += 'if(tab==="payments")rPay(c);else if(tab==="orders")rOrd(c);else if(tab==="invoices")rInv(c);else if(tab==="customers")rCust(c);else if(tab==="items")rItems(c);else if(tab==="refunds")rRef(c);else if(tab==="disputes")rDisp(c);else if(tab==="payouts")rPay2(c);else if(tab==="shifts")rShift(c);else if(tab==="catalog")rCat(c);else if(tab==="giftcards")rGC(c);else if(tab==="subs")rSub(c);}';
+  // Table renderers
+  html += 'function rPay(c){var p=D.recentPayments||[];if(!p.length){c.innerHTML="No payments";return;}var h="<table><thead><tr><th>DATE</th><th>AMOUNT</th><th>TIP</th><th>FEES</th><th>STATUS</th><th>METHOD</th><th>CARD</th><th>RISK</th><th>NOTE</th></tr></thead><tbody>";p.forEach(function(x){var s=x.status==="COMPLETED"?"pill-green":"pill-yellow";var dt=x.created?new Date(x.created).toLocaleDateString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"";h+="<tr><td>"+dt+"</td><td style=\\"color:#10b981;font-weight:700;\\">"+x.amount+"</td><td>"+x.tip+"</td><td style=\\"color:#f59e0b;\\">"+x.processingFee+"</td><td><span class=\\"pill "+s+"\\">"+x.status+"</span></td><td>"+(x.source||"")+"</td><td>"+(x.cardBrand?x.cardBrand+" •"+x.last4:"—")+"</td><td>"+(x.riskEval||"—")+"</td><td style=\\"max-width:100px;overflow:hidden;text-overflow:ellipsis;\\">"+(x.note||x.buyerEmail||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rOrd(c){var o=D.recentOrders||[];if(!o.length){c.innerHTML="No orders";return;}var h="<table><thead><tr><th>DATE</th><th>TOTAL</th><th>TAX</th><th>DISC</th><th>TIP</th><th>STATE</th><th>ITEMS</th><th>SOURCE</th></tr></thead><tbody>";o.forEach(function(x){var dt=x.created?new Date(x.created).toLocaleDateString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"";var items=(x.items||[]).map(function(i){return i.qty+"x "+i.name;}).join(", ");h+="<tr><td>"+dt+"</td><td style=\\"color:#10b981;font-weight:700;\\">"+x.total+"</td><td>"+x.totalTax+"</td><td style=\\"color:#f59e0b;\\">"+x.totalDiscount+"</td><td>"+x.totalTip+"</td><td><span class=\\"pill pill-green\\">"+(x.state||"")+"</span></td><td style=\\"max-width:180px;overflow:hidden;text-overflow:ellipsis;\\">"+items+"</td><td>"+(x.source||"")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rInv(c){var inv=D.unpaidInvoices||[];if(!inv.length){c.innerHTML="<div style=\\"color:#10b981;\\">✅ All paid</div>";return;}var h="<table><thead><tr><th>#</th><th>TITLE</th><th>AMOUNT</th><th>STATUS</th><th>DUE</th><th>DELIVERY</th></tr></thead><tbody>";inv.forEach(function(x){var s=x.status==="OVERDUE"?"pill-red":"pill-yellow";h+="<tr><td>"+(x.invoiceNumber||"—")+"</td><td>"+(x.title||"—")+"</td><td style=\\"color:#f59e0b;font-weight:700;\\">"+x.amount+"</td><td><span class=\\"pill "+s+"\\">"+x.status+"</span></td><td>"+(x.due||"—")+"</td><td>"+(x.deliveryMethod||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rCust(c){var cu=D.recentCustomers||[];if(!cu.length){c.innerHTML="No customers";return;}var h="<table><thead><tr><th>NAME</th><th>COMPANY</th><th>EMAIL</th><th>PHONE</th><th>JOINED</th><th>BIRTHDAY</th><th>NOTE</th></tr></thead><tbody>";cu.forEach(function(x){var dt=x.created?new Date(x.created).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"";h+="<tr><td style=\\"color:#a78bfa;font-weight:700;\\">"+x.name+"</td><td>"+(x.company||"—")+"</td><td>"+(x.email||"—")+"</td><td>"+(x.phone||"—")+"</td><td>"+dt+"</td><td>"+(x.birthday||"—")+"</td><td style=\\"max-width:120px;overflow:hidden;text-overflow:ellipsis;\\">"+(x.note||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rItems(c){if(!D||!D.analytics){c.innerHTML="No data";return;}var items=D.analytics.orders.topItemsByRevenue||[];var h="<table><thead><tr><th>#</th><th>ITEM</th><th>REVENUE</th><th>QTY</th><th>AVG PRICE</th></tr></thead><tbody>";items.forEach(function(x,i){var avg=x[1].qty>0?(x[1].revenue/x[1].qty):0;h+="<tr><td>"+(i+1)+"</td><td style=\\"color:#a78bfa;font-weight:700;\\">"+x[0]+"</td><td style=\\"color:#10b981;font-weight:700;\\">$"+x[1].revenue.toFixed(2)+"</td><td>"+x[1].qty+"</td><td>$"+avg.toFixed(2)+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rRef(c){var r=D.recentRefunds||[];if(!r.length){c.innerHTML="<div style=\\"color:#10b981;\\">✅ No refunds</div>";return;}var h="<table><thead><tr><th>DATE</th><th>AMOUNT</th><th>STATUS</th><th>REASON</th></tr></thead><tbody>";r.forEach(function(x){h+="<tr><td>"+(x.created?new Date(x.created).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")+"</td><td style=\\"color:#ef4444;font-weight:700;\\">"+x.amount+"</td><td><span class=\\"pill pill-yellow\\">"+x.status+"</span></td><td>"+(x.reason||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rDisp(c){var d=D.disputes||[];if(!d.length){c.innerHTML="<div style=\\"color:#10b981;\\">✅ No disputes</div>";return;}var h="<table><thead><tr><th>DATE</th><th>AMOUNT</th><th>REASON</th><th>STATE</th><th>CARD</th><th>DUE</th></tr></thead><tbody>";d.forEach(function(x){var s=x.state&&x.state.includes("WON")?"pill-green":"pill-red";h+="<tr><td>"+(x.created?new Date(x.created).toLocaleDateString():"")+"</td><td style=\\"color:#ef4444;font-weight:700;\\">"+x.amount+"</td><td>"+x.reason+"</td><td><span class=\\"pill "+s+"\\">"+x.state+"</span></td><td>"+(x.cardBrand||"")+"</td><td>"+(x.due||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rPay2(c){var p=D.payouts||[];if(!p.length){c.innerHTML="No payouts";return;}var h="<table><thead><tr><th>DATE</th><th>AMOUNT</th><th>STATUS</th><th>ARRIVAL</th><th>TYPE</th><th>DEST</th></tr></thead><tbody>";p.forEach(function(x){h+="<tr><td>"+(x.created?new Date(x.created).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"")+"</td><td style=\\"color:#10b981;font-weight:700;\\">"+x.amount+"</td><td><span class=\\"pill pill-green\\">"+(x.status||"")+"</span></td><td>"+(x.arrivalDate||"—")+"</td><td>"+(x.type||"")+"</td><td>"+(x.destination||"")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rShift(c){var s=D.shifts||[];if(!s.length){c.innerHTML="No shifts";return;}var h="<table><thead><tr><th>EMPLOYEE</th><th>DATE</th><th>START</th><th>END</th><th>HOURS</th><th>TITLE</th><th>WAGE</th><th>BREAKS</th></tr></thead><tbody>";s.forEach(function(x){var dt=x.start?new Date(x.start).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"";var st=x.start?new Date(x.start).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}):"";var en=x.end?new Date(x.end).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}):"active";var brks=(x.breaks||[]).map(function(b){return (b.paid?"Paid":"Unpaid")+": "+b.name;}).join(", ");h+="<tr><td style=\\"color:#a78bfa;\\">"+x.employeeId.substring(0,8)+"</td><td>"+dt+"</td><td>"+st+"</td><td>"+en+"</td><td style=\\"color:#10b981;font-weight:700;\\">"+x.hours+"h</td><td>"+(x.title||"—")+"</td><td>"+(x.wage||"—")+"</td><td style=\\"font-size:0.8em;\\">"+(brks||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rCat(c){if(!D.catalog){c.innerHTML="No catalog";return;}var items=D.catalog.items||[];var h="<table><thead><tr><th>ITEM</th><th>DESCRIPTION</th><th>VARIATIONS</th></tr></thead><tbody>";items.forEach(function(x){var vars=(x.variations||[]).map(function(v){return v.name+": "+v.price+(v.sku?" ("+v.sku+")":"");}).join(", ");h+="<tr><td style=\\"color:#a78bfa;font-weight:700;\\">"+x.name+"</td><td style=\\"max-width:180px;overflow:hidden;text-overflow:ellipsis;\\">"+(x.description||"—")+"</td><td>"+vars+"</td></tr>";});h+="</tbody></table>";';
+  html += 'if(D.catalog.categories&&D.catalog.categories.length){h+="<div style=\\"margin-top:12px;\\">CATEGORIES: ";D.catalog.categories.forEach(function(cat){h+="<span class=\\"pill pill-purple\\" style=\\"margin:2px;\\">"+cat.name+"</span>";});h+="</div>";}';
+  html += 'if(D.catalog.discounts&&D.catalog.discounts.length){h+="<div style=\\"margin-top:8px;\\">DISCOUNTS: ";D.catalog.discounts.forEach(function(d){h+="<span class=\\"pill pill-yellow\\" style=\\"margin:2px;\\">"+d.name+" "+(d.pct?d.pct+"%":d.amount)+"</span>";});h+="</div>";}';
+  html += 'if(D.catalog.taxes&&D.catalog.taxes.length){h+="<div style=\\"margin-top:8px;\\">TAXES: ";D.catalog.taxes.forEach(function(t){h+="<span class=\\"pill pill-blue\\" style=\\"margin:2px;\\">"+t.name+" "+(t.pct||"")+"% </span>";});h+="</div>";}';
+  html += 'c.innerHTML=h;}';
+  html += 'function rGC(c){var g=D.giftCards||[];if(!g.length){c.innerHTML="No gift cards";return;}var h="<table><thead><tr><th>GAN</th><th>STATE</th><th>BALANCE</th><th>TYPE</th><th>CREATED</th></tr></thead><tbody>";g.forEach(function(x){var s=x.state==="ACTIVE"?"pill-green":"pill-yellow";h+="<tr><td>"+(x.gan||"—")+"</td><td><span class=\\"pill "+s+"\\">"+x.state+"</span></td><td style=\\"color:#10b981;font-weight:700;\\">"+x.balance+"</td><td>"+(x.type||"")+"</td><td>"+(x.created?new Date(x.created).toLocaleDateString():"")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'function rSub(c){var s=D.subscriptions||[];if(!s.length){c.innerHTML="No subscriptions";return;}var h="<table><thead><tr><th>CUSTOMER</th><th>STATUS</th><th>START</th><th>CHARGED THRU</th><th>CANCELLED</th></tr></thead><tbody>";s.forEach(function(x){var sc=x.status==="ACTIVE"?"pill-green":"pill-red";h+="<tr><td>"+(x.customerId||"").substring(0,10)+"</td><td><span class=\\"pill "+sc+"\\">"+x.status+"</span></td><td>"+(x.startDate||"—")+"</td><td>"+(x.chargedThroughDate||"—")+"</td><td>"+(x.canceledDate||"—")+"</td></tr>";});h+="</tbody></table>";c.innerHTML=h;}';
+  html += 'async function analyze(topic){var p=document.getElementById("analysisPanel");p.style.display="block";p.textContent="⚡ ATHENA analyzing...";try{var r=await(await fetch("/square/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:topic})})).json();p.textContent=r.analysis;}catch(e){p.textContent="Error: "+e.message;}}';
+  html += 'loadAll();</script></body></html>';
+  res.send(html);
 });
 
 // Discord Dashboard Page
