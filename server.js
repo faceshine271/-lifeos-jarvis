@@ -137,7 +137,13 @@ async function squareGetCustomers() {
 async function squareGetInvoices(locationIds) {
   if (!locationIds) { var locs = await squareGetLocations(); if (!locs.length) return []; locationIds = locs.map(function(l){return l.id;}); }
   if (!Array.isArray(locationIds)) locationIds = [locationIds];
-  return await squareFetchAll('/invoices/search', 'POST', { query: { filter: { location_ids: locationIds }, sort: { field: 'INVOICE_SORT_DATE', order: 'DESC' } } }, 'invoices');
+  // Square invoices API only allows 1 location_id at a time
+  var all = [];
+  for (var i = 0; i < locationIds.length; i++) {
+    var batch = await squareFetchAll('/invoices/search', 'POST', { query: { filter: { location_ids: [locationIds[i]] }, sort: { field: 'INVOICE_SORT_DATE', order: 'DESC' } } }, 'invoices');
+    all = all.concat(batch);
+  }
+  return all;
 }
 
 // ---- ORDERS (with full line items) ----
@@ -145,10 +151,16 @@ async function squareGetOrders(locationIds, days) {
   if (!locationIds) { var locs = await squareGetLocations(); if (!locs.length) return []; locationIds = locs.map(function(l){return l.id;}); }
   if (!Array.isArray(locationIds)) locationIds = [locationIds];
   var begin = new Date(Date.now() - (days || 1500) * 86400000).toISOString();
-  var d = await squareFetch('/orders/search', 'POST', {
-    location_ids: locationIds, query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 200
-  });
-  return d && d.orders ? d.orders : [];
+  // Square orders API only allows 10 location_ids at a time — batch them
+  var all = [];
+  for (var i = 0; i < locationIds.length; i += 10) {
+    var chunk = locationIds.slice(i, i + 10);
+    var d = await squareFetch('/orders/search', 'POST', {
+      location_ids: chunk, query: { filter: { date_time_filter: { created_at: { start_at: begin } } }, sort: { sort_field: 'CREATED_AT', sort_order: 'DESC' } }, limit: 200
+    });
+    if (d && d.orders) all = all.concat(d.orders);
+  }
+  return all;
 }
 
 // ---- CATALOG (items, variations, categories, discounts, taxes, modifiers) ----
@@ -255,12 +267,12 @@ async function squareGetBankAccounts() {
 
 // ---- CUSTOMER GROUPS / SEGMENTS ----
 async function squareGetCustomerGroups() {
-  var d = await squareFetch('/customers/groups?limit=100');
+  var d = await squareFetch('/customers/groups?limit=50');
   return d && d.groups ? d.groups : [];
 }
 
 async function squareGetCustomerSegments() {
-  var d = await squareFetch('/customers/segments?limit=100');
+  var d = await squareFetch('/customers/segments?limit=50');
   return d && d.segments ? d.segments : [];
 }
 
