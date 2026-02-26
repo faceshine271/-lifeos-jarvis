@@ -441,13 +441,22 @@ function squareAnalyze(snap) {
   var totalPaymentCount = 0;
 
   // Use orders as primary revenue source if we have more orders than payments
-  var useOrders = orders.length > completed.length;
-  var completedOrders = orders.filter(function(o){return o.state!=='CANCELED'&&o.state!=='DRAFT'&&sqCents(o.total_money)>0;});
+  var useOrders = false; // Always use payments for revenue — orders include inflated invoice amounts
+  var completedOrders = orders.filter(function(o){return o.state!=='CANCELED'&&o.state!=='DRAFT'&&sqCents(o.total_money)>0&&(o.state==='COMPLETED'||(o.tenders&&o.tenders.length>0));});
+
+  // Use TENDER amounts (actual $ collected), NOT total_money which includes unpaid invoice amounts
+  function orderCollected(o) {
+    if (!o.tenders || !o.tenders.length) return 0;
+    var sum = 0;
+    o.tenders.forEach(function(t) { sum += sqCents(t.amount_money); });
+    return sum;
+  }
 
   if (useOrders && completedOrders.length > 0) {
-    // Calculate revenue from orders
+    // Calculate revenue from orders — use TENDER amounts (actual $ collected), NOT total_money
     completedOrders.forEach(function(o) {
-      var amt = sqCents(o.total_money);
+      var amt = orderCollected(o);
+      if (amt <= 0) return; // skip orders with no actual collection
       var tip = sqCents(o.total_tip_money);
       var tax = sqCents(o.total_tax_money);
       grossRev += amt; totalTips += tip;
@@ -680,7 +689,7 @@ function squareAnalyze(snap) {
     completedOrders.forEach(function(o) {
       var month = (o.created_at || '').substring(0, 7);
       if (!month) return;
-      monthlyRevenue[month] = (monthlyRevenue[month] || 0) + sqCents(o.total_money);
+      monthlyRevenue[month] = (monthlyRevenue[month] || 0) + orderCollected(o);
       monthlyPaymentCount[month] = (monthlyPaymentCount[month] || 0) + 1;
     });
   } else {
@@ -801,7 +810,7 @@ function squareAnalyze(snap) {
       var cid = o.customer_id || (o.tenders && o.tenders[0] ? o.tenders[0].customer_id : null);
       if (cid) {
         if (!customerPayments[cid]) customerPayments[cid] = { total: 0, count: 0, first: o.created_at, last: o.created_at };
-        customerPayments[cid].total += sqCents(o.total_money);
+        customerPayments[cid].total += orderCollected(o);
         customerPayments[cid].count++;
         if (o.created_at < customerPayments[cid].first) customerPayments[cid].first = o.created_at;
         if (o.created_at > customerPayments[cid].last) customerPayments[cid].last = o.created_at;
@@ -10916,6 +10925,35 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '<div class="indicator-label">BOLLINGER BAND WIDTH (Squeeze Detector)</div>';
     html += '<div id="bbw-chart"></div>';
 
+    // Add Square revenue data to chart series
+    try {
+      var sqSnap = await squareFullSnapshot(false);
+      var sqA = squareAnalyze(sqSnap);
+      if (sqA && sqA.trends && sqA.trends.monthlyRevenue) {
+        allSeries['SQUARE REVENUE ($)'] = sqA.trends.monthlyRevenue;
+        // Per-location revenue
+        var locRevenue = {};
+        (sqSnap.orders || []).forEach(function(o) {
+          if (o.state === 'CANCELED' || o.state === 'DRAFT') return;
+          if (!o.tenders || !o.tenders.length) return;
+          var locId = o.location_id || 'unknown';
+          var month = (o.created_at || '').substring(0, 7);
+          if (!month) return;
+          var amt = 0;
+          o.tenders.forEach(function(t) { amt += (t.amount_money && t.amount_money.amount ? t.amount_money.amount / 100 : 0); });
+          if (!locRevenue[locId]) locRevenue[locId] = {};
+          locRevenue[locId][month] = (locRevenue[locId][month] || 0) + amt;
+        });
+        var locMap = {};
+        (sqSnap.locations || []).forEach(function(l) { locMap[l.id] = l.address && l.address.locality ? l.address.locality + ' ' + (l.address.administrative_district_level_1 || '') : l.name || l.id; });
+        Object.keys(locRevenue).forEach(function(lid) {
+          if (Object.keys(locRevenue[lid]).length >= 3) {
+            allSeries['SQ: ' + (locMap[lid] || lid)] = locRevenue[lid];
+          }
+        });
+      }
+    } catch(e) { console.log('Charts Square data error:', e.message); }
+
     // Inject data & charting logic
     html += '<script>';
     html += 'var allData = ' + JSON.stringify(allSeries) + ';';
@@ -13927,11 +13965,12 @@ app.get('/square/api/snapshot', async function(req, res) {
     var locFilter = req.query.location || '';
     var filteredSnap = snap;
     if (locFilter && locFilter !== 'all') {
+      var filterIds = locFilter.split(',');
       filteredSnap = {
-        locations: (snap.locations||[]).filter(function(l){return l.id===locFilter;}),
-        payments: (snap.payments||[]).filter(function(p){return p.location_id===locFilter;}),
-        orders: (snap.orders||[]).filter(function(o){return o.location_id===locFilter;}),
-        invoices: (snap.invoices||[]).filter(function(i){return (i.primary_recipient&&i.primary_recipient.location_id===locFilter)||(i.location_id===locFilter);}),
+        locations: (snap.locations||[]).filter(function(l){return filterIds.indexOf(l.id)>=0;}),
+        payments: (snap.payments||[]).filter(function(p){return filterIds.indexOf(p.location_id)>=0;}),
+        orders: (snap.orders||[]).filter(function(o){return filterIds.indexOf(o.location_id)>=0;}),
+        invoices: (snap.invoices||[]).filter(function(i){return filterIds.indexOf(i.location_id)>=0||(i.primary_recipient&&filterIds.indexOf(i.primary_recipient.location_id)>=0);}),
         customers: snap.customers || [],
         catalog: snap.catalog || [],
         teamMembers: snap.teamMembers || [],
@@ -14135,11 +14174,12 @@ app.post('/square/api/voice', express.json(), async function(req, res) {
     var snap = await squareFullSnapshot(false);
     // Apply location filter
     if (locFilter && locFilter !== 'all') {
+      var vFilterIds = locFilter.split(',');
       snap = {
-        locations: (snap.locations||[]).filter(function(l){return l.id===locFilter;}),
-        payments: (snap.payments||[]).filter(function(p){return p.location_id===locFilter;}),
-        orders: (snap.orders||[]).filter(function(o){return o.location_id===locFilter;}),
-        invoices: (snap.invoices||[]).filter(function(i){return (i.primary_recipient&&i.primary_recipient.location_id===locFilter)||(i.location_id===locFilter);}),
+        locations: (snap.locations||[]).filter(function(l){return vFilterIds.indexOf(l.id)>=0;}),
+        payments: (snap.payments||[]).filter(function(p){return vFilterIds.indexOf(p.location_id)>=0;}),
+        orders: (snap.orders||[]).filter(function(o){return vFilterIds.indexOf(o.location_id)>=0;}),
+        invoices: (snap.invoices||[]).filter(function(i){return vFilterIds.indexOf(i.location_id)>=0||(i.primary_recipient&&vFilterIds.indexOf(i.primary_recipient.location_id)>=0);}),
         customers: snap.customers || [], catalog: snap.catalog || [], teamMembers: snap.teamMembers || [],
         bankAccounts: snap.bankAccounts || [], merchants: snap.merchants || [], disputes: snap.disputes || [],
         refunds: snap.refunds || [], subscriptions: snap.subscriptions || [], loyalty: snap.loyalty || [],
@@ -14148,34 +14188,39 @@ app.post('/square/api/voice', express.json(), async function(req, res) {
       };
     }
     var a = squareAnalyze(snap);
-    var locName = locFilter === 'all' ? 'All Locations' : ((snap.locations||[])[0] ? (snap.locations[0].name || snap.locations[0].id) : locFilter);
-    var ctx = 'SQUARE DATA FOR: ' + locName + '\\n';
-    ctx += 'Today: $' + a.revenue.today.toFixed(2) + ' | Week: $' + a.revenue.week.toFixed(2) + ' | 30d: $' + a.revenue.month30d.toFixed(2) + ' | All-Time: $' + a.revenue.allTimeTotal.toFixed(2) + '\\n';
-    ctx += 'Avg Ticket: $' + a.revenue.avgTicket.toFixed(2) + ' | Tips: $' + a.revenue.tips.toFixed(2) + '\\n';
-    ctx += 'YEARLY: ' + Object.keys(a.trends.yearlyRevenue).sort().map(function(y){return y+': $'+a.trends.yearlyRevenue[y].toFixed(0);}).join(', ') + '\\n';
+    var locName = locFilter === 'all' ? 'All Locations (' + (snap.locations||[]).length + ')' : (snap.locations||[]).map(function(l){return l.name||l.id;}).join(', ');
+    var ctx = 'SQUARE DATA FOR: ' + locName + '\n';
+    ctx += 'Today: $' + a.revenue.today.toFixed(2) + ' | Week: $' + a.revenue.week.toFixed(2) + ' | 30d: $' + a.revenue.month30d.toFixed(2) + ' | All-Time: $' + a.revenue.allTimeTotal.toFixed(2) + '\n';
+    ctx += 'Avg Ticket: $' + a.revenue.avgTicket.toFixed(2) + ' | Tips: $' + a.revenue.tips.toFixed(2) + '\n';
+    ctx += 'YEARLY: ' + Object.keys(a.trends.yearlyRevenue).sort().map(function(y){return y+': $'+a.trends.yearlyRevenue[y].toFixed(0);}).join(', ') + '\n';
     var recentM = Object.keys(a.trends.monthlyRevenue).sort().slice(-6);
-    ctx += 'RECENT MONTHS: ' + recentM.map(function(m){return m+': $'+a.trends.monthlyRevenue[m].toFixed(0);}).join(', ') + '\\n';
+    ctx += 'RECENT MONTHS: ' + recentM.map(function(m){return m+': $'+a.trends.monthlyRevenue[m].toFixed(0);}).join(', ') + '\n';
     if (a.trends.projections) {
-      ctx += 'PROJECTIONS: YTD $' + a.trends.projections.ytdRevenue + ' | Projected Year $' + a.trends.projections.projectedFullYear + ' | Growth ' + a.trends.projections.projectedGrowth + '%\\n';
+      ctx += 'PROJECTIONS: YTD $' + a.trends.projections.ytdRevenue + ' | Projected Year $' + a.trends.projections.projectedFullYear + ' | Growth ' + a.trends.projections.projectedGrowth + '%\n';
     }
-    ctx += 'Customers: ' + a.customers.total + ' | Repeat: ' + a.customerInsights.repeatRate + '% | LTV: $' + a.customerInsights.avgLTV.toFixed(2) + '\\n';
-    ctx += 'Invoices: ' + a.invoices.total + ' | Paid: ' + a.invoices.paid + ' | Collection: ' + a.invoices.collectionRate + '%\\n';
-    if (a.invoices.paymentSpeed) ctx += 'Payment Speed: Avg ' + a.invoices.paymentSpeed.avgDays + 'd | Same Day ' + a.invoices.paymentSpeed.sameDay + '% | 30d+ ' + a.invoices.paymentSpeed.over30d + '%\\n';
-    if (a.invoices.turnaround) ctx += 'Invoice Turnaround: Avg ' + a.invoices.turnaround.avgFormatted + ' | Fastest ' + a.invoices.turnaround.fastest + ' | Slowest ' + a.invoices.turnaround.slowest + '\\n';
-    ctx += 'Refunds: ' + a.refunds.count + ' ($' + a.refunds.total.toFixed(2) + ') | Rate: ' + a.refunds.rate + '%\\n';
-    ctx += 'Peak: ' + a.payments.peakDay + ' at ' + a.payments.peakHour + '\\n';
-    ctx += 'Top Items: ' + a.orders.topItemsByRevenue.slice(0,8).map(function(e){return e[0]+': $'+e[1].revenue.toFixed(0);}).join(', ') + '\\n';
-    ctx += 'SEASONALITY: ' + Object.keys(a.trends.seasonalAvg).sort().map(function(mo){return ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo)]+': $'+a.trends.seasonalAvg[mo];}).join(', ') + '\\n';
-    ctx += 'Locations: ' + (snap.locations||[]).length + ' total\\n';
+    ctx += 'Customers: ' + a.customers.total + ' | Repeat: ' + a.customerInsights.repeatRate + '% | LTV: $' + a.customerInsights.avgLTV.toFixed(2) + '\n';
+    ctx += 'Invoices: ' + a.invoices.total + ' | Paid: ' + a.invoices.paid + ' | Collection: ' + a.invoices.collectionRate + '%\n';
+    if (a.invoices.paymentSpeed) ctx += 'Payment Speed: Avg ' + a.invoices.paymentSpeed.avgDays + 'd | Same Day ' + a.invoices.paymentSpeed.sameDay + '% | 30d+ ' + a.invoices.paymentSpeed.over30d + '%\n';
+    if (a.invoices.turnaround) ctx += 'Invoice Turnaround: Avg ' + a.invoices.turnaround.avgFormatted + ' | Fastest ' + a.invoices.turnaround.fastest + ' | Slowest ' + a.invoices.turnaround.slowest + '\n';
+    ctx += 'Refunds: ' + a.refunds.count + ' ($' + a.refunds.total.toFixed(2) + ') | Rate: ' + a.refunds.rate + '%\n';
+    ctx += 'Peak: ' + a.payments.peakDay + ' at ' + a.payments.peakHour + '\n';
+    ctx += 'Top Items: ' + a.orders.topItemsByRevenue.slice(0,8).map(function(e){return e[0]+': $'+e[1].revenue.toFixed(0);}).join(', ') + '\n';
+    ctx += 'SEASONALITY: ' + Object.keys(a.trends.seasonalAvg).sort().map(function(mo){return ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo)]+': $'+a.trends.seasonalAvg[mo];}).join(', ') + '\n';
+    ctx += 'Locations: ' + (snap.locations||[]).length + ' total\n';
 
     var OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    var sysPrompt = 'You are the Square Data Voice Assistant for Wildwood Small Engine Repair. You answer questions about the business Square payment data. You have complete historical data since 2022.\\n\\nRULES:\\n- Be concise: 2-4 sentences max (you are being read aloud)\\n- Use specific dollar amounts, percentages, dates\\n- When comparing, show the actual numbers\\n- Sound confident and analytical\\n- No markdown, bullets, or formatting\\n- Do NOT mention unpaid invoices or collections\\n- If asked about a specific location, you may be viewing filtered data for that location\\n\\nDATA:\\n' + ctx;
+    var sysPrompt = 'You are the Square Data Voice Assistant for Wildwood Small Engine Repair. You answer questions about the business Square payment data. You have complete historical data since 2022.\n\nRULES:\n- Be concise: 2-4 sentences max (you are being read aloud)\n- Use specific dollar amounts, percentages, dates\n- When comparing, show the actual numbers\n- Sound confident and analytical\n- No markdown, bullets, or formatting\n- Do NOT mention unpaid invoices or collections\n- If asked about a specific location, you may be viewing filtered data for that location\n\nDATA:\n' + ctx;
 
     var aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENAI_API_KEY },
       body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'system', content: sysPrompt }, { role: 'user', content: message }], max_tokens: 300, temperature: 0.7 })
     });
     var aiData = await aiRes.json();
+    console.log('Square voice AI status:', aiRes.status, aiData.error ? JSON.stringify(aiData.error) : 'OK');
+    if (aiData.error) {
+      res.json({ response: 'AI service error: ' + (aiData.error.message || JSON.stringify(aiData.error)) });
+      return;
+    }
     var response = aiData.choices && aiData.choices[0] ? aiData.choices[0].message.content : 'Could not generate a response.';
     res.json({ response: response });
   } catch(e) {
@@ -14211,8 +14256,15 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
     html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
   } else { html += '<a href="/square" class="active">SQUARE</a>'; }
   html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
-  html += '<div class="container"><h1 style="display:inline;">SQUARE</h1> <button onclick="forceRefresh()" id="refreshBtn" style="background:#1a3a5a;color:#4af;border:1px solid #4af;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:10px;vertical-align:middle;">⟳ REFRESH DATA</button> <button onclick="toggleSquareVoice()" id="sqVoiceBtn" style="background:#1a3a5a;color:#a855f7;border:1px solid #a855f740;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:6px;vertical-align:middle;">🎙 VOICE</button><div style="margin:10px 0;"><select id="locationFilter" onchange="changeLocation()" style="background:#0a1520;color:#10b981;border:1px solid #10b98140;font-family:Orbitron,sans-serif;font-size:0.75em;padding:6px 14px;width:100%;max-width:500px;cursor:pointer;letter-spacing:1px;"><option value="all">📍 ALL LOCATIONS</option></select></div><div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
-  html += '<div class="stats" id="statsGrid"><div style="color:#4a6a8a;padding:20px;grid-column:1/-1;">Loading Square data...</div></div>';
+  html += '<div class="container"><h1 style="display:inline;">SQUARE</h1> <button onclick="forceRefresh()" id="refreshBtn" style="background:#1a3a5a;color:#4af;border:1px solid #4af;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:10px;vertical-align:middle;">⟳ REFRESH DATA</button> <button onclick="toggleSquareVoice()" id="sqVoiceBtn" style="background:#1a3a5a;color:#a855f7;border:1px solid #a855f740;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:6px;vertical-align:middle;">🎙 VOICE</button>';
+  html += '<div style="margin:10px 0;position:relative;" id="locDropWrap">';
+  html += '<div id="locDropBtn" onclick="toggleLocDrop()" style="background:#0a1520;color:#10b981;border:1px solid #10b98140;font-family:Orbitron,sans-serif;font-size:0.75em;padding:8px 14px;width:100%;max-width:500px;cursor:pointer;letter-spacing:1px;display:flex;justify-content:space-between;align-items:center;"><span id="locDropLabel">📍 ALL LOCATIONS</span><span style="color:#4a6a8a;">▼</span></div>';
+  html += '<div id="locDropMenu" style="display:none;position:absolute;top:100%;left:0;width:100%;max-width:500px;max-height:350px;overflow-y:auto;background:#0a1520;border:1px solid #10b98140;border-top:none;z-index:100;font-family:Rajdhani,sans-serif;">';
+  html += '<label style="display:flex;align-items:center;padding:8px 14px;cursor:pointer;border-bottom:1px solid #0a1a2a;color:#10b981;font-weight:700;font-family:Orbitron;font-size:0.75em;letter-spacing:1px;" onmouseover="this.style.background=\'rgba(16,185,129,0.08)\'" onmouseout="this.style.background=\'none\'"><input type="checkbox" id="locAll" checked onchange="toggleAllLocs()" style="margin-right:10px;accent-color:#10b981;"> 📍 ALL LOCATIONS</label>';
+  html += '<div id="locCheckboxes"></div>';
+  html += '</div></div>';
+  html += '<div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
+  html += '<div id="statsGrid"><div style="color:#4a6a8a;padding:20px;">Loading Square data...</div></div>';
 
   // Locations panel
   html += '<div class="section-title">📍 LOCATIONS</div>';
@@ -14259,6 +14311,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div class="chart-area" id="refundChart" style="height:160px;"></div>';
   html += '<div class="section-title">💰 PAYMENT SPEED DISTRIBUTION</div><div class="chart-area" id="paySpeedChart" style="height:160px;"></div>';
   html += '<div class="section-title">🔮 REVENUE PROJECTIONS (' + new Date().getFullYear() + ')</div><div class="chart-area" id="projChart" style="height:240px;"></div>';
+  html += '<div class="section-title">📊 MARKET SIGNALS — BULLISH / BEARISH</div><div id="signalsPanel" style="background:rgba(10,20,35,0.4);border:1px solid #0a1a2a;padding:16px;margin-bottom:12px;"></div>';
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:18px 0;">';
   html += '<button class="action-btn" onclick="analyze(\'full\')">⚡ FULL BRIEFING</button>';
   html += '<button class="action-btn purple" onclick="analyze(\'revenue\')">💰 REVENUE</button>';
@@ -14294,7 +14347,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<button class="tab-btn" onclick="showTab(\'subs\',this)">🔄 SUBS</button></div>';
   html += '<div id="tabContent" style="overflow-x:auto;"><div style="color:#4a6a8a;">Loading...</div></div></div>';
   html += '<script>var D=null;var curTab="payments";';
-  html += 'async function loadAll(url){try{var r=await(await fetch(url||"/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderDebug();renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();renderPaySpeed();renderProjections();showTab("payments");document.getElementById("refreshBtn").textContent="⟳ REFRESH DATA";}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'async function loadAll(url){try{var r=await(await fetch(url||"/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;\\">"+r.error+"</div>";return;}renderDebug();renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();renderPaySpeed();renderProjections();renderSignals();showTab("payments");document.getElementById("refreshBtn").textContent="⟳ REFRESH DATA";}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;\\">"+e.message+"</div>";}}';
   html += 'async function forceRefresh(){document.getElementById("refreshBtn").textContent="⟳ REFRESHING...";document.getElementById("refreshBtn").style.color="#f59e0b";var locParam=curLocation&&curLocation!=="all"?"&location="+curLocation:"";await loadAll("/square/api/snapshot?refresh=1"+locParam);document.getElementById("refreshBtn").style.color="#4af";}';
 
   // Debug panel
@@ -14326,31 +14379,49 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+="</div>";});';
   html += 'h+="</div>";el.innerHTML=h;}';
   html += 'function renderStats(){if(!D||!D.analytics)return;var a=D.analytics;var h="";';
+  // Revenue section
+  html += 'h+="<div class=\\"section-title\\">💰 REVENUE</div><div class=\\"stats\\">";';
   html += 'h+=sc("$"+a.revenue.today.toFixed(0),"TODAY","");h+=sc("$"+a.revenue.week.toFixed(0),"THIS WEEK","");h+=sc((a.revenue.weekGrowth>=0?"+":"")+a.revenue.weekGrowth+"%","WEEK GROWTH",a.revenue.weekGrowth>=0?"":"danger");';
   html += 'h+=sc("$"+a.revenue.month30d.toFixed(0),"30-DAY REV","");h+=sc("$"+a.revenue.net.toFixed(0),"NET REVENUE","blue");h+=sc("$"+a.revenue.tips.toFixed(0),"TIPS","");h+=sc("$"+a.revenue.fees.toFixed(0),"FEES","warn");';
   html += 'h+=sc("$"+a.revenue.avgTicket.toFixed(0),"AVG TICKET","");h+=sc("$"+a.revenue.medianTicket.toFixed(0),"MEDIAN","blue");h+=sc("$"+a.revenue.avgDailyRev.toFixed(0),"AVG DAILY","");';
-  html += 'h+=sc(a.payments.completed,a.payments.dataSource==="orders"?"ORDERS":"PAYMENTS","");h+=sc(a.payments.failed,"FAILED",a.payments.failed>0?"danger":"");';
-  html += 'h+=sc(a.customers.total,"CUSTOMERS","");h+=sc(a.customers.new30d,"NEW 30D","blue");h+=sc(a.customers.emailCaptureRate+"%","EMAIL RATE",a.customers.emailCaptureRate<50?"warn":"");';
-  html += 'h+=sc(a.invoices.unpaid,"UNPAID",a.invoices.unpaid>0?"warn":"");h+=sc("$"+a.invoices.unpaidTotal.toFixed(0),"OUTSTANDING",a.invoices.unpaidTotal>0?"warn":"");h+=sc(a.invoices.overdue,"OVERDUE",a.invoices.overdue>0?"danger":"");h+=sc(a.invoices.collectionRate+"%","COLLECT RATE",a.invoices.collectionRate<70?"warn":"");';
-  html += 'if(a.invoices.turnaround){h+=sc(a.invoices.turnaround.avgFormatted,"AVG INVOICE TIME","blue");h+=sc(a.invoices.turnaround.medianFormatted,"MEDIAN INV TIME","");h+=sc(a.invoices.turnaround.fastest,"FASTEST INVOICE","");h+=sc(a.invoices.turnaround.slowest,"SLOWEST INVOICE","warn");}';
-  html += 'if(a.invoices.paymentSpeed){var ps=a.invoices.paymentSpeed;h+=sc(ps.avgDays+"d","AVG PAY TIME","blue");h+=sc(ps.medianDays+"d","MEDIAN PAY","");h+=sc(ps.sameDay+"%","SAME DAY PAY","");h+=sc(ps.within3d+"%","PAID ≤3 DAYS","");h+=sc(ps.within7d+"%","PAID ≤7 DAYS","");h+=sc(ps.over30d+"%","PAID 30+ DAYS",ps.over30d>20?"danger":"");}';
-  html += 'if(a.trends&&a.trends.projections){var pj=a.trends.projections;h+="</div><div class=\\"section-title\\" style=\\"margin-top:18px;\\">📈 Revenue Projections ('+new Date().getFullYear()+')</div><div class=\\"stats-grid\\">";h+=sc("$"+Math.round(pj.ytdRevenue).toLocaleString(),"YTD REVENUE","blue");h+=sc("$"+Math.round(pj.projectedFullYear).toLocaleString(),"PROJECTED YEAR","blue");h+=sc("$"+Math.round(pj.conservativeFullYear).toLocaleString(),"CONSERVATIVE","");h+=sc("$"+Math.round(pj.optimisticFullYear).toLocaleString(),"OPTIMISTIC","");h+=sc("$"+Math.round(pj.lastYearTotal).toLocaleString(),"LAST YEAR TOTAL","");h+=sc((pj.projectedGrowth>=0?"+":"")+pj.projectedGrowth+"%","PROJ GROWTH",pj.projectedGrowth>0?"":"warn");}';
-  html += 'h+=sc(a.refunds.count,"REFUNDS",a.refunds.count>0?"warn":"");h+=sc(a.refunds.rate+"%","REFUND RATE",parseFloat(a.refunds.rate)>5?"danger":"");h+=sc(a.disputes.open,"DISPUTES",a.disputes.open>0?"danger":"");';
-  html += 'h+=sc(a.labor.totalHoursWorked+"h","LABOR 14D","blue");h+=sc(a.labor.avgShiftLength+"h","AVG SHIFT","");h+=sc(a.orders.uniqueItems,"ITEMS SOLD","");';
-  html += 'h+=sc("$"+a.orders.discountTotal.toFixed(0),"DISCOUNTS","warn");h+=sc("$"+a.orders.taxCollected.toFixed(0),"TAX","");';
-  html += 'h+=sc(a.giftCards.active,"GIFT CARDS","");h+=sc("$"+a.giftCards.totalBalance.toFixed(0),"GC BALANCE","blue");h+=sc(a.subscriptions.active,"SUBS","");';
-  html += 'h+=sc(a.team.active+"/"+a.team.total,"TEAM","");h+=sc(a.devices.total,"DEVICES","");h+=sc(a.payments.peakHour,"PEAK HOUR","blue");h+=sc(a.payments.peakDay,"PEAK DAY","blue");';
-  // Add yearly revenue cards
-  html += 'if(a.trends){var yrs=Object.keys(a.trends.yearlyRevenue).sort();yrs.forEach(function(y){h+=sc("$"+Math.round(a.trends.yearlyRevenue[y]).toLocaleString(),y+" REVENUE","blue");});';
+  html += 'h+=sc("$"+Math.round(a.revenue.allTimeTotal).toLocaleString(),"ALL-TIME GROSS","blue");';
+  html += 'h+="</div>";';
+  // Yearly revenue
+  html += 'if(a.trends){h+="<div class=\\"section-title\\">📅 YEARLY BREAKDOWN</div><div class=\\"stats\\">";var yrs=Object.keys(a.trends.yearlyRevenue).sort();yrs.forEach(function(y){h+=sc("$"+Math.round(a.trends.yearlyRevenue[y]).toLocaleString(),y+" REVENUE","blue");});';
   html += 'if(a.trends.bestMonth)h+=sc("$"+Math.round(a.trends.bestMonth[1]).toLocaleString(),"BEST: "+a.trends.bestMonth[0],"");';
   html += 'if(a.trends.worstMonth)h+=sc("$"+Math.round(a.trends.worstMonth[1]).toLocaleString(),"WORST: "+a.trends.worstMonth[0],"warn");';
-  html += 'h+=sc(a.trends.totalMonths,"MONTHS DATA","blue");}';
-  // Customer insights
+  html += 'h+=sc(a.trends.totalMonths,"MONTHS DATA","blue");h+="</div>";}';
+  // Projections
+  html += 'if(a.trends&&a.trends.projections){var pj=a.trends.projections;h+="<div class=\\"section-title\\">📈 PROJECTIONS ("+new Date().getFullYear()+")</div><div class=\\"stats\\">";';
+  html += 'h+=sc("$"+Math.round(pj.ytdRevenue).toLocaleString(),"YTD REVENUE","blue");h+=sc("$"+Math.round(pj.projectedFullYear).toLocaleString(),"PROJECTED YEAR","blue");h+=sc("$"+Math.round(pj.conservativeFullYear).toLocaleString(),"CONSERVATIVE","");h+=sc("$"+Math.round(pj.optimisticFullYear).toLocaleString(),"OPTIMISTIC","");h+=sc("$"+Math.round(pj.lastYearTotal).toLocaleString(),"LAST YEAR TOTAL","");h+=sc((pj.projectedGrowth>=0?"+":"")+pj.projectedGrowth+"%","PROJ GROWTH",pj.projectedGrowth>0?"":"warn");h+="</div>";}';
+  // Orders & Operations
+  html += 'h+="<div class=\\"section-title\\">📦 ORDERS & OPS</div><div class=\\"stats\\">";';
+  html += 'h+=sc(a.payments.completed,a.payments.dataSource==="orders"?"ORDERS":"PAYMENTS","");h+=sc(a.payments.failed,"FAILED",a.payments.failed>0?"danger":"");';
+  html += 'h+=sc(a.orders.uniqueItems,"ITEMS SOLD","");h+=sc("$"+a.orders.discountTotal.toFixed(0),"DISCOUNTS","warn");h+=sc("$"+a.orders.taxCollected.toFixed(0),"TAX","");';
+  html += 'h+=sc(a.payments.peakHour,"PEAK HOUR","blue");h+=sc(a.payments.peakDay,"PEAK DAY","blue");';
+  html += 'h+=sc(a.refunds.count,"REFUNDS",a.refunds.count>0?"warn":"");h+=sc(a.refunds.rate+"%","REFUND RATE",parseFloat(a.refunds.rate)>5?"danger":"");h+=sc(a.disputes.open,"DISPUTES",a.disputes.open>0?"danger":"");';
+  html += 'h+="</div>";';
+  // Customers
+  html += 'h+="<div class=\\"section-title\\">👥 CUSTOMERS</div><div class=\\"stats\\">";';
+  html += 'h+=sc(a.customers.total,"CUSTOMERS","");h+=sc(a.customers.new30d,"NEW 30D","blue");h+=sc(a.customers.emailCaptureRate+"%","EMAIL RATE",a.customers.emailCaptureRate<50?"warn":"");';
   html += 'if(a.customerInsights){h+=sc(a.customerInsights.repeatRate+"%","REPEAT RATE",a.customerInsights.repeatRate<20?"warn":"");';
   html += 'h+=sc("$"+Math.round(a.customerInsights.avgLTV),"AVG LIFETIME VALUE","");';
   html += 'h+=sc(a.customerInsights.uniquePayingCustomers,"PAYING CUSTOMERS","");';
   html += 'h+=sc(a.customerInsights.repeatCustomers,"REPEAT BUYERS","blue");}';
-  html += 'h+=sc("$"+Math.round(a.revenue.allTimeTotal).toLocaleString(),"ALL-TIME GROSS","");';
+  html += 'h+="</div>";';
+  // Invoices
+  html += 'h+="<div class=\\"section-title\\">📄 INVOICES</div><div class=\\"stats\\">";';
+  html += 'h+=sc(a.invoices.unpaid,"UNPAID",a.invoices.unpaid>0?"warn":"");h+=sc("$"+a.invoices.unpaidTotal.toFixed(0),"OUTSTANDING",a.invoices.unpaidTotal>0?"warn":"");h+=sc(a.invoices.overdue,"OVERDUE",a.invoices.overdue>0?"danger":"");h+=sc(a.invoices.collectionRate+"%","COLLECT RATE",a.invoices.collectionRate<70?"warn":"");';
+  html += 'if(a.invoices.turnaround){h+=sc(a.invoices.turnaround.avgFormatted,"AVG INVOICE TIME","blue");h+=sc(a.invoices.turnaround.medianFormatted,"MEDIAN INV TIME","");h+=sc(a.invoices.turnaround.fastest,"FASTEST INVOICE","");h+=sc(a.invoices.turnaround.slowest,"SLOWEST INVOICE","warn");}';
+  html += 'h+="</div>";';
+  // Payment Speed
+  html += 'if(a.invoices.paymentSpeed){var ps=a.invoices.paymentSpeed;h+="<div class=\\"section-title\\">⚡ PAYMENT SPEED</div><div class=\\"stats\\">";h+=sc(ps.avgDays+"d","AVG PAY TIME","blue");h+=sc(ps.medianDays+"d","MEDIAN PAY","");h+=sc(ps.sameDay+"%","SAME DAY PAY","");h+=sc(ps.within3d+"%","PAID ≤3 DAYS","");h+=sc(ps.within7d+"%","PAID ≤7 DAYS","");h+=sc(ps.over30d+"%","PAID 30+ DAYS",ps.over30d>20?"danger":"");h+="</div>";}';
+  // Labor & Assets
+  html += 'h+="<div class=\\"section-title\\">🏢 LABOR & ASSETS</div><div class=\\"stats\\">";';
+  html += 'h+=sc(a.labor.totalHoursWorked+"h","LABOR 14D","blue");h+=sc(a.labor.avgShiftLength+"h","AVG SHIFT","");';
+  html += 'h+=sc(a.giftCards.active,"GIFT CARDS","");h+=sc("$"+a.giftCards.totalBalance.toFixed(0),"GC BALANCE","blue");h+=sc(a.subscriptions.active,"SUBS","");';
+  html += 'h+=sc(a.team.active+"/"+a.team.total,"TEAM","");h+=sc(a.devices.total,"DEVICES","");';
+  html += 'h+="</div>";';
   html += 'document.getElementById("statsGrid").innerHTML=h;}function sc(v,l,cls){return "<div class=\\"stat\\"><div class=\\"stat-val "+(cls||"")+"\\">"+v+"</div><div class=\\"stat-label\\">"+l+"</div></div>";}';
   // Charts
   // Date filter helper
@@ -14530,6 +14601,35 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
 
   html += 'function renderProjections(){var c=document.getElementById("projChart");if(!D||!D.analytics||!D.analytics.trends||!D.analytics.trends.projections)return;var pj=D.analytics.trends.projections;var mp=pj.monthProjections;var labels=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];var months=["01","02","03","04","05","06","07","08","09","10","11","12"];var vals=[];var isProj=[];months.forEach(function(mo){var d=mp[mo];if(d){if(d.projected&&d.estimate!==undefined){vals.push(d.estimate);isProj.push(true);}else{vals.push(d.actual||0);isProj.push(false);}}else{vals.push(0);isProj.push(true);}});var maxV=Math.max.apply(null,vals)||1;var sa=D.analytics.trends.seasonalAvg||{};var h="<div style=\\"position:relative;height:180px;padding:0 10px;\\">";h+="<div style=\\"display:flex;align-items:flex-end;height:160px;gap:4px;\\">";months.forEach(function(mo,i){var barH=Math.max(2,(vals[i]/maxV)*140);var color=isProj[i]?"rgba(99,102,241,0.6)":"#10b981";var border=isProj[i]?"2px dashed #6366f1":"none";var saVal=sa[mo]||0;var saH=Math.max(0,(saVal/maxV)*140);h+="<div style=\\"flex:1;text-align:center;position:relative;\\"><div style=\\"color:"+(isProj[i]?"#818cf8":"#10b981")+";font-size:9px;font-weight:700;margin-bottom:2px;\\">$"+(vals[i]>=1000?Math.round(vals[i]/1000)+"k":vals[i])+"</div><div style=\\"position:relative;height:"+barH+"px;\\"><div style=\\"position:absolute;bottom:0;width:100%;height:"+barH+"px;background:"+color+";border-radius:3px 3px 0 0;"+(isProj[i]?"border-top:"+border:"")+"\\"></div>"+(saVal>0?"<div style=\\"position:absolute;bottom:"+saH+"px;width:100%;height:2px;background:#f59e0b40;\\"></div>":"")+"</div><div style=\\"color:#4a6a8a;font-size:8px;margin-top:3px;\\">"+labels[i]+"</div></div>";});h+="</div></div>";h+="<div style=\\"display:flex;justify-content:center;gap:20px;margin-top:4px;font-size:9px;\\">";h+="<span style=\\"color:#10b981;\\">■ Actual</span>";h+="<span style=\\"color:#6366f1;\\">▪ Projected</span>";h+="<span style=\\"color:#f59e0b40;\\">— Seasonal Avg</span>";h+="</div>";h+="<div style=\\"text-align:center;color:#a0b8d0;font-size:11px;margin-top:6px;font-weight:700;\\">";h+="Projected: $"+pj.projectedFullYear.toLocaleString()+" · Conservative: $"+pj.conservativeFullYear.toLocaleString()+" · vs Last Year: "+(pj.projectedGrowth>=0?"+":"")+pj.projectedGrowth+"%</div>";c.innerHTML=h;}';
 
+
+  // Market Signals — Bullish/Bearish indicators
+  html += 'function renderSignals(){var p=document.getElementById("signalsPanel");if(!D||!D.analytics)return;var a=D.analytics;var t=a.trends;var signals=[];';
+  html += 'var mr=t.monthlyRevenue;var months=Object.keys(mr).sort();';
+  // Signal 1: Revenue Momentum (last 3 months vs prev 3)
+  html += 'if(months.length>=6){var last3=months.slice(-3).reduce(function(s,m){return s+mr[m];},0);var prev3=months.slice(-6,-3).reduce(function(s,m){return s+mr[m];},0);var momPct=prev3>0?Math.round(((last3-prev3)/prev3)*100):0;signals.push({name:"Revenue Momentum",signal:momPct>5?"BULLISH":momPct<-5?"BEARISH":"NEUTRAL",value:(momPct>=0?"+":"")+momPct+"% (3mo vs prev 3mo)",color:momPct>5?"#10b981":momPct<-5?"#ef4444":"#f59e0b"});}';
+  // Signal 2: Week-over-Week
+  html += 'var wg=a.revenue.weekGrowth;signals.push({name:"Weekly Trend",signal:wg>10?"BULLISH":wg<-10?"BEARISH":"NEUTRAL",value:(wg>=0?"+":"")+wg+"% WoW",color:wg>10?"#10b981":wg<-10?"#ef4444":"#f59e0b"});';
+  // Signal 3: YoY Growth
+  html += 'if(t.projections){var yoy=t.projections.yoyGrowthRate;signals.push({name:"Year-over-Year",signal:yoy>10?"BULLISH":yoy<-10?"BEARISH":"NEUTRAL",value:(yoy>=0?"+":"")+yoy+"% YoY",color:yoy>10?"#10b981":yoy<-10?"#ef4444":"#f59e0b"});}';
+  // Signal 4: Seasonal comparison (this month vs seasonal avg)
+  html += 'var curMo=String(new Date().getMonth()+1).padStart(2,"0");var curMoKey=new Date().getFullYear()+"-"+curMo;var saAvg=t.seasonalAvg[curMo]||0;var curMoRev=mr[curMoKey]||0;if(saAvg>0){var sPct=Math.round(((curMoRev-saAvg)/saAvg)*100);signals.push({name:"vs Seasonal Avg",signal:sPct>10?"BULLISH":sPct<-20?"BEARISH":"NEUTRAL",value:(sPct>=0?"+":"")+sPct+"% vs avg for this month",color:sPct>10?"#10b981":sPct<-20?"#ef4444":"#f59e0b"});}';
+  // Signal 5: Customer Growth
+  html += 'var custNew=a.customers.new30d;signals.push({name:"Customer Acquisition",signal:custNew>20?"BULLISH":custNew<5?"BEARISH":"NEUTRAL",value:custNew+" new customers (30d)",color:custNew>20?"#10b981":custNew<5?"#ef4444":"#f59e0b"});';
+  // Signal 6: Repeat Rate
+  html += 'var rr=a.customerInsights.repeatRate;signals.push({name:"Customer Retention",signal:rr>30?"BULLISH":rr<15?"BEARISH":"NEUTRAL",value:rr+"% repeat rate",color:rr>30?"#10b981":rr<15?"#ef4444":"#f59e0b"});';
+  // Signal 7: Avg Ticket Trend
+  html += 'if(months.length>=4){var recentTickets=[];months.slice(-3).forEach(function(m){var mc=t.monthlyPaymentCount?t.monthlyPaymentCount[m]:0;if(mc>0)recentTickets.push(mr[m]/mc);});var avgRecent=recentTickets.length>0?recentTickets.reduce(function(a,b){return a+b;},0)/recentTickets.length:0;signals.push({name:"Avg Ticket Size",signal:avgRecent>a.revenue.avgTicket*1.05?"BULLISH":avgRecent<a.revenue.avgTicket*0.95?"BEARISH":"NEUTRAL",value:"$"+Math.round(avgRecent)+" recent vs $"+a.revenue.avgTicket.toFixed(0)+" avg",color:avgRecent>a.revenue.avgTicket*1.05?"#10b981":avgRecent<a.revenue.avgTicket*0.95?"#ef4444":"#f59e0b"});}';
+  // Signal 8: Refund Rate
+  html += 'var refRate=parseFloat(a.refunds.rate);signals.push({name:"Refund Risk",signal:refRate<2?"BULLISH":refRate>5?"BEARISH":"NEUTRAL",value:refRate+"% refund rate",color:refRate<2?"#10b981":refRate>5?"#ef4444":"#f59e0b"});';
+  // Overall signal
+  html += 'var bull=0;var bear=0;var neut=0;signals.forEach(function(s){if(s.signal==="BULLISH")bull++;else if(s.signal==="BEARISH")bear++;else neut++;});';
+  html += 'var overall=bull>bear+1?"BULLISH":bear>bull+1?"BEARISH":"NEUTRAL";var overallColor=overall==="BULLISH"?"#10b981":overall==="BEARISH"?"#ef4444":"#f59e0b";var overallIcon=overall==="BULLISH"?"🐂":overall==="BEARISH"?"🐻":"⚖️";';
+  // Render
+  html += 'var h="<div style=\\"text-align:center;margin-bottom:16px;\\"><div style=\\"font-family:Orbitron;font-size:2em;color:"+overallColor+";\\">"+overallIcon+" "+overall+"</div><div style=\\"font-family:Orbitron;font-size:0.6em;letter-spacing:3px;color:#4a6a8a;margin-top:4px;\\">"+bull+" BULLISH · "+neut+" NEUTRAL · "+bear+" BEARISH</div></div>";';
+  html += 'h+="<div style=\\"display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;\\">";';
+  html += 'signals.forEach(function(s){h+="<div style=\\"display:flex;align-items:center;padding:10px 14px;background:rgba(10,20,35,0.6);border-left:3px solid "+s.color+";gap:12px;\\"><div style=\\"font-family:Orbitron;font-size:0.65em;letter-spacing:2px;color:"+s.color+";min-width:70px;font-weight:700;\\">"+s.signal+"</div><div><div style=\\"color:#c0d8f0;font-size:0.9em;font-weight:600;\\">"+s.name+"</div><div style=\\"color:#4a6a8a;font-size:0.8em;\\">"+s.value+"</div></div></div>";});';
+  html += 'h+="</div>";p.innerHTML=h;}';
+
   html += 'function showTab(tab,el){curTab=tab;document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});if(el)el.classList.add("active");var c=document.getElementById("tabContent");if(!D){c.innerHTML="Loading...";return;}';
   html += 'if(tab==="payments")rPay(c);else if(tab==="orders")rOrd(c);else if(tab==="invoices")rInv(c);else if(tab==="customers")rCust(c);else if(tab==="items")rItems(c);else if(tab==="refunds")rRef(c);else if(tab==="disputes")rDisp(c);else if(tab==="payouts")rPay2(c);else if(tab==="shifts")rShift(c);else if(tab==="catalog")rCat(c);else if(tab==="giftcards")rGC(c);else if(tab==="subs")rSub(c);}';
   // Table renderers
@@ -14552,9 +14652,14 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'async function analyze(topic){var p=document.getElementById("analysisPanel");p.style.display="block";p.textContent="⚡ ATHENA analyzing...";try{var r=await(await fetch("/square/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:topic})})).json();p.textContent=r.analysis;}catch(e){p.textContent="Error: "+e.message;}}';
 
   // Location dropdown
-  html += 'var curLocation="all";';
-  html += 'function populateLocations(){if(!D||!D.allLocations)return;var sel=document.getElementById("locationFilter");sel.innerHTML="<option value=\\"all\\">📍 ALL LOCATIONS ("+D.allLocations.length+")</option>";D.allLocations.forEach(function(l){var label=l.name||(l.city+", "+l.state);sel.innerHTML+="<option value=\\""+l.id+"\\">"+(l.city?l.city+", "+l.state+" — ":"")+label+"</option>";});if(D.selectedLocation&&D.selectedLocation!=="all")sel.value=D.selectedLocation;}';
-  html += 'function changeLocation(){var sel=document.getElementById("locationFilter");curLocation=sel.value;document.getElementById("refreshBtn").textContent="⟳ LOADING...";loadAll("/square/api/snapshot?location="+curLocation);}';
+  html += 'var curLocation="all";var locDropOpen=false;';
+  html += 'function toggleLocDrop(){locDropOpen=!locDropOpen;document.getElementById("locDropMenu").style.display=locDropOpen?"block":"none";}';
+  html += 'document.addEventListener("click",function(e){if(locDropOpen&&!document.getElementById("locDropWrap").contains(e.target)){locDropOpen=false;document.getElementById("locDropMenu").style.display="none";}});';
+  html += 'function populateLocations(){if(!D||!D.allLocations)return;var box=document.getElementById("locCheckboxes");box.innerHTML="";D.allLocations.forEach(function(l){var label=l.city?(l.city+", "+l.state+" — "+(l.name||"")):(l.name||l.id);var div=document.createElement("label");div.style.cssText="display:flex;align-items:center;padding:6px 14px;cursor:pointer;border-bottom:1px solid #0a1a2a08;color:#a0b8d0;font-size:0.9em;";div.onmouseover=function(){this.style.background="rgba(16,185,129,0.05)";};div.onmouseout=function(){this.style.background="none";};div.innerHTML="<input type=\\"checkbox\\" class=\\"loc-cb\\" value=\\""+l.id+"\\" checked onchange=\\"onLocChange()\\" style=\\"margin-right:10px;accent-color:#10b981;\\"> "+label;box.appendChild(div);});updateLocLabel();}';
+  html += 'function toggleAllLocs(){var checked=document.getElementById("locAll").checked;document.querySelectorAll(".loc-cb").forEach(function(cb){cb.checked=checked;});onLocChange();}';
+  html += 'function onLocChange(){var cbs=document.querySelectorAll(".loc-cb");var checked=[];var total=0;cbs.forEach(function(cb){total++;if(cb.checked)checked.push(cb.value);});document.getElementById("locAll").checked=checked.length===total;updateLocLabel();var locParam=checked.length===total||checked.length===0?"all":checked.join(",");if(curLocation===locParam)return;curLocation=locParam;document.getElementById("refreshBtn").textContent="⟳ LOADING...";loadAll("/square/api/snapshot?location="+encodeURIComponent(curLocation));}';
+  html += 'function updateLocLabel(){var cbs=document.querySelectorAll(".loc-cb");var checked=0;var total=0;var lastName="";cbs.forEach(function(cb){total++;if(cb.checked){checked++;lastName=cb.parentElement.textContent.trim();}});var label=document.getElementById("locDropLabel");if(checked===total||checked===0){label.textContent="📍 ALL LOCATIONS ("+total+")";}else if(checked===1){label.textContent="📍 "+lastName;}else{label.textContent="📍 "+checked+" LOCATIONS SELECTED";}}';
+  html += 'function changeLocation(){}';
 
   // Override loadAll to populate locations
   html += 'var _origLoadAll=loadAll;';
