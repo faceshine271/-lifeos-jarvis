@@ -1,30 +1,4 @@
-// ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
-require('dotenv').config();
-const express = require('express');
-const bodyParser = require('body-parser');
-const { google } = require('googleapis');
-const twilio = require('twilio');
-const path = require('path');
-const fs = require('fs');
 
-const app = express();
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-
-const PORT = process.env.PORT || 3000;
-
-console.log("Starting LifeOS Jarvis...");
-
-/* ===========================
-   GOOGLE SHEETS AUTH
-=========================== */
-
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const BUSINESS_SPREADSHEET_ID = process.env.BUSINESS_SPREADSHEET_ID || SPREADSHEET_ID;
-const PROFIT_SPREADSHEET_ID = process.env.PROFIT_SPREADSHEET_ID || '';
-const FOLLOWUP_SPREADSHEET_ID = process.env.FOLLOWUP_SPREADSHEET_ID || '1A8oUmigHV6DsYcWF4hlDBC5KQDIHWMOh1Is6poCacx4';
-
-if (!SPREADSHEET_ID) {
   console.error("Missing SPREADSHEET_ID");
   process.exit(1);
 }
@@ -422,13 +396,15 @@ function squareAnalyze(snap) {
   var payouts = snap.payouts || []; var shifts = snap.shifts || [];
   var catalog = snap.catalog || []; var team = snap.team || [];
 
-  var today = new Date().toISOString().substring(0, 10);
-  var weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-  var prevWeekStart = new Date(Date.now() - 14 * 86400000).toISOString();
+  // Use Central time for date comparisons (most locations are CT)
+  var nowCT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  var today = nowCT.getFullYear() + '-' + String(nowCT.getMonth()+1).padStart(2,'0') + '-' + String(nowCT.getDate()).padStart(2,'0');
+  var weekAgo = new Date(nowCT.getTime() - 7 * 86400000).toISOString();
+  var prevWeekStart = new Date(nowCT.getTime() - 14 * 86400000).toISOString();
   var completed = payments.filter(function(p){return p.status==='COMPLETED';});
 
   // Revenue breakdown — from BOTH payments and orders
-  var totalRev = 0; var todayRev = 0; var weekRev = 0; var prevWeekRev = 0;
+  var totalRev = 0; var todayRev = 0; var weekRev = 0; var prevWeekRev = 0; var month30dRev = 0;
   var grossRev = 0; var totalTips = 0; var totalFees = 0;
   var paymentsByDay = {}; var paymentsByHour = {}; var paymentsByDayOfWeek = {};
   var paymentsByMethod = {}; var paymentsByLocation = {};
@@ -455,6 +431,7 @@ function squareAnalyze(snap) {
       var dow = new Date(o.created_at).toLocaleDateString('en-US', { weekday: 'short' });
       if (day === today) todayRev += amt;
       if (o.created_at >= weekAgo) weekRev += amt;
+      if (o.created_at >= new Date(nowCT.getTime() - 30 * 86400000).toISOString()) month30dRev += amt;
       if (o.created_at >= prevWeekStart && o.created_at < weekAgo) prevWeekRev += amt;
       paymentsByDay[day] = (paymentsByDay[day] || 0) + amt;
       paymentsByHour[hour] = (paymentsByHour[hour] || 0) + amt;
@@ -492,6 +469,7 @@ function squareAnalyze(snap) {
       var dow = new Date(p.created_at).toLocaleDateString('en-US', { weekday: 'short' });
       if (day === today) todayRev += amt;
       if (p.created_at >= weekAgo) weekRev += amt;
+      if (p.created_at >= new Date(nowCT.getTime() - 30 * 86400000).toISOString()) month30dRev += amt;
       if (p.created_at >= prevWeekStart && p.created_at < weekAgo) prevWeekRev += amt;
       paymentsByDay[day] = (paymentsByDay[day] || 0) + amt;
       paymentsByHour[hour] = (paymentsByHour[hour] || 0) + amt;
@@ -596,12 +574,21 @@ function squareAnalyze(snap) {
 
   // MONTHLY REVENUE TRENDS (all-time since 2022)
   var monthlyRevenue = {}; var monthlyPaymentCount = {}; var monthlyCustomers = {};
-  completed.forEach(function(p) {
-    var month = (p.created_at || '').substring(0, 7);
-    if (!month) return;
-    monthlyRevenue[month] = (monthlyRevenue[month] || 0) + sqCents(p.amount_money);
-    monthlyPaymentCount[month] = (monthlyPaymentCount[month] || 0) + 1;
-  });
+  if (useOrders && completedOrders.length > 0) {
+    completedOrders.forEach(function(o) {
+      var month = (o.created_at || '').substring(0, 7);
+      if (!month) return;
+      monthlyRevenue[month] = (monthlyRevenue[month] || 0) + sqCents(o.total_money);
+      monthlyPaymentCount[month] = (monthlyPaymentCount[month] || 0) + 1;
+    });
+  } else {
+    completed.forEach(function(p) {
+      var month = (p.created_at || '').substring(0, 7);
+      if (!month) return;
+      monthlyRevenue[month] = (monthlyRevenue[month] || 0) + sqCents(p.amount_money);
+      monthlyPaymentCount[month] = (monthlyPaymentCount[month] || 0) + 1;
+    });
+  }
   customers.forEach(function(c) {
     var month = (c.created_at || '').substring(0, 7);
     if (month) monthlyCustomers[month] = (monthlyCustomers[month] || 0) + 1;
@@ -645,15 +632,28 @@ function squareAnalyze(snap) {
 
   // CUSTOMER LIFETIME VALUE
   var customerPayments = {};
-  completed.forEach(function(p) {
-    if (p.customer_id) {
-      if (!customerPayments[p.customer_id]) customerPayments[p.customer_id] = { total: 0, count: 0, first: p.created_at, last: p.created_at };
-      customerPayments[p.customer_id].total += sqCents(p.amount_money);
-      customerPayments[p.customer_id].count++;
-      if (p.created_at < customerPayments[p.customer_id].first) customerPayments[p.customer_id].first = p.created_at;
-      if (p.created_at > customerPayments[p.customer_id].last) customerPayments[p.customer_id].last = p.created_at;
-    }
-  });
+  if (useOrders && completedOrders.length > 0) {
+    completedOrders.forEach(function(o) {
+      var cid = o.customer_id || (o.tenders && o.tenders[0] ? o.tenders[0].customer_id : null);
+      if (cid) {
+        if (!customerPayments[cid]) customerPayments[cid] = { total: 0, count: 0, first: o.created_at, last: o.created_at };
+        customerPayments[cid].total += sqCents(o.total_money);
+        customerPayments[cid].count++;
+        if (o.created_at < customerPayments[cid].first) customerPayments[cid].first = o.created_at;
+        if (o.created_at > customerPayments[cid].last) customerPayments[cid].last = o.created_at;
+      }
+    });
+  } else {
+    completed.forEach(function(p) {
+      if (p.customer_id) {
+        if (!customerPayments[p.customer_id]) customerPayments[p.customer_id] = { total: 0, count: 0, first: p.created_at, last: p.created_at };
+        customerPayments[p.customer_id].total += sqCents(p.amount_money);
+        customerPayments[p.customer_id].count++;
+        if (p.created_at < customerPayments[p.customer_id].first) customerPayments[p.customer_id].first = p.created_at;
+        if (p.created_at > customerPayments[p.customer_id].last) customerPayments[p.customer_id].last = p.created_at;
+      }
+    });
+  }
   var topSpenders = Object.entries(customerPayments).sort(function(a, b) { return b[1].total - a[1].total; }).slice(0, 20);
   var repeatCustomers = Object.values(customerPayments).filter(function(c) { return c.count > 1; }).length;
   var avgLTV = Object.values(customerPayments).length > 0 ? Object.values(customerPayments).reduce(function(s, c) { return s + c.total; }, 0) / Object.values(customerPayments).length : 0;
@@ -674,7 +674,7 @@ function squareAnalyze(snap) {
 
   return {
     revenue: {
-      today: todayRev, week: weekRev, prevWeek: prevWeekRev, month30d: totalRev,
+      today: todayRev, week: weekRev, prevWeek: prevWeekRev, month30d: month30dRev,
       gross: grossRev, net: netRev, tips: totalTips, fees: totalFees,
       weekGrowth: weekGrowth, avgTicket: avgTicket, medianTicket: medianTicket,
       maxTicket: maxTicket, minTicket: minTicket,
