@@ -441,7 +441,7 @@ function squareAnalyze(snap) {
   var totalPaymentCount = 0;
 
   // Use orders as primary revenue source if we have more orders than payments
-  var useOrders = false; // Always use payments for revenue — orders include inflated invoice amounts
+  var useOrders = true; // Use COMPLETED orders — matches Square dashboard revenue
   var completedOrders = orders.filter(function(o){return o.state==='COMPLETED'&&sqCents(o.total_money)>0;});
 
   // Revenue helper — use total_money on COMPLETED orders (confirmed paid)
@@ -10836,7 +10836,7 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>ATHENA — Call Volume Technical Analysis</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">';
-    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.1/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
     html += '<style>';
     html += 'body{margin:0;background:#050d18;color:#c0d8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}';
     html += '.wrap{max-width:1500px;margin:0 auto;padding:20px 30px;}';
@@ -11566,7 +11566,7 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>WILDWOOD — Predictive Analytics Engine</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
-    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.1/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
     html += '<style>';
     html += '*{margin:0;padding:0;box-sizing:border-box;}';
     html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
@@ -12603,7 +12603,7 @@ async function buildAdsContext() {
   try {
     var campaignData = await executeGAQL(
       "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, " +
-      "campaign.bidding_strategy_type, campaign.budget_amount_micros, " +
+      "campaign.bidding_strategy_type, campaign_budget.amount_micros, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.average_cpm, " +
       "metrics.search_impression_share, metrics.cost_per_conversion, " +
@@ -12617,7 +12617,7 @@ async function buildAdsContext() {
         return {
           id: c.id, name: c.name || 'Unknown', status: c.status || 'UNKNOWN',
           type: c.advertisingChannelType || '', bidStrategy: c.biddingStrategyType || '',
-          budget: (c.budgetAmountMicros || 0) / 1000000,
+          budget: ((r.campaignBudget || {}).amountMicros || 0) / 1000000,
           impressions: parseInt(m.impressions || 0), clicks: parseInt(m.clicks || 0),
           cost: (parseInt(m.costMicros || 0)) / 1000000,
           conversions: parseFloat(m.conversions || 0), convValue: parseFloat(m.conversionsValue || 0),
@@ -12716,7 +12716,6 @@ async function buildAdsContext() {
   try {
     var geoData = await executeGAQL(
       "SELECT geographic_view.country_criterion_id, geographic_view.location_type, " +
-      "campaign_criterion.location.geo_target_constant, " +
       "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, " +
       "metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion " +
       "FROM geographic_view WHERE segments.date BETWEEN '" + new Date(Date.now() - 90*86400000).toISOString().substring(0,10) + "' AND '" + new Date().toISOString().substring(0,10) + "' " +
@@ -13102,7 +13101,7 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>WILDWOOD — Google Ads Intelligence</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
-    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.1/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
     html += '<style>';
     html += '*{margin:0;padding:0;box-sizing:border-box;}';
     html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
@@ -13180,8 +13179,8 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
 
     // ====== SECTION 1: ACCOUNT OVERVIEW ======
     html += '<div class="section">';
-    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW — LAST 365 DAYS</div>';
-    html += '<div class="kpi-row">';
+    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;display:flex;align-items:center;gap:15px;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW <select id="adsRange" onchange="filterByRange()" style="background:#0a1520;color:#4285f4;border:1px solid #4285f440;font-family:Orbitron;font-size:0.65em;padding:4px 10px;letter-spacing:2px;cursor:pointer;"><option value="7">7 DAYS</option><option value="14">14 DAYS</option><option value="30" selected>30 DAYS</option><option value="60">60 DAYS</option><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0">ALL TIME</option></select></div>';
+    html += '<div id="kpi-row" class="kpi-row">';
     var acctKPIs = [
       { label: 'TOTAL SPEND', val: '$' + as.totalSpend.toLocaleString(), sub: as.activeCampaigns + ' active campaigns', c: '#ff4757' },
       { label: 'TOTAL CLICKS', val: as.totalClicks.toLocaleString(), sub: as.avgCTR + '% CTR', c: '#4285f4' },
@@ -13393,6 +13392,37 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
     // ====== JAVASCRIPT — Interactive Charts ======
     html += '<script>';
     html += 'var dailyData=' + JSON.stringify(ads.dailyPerformance) + ';';
+    html += 'var allCampaigns=' + JSON.stringify(ads.campaigns.map(function(c){return{name:c.name,status:c.status};})) + ';';
+
+    // Client-side range filter
+    html += 'var currentMetric="cost";';
+    html += 'function filterByRange(){';
+    html += '  var range=parseInt(document.getElementById("adsRange").value)||0;';
+    html += '  var cutoff=range>0?new Date(Date.now()-range*86400000).toISOString().substring(0,10):"0000";';
+    html += '  var fd=dailyData.filter(function(d){return d.date>=cutoff;});';
+    html += '  var ts=0,tc=0,ti=0,tv=0,tvv=0;';
+    html += '  fd.forEach(function(d){ts+=d.cost||0;tc+=d.clicks||0;ti+=d.impressions||0;tv+=d.conversions||0;tvv+=d.convValue||0;});';
+    html += '  var actr=ti>0?(tc/ti*100):0;';
+    html += '  var acpc=tc>0?(ts/tc):0;';
+    html += '  var acpconv=tv>0?(ts/tv):0;';
+    html += '  var aroas=ts>0?(tvv/ts):0;';
+    html += '  var activeCamp=allCampaigns.filter(function(c){return c.status==="ENABLED";}).length;';
+    html += '  var kpis=[';
+    html += '    {label:"TOTAL SPEND",val:"$"+Math.round(ts).toLocaleString(),sub:activeCamp+" active campaigns",c:"#ff4757"},';
+    html += '    {label:"TOTAL CLICKS",val:tc.toLocaleString(),sub:actr.toFixed(2)+"% CTR",c:"#4285f4"},';
+    html += '    {label:"IMPRESSIONS",val:ti.toLocaleString(),sub:"Across all campaigns",c:"#00d4ff"},';
+    html += '    {label:"CONVERSIONS",val:Math.round(tv*100)/100,sub:"$"+acpconv.toFixed(2)+" per conversion",c:"#00ff66"},';
+    html += '    {label:"CONV. VALUE",val:"$"+Math.round(tvv).toLocaleString(),sub:aroas.toFixed(2)+"x ROAS",c:"#ffd700"},';
+    html += '    {label:"AVG CPC",val:"$"+acpc.toFixed(2),sub:"Cost per click",c:"#a855f7"},';
+    html += '    {label:"AVG CTR",val:actr.toFixed(2)+"%",sub:"Click-through rate",c:"#55f7d8"},';
+    html += '    {label:"COST/CONVERSION",val:"$"+acpconv.toFixed(2),sub:"Avg acquisition cost",c:"#ff9f43"},';
+    html += '  ];';
+    html += '  var h="";kpis.forEach(function(k){';
+    html += '    h+="<div class=\\"kpi\\" style=\\"--c:"+k.c+";\\"><div class=\\"kpi-label\\">"+k.label+"</div><div class=\\"kpi-val\\">"+k.val+"</div><div class=\\"kpi-sub\\">"+k.sub+"</div></div>";';
+    html += '  });';
+    html += '  document.getElementById("kpi-row").innerHTML=h;';
+    html += '  if(typeof switchMetric==="function")switchMetric(currentMetric);';
+    html += '}';
 
     html += 'window.addEventListener("load",function(){';
     html += 'if(dailyData.length < 2) return;';
@@ -13401,11 +13431,13 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
     html += 'if(!el)return;';
     html += 'var chart=LightweightCharts.createChart(el,Object.assign({},chartOpts,{width:el.offsetWidth,height:350}));';
     html += 'var series=chart.addLineSeries({color:"#4285f4",lineWidth:2});';
-    html += 'var currentMetric="cost";';
 
     html += 'window.switchMetric=function(metric){';
     html += 'currentMetric=metric;';
-    html += 'var d=dailyData.map(function(r){return{time:r.date,value:r[metric]||0};});';
+    html += 'var range=parseInt(document.getElementById("adsRange").value)||0;';
+    html += 'var cutoff=range>0?new Date(Date.now()-range*86400000).toISOString().substring(0,10):"0000";';
+    html += 'var filtered=dailyData.filter(function(r){return r.date>=cutoff;});';
+    html += 'var d=filtered.map(function(r){return{time:r.date,value:r[metric]||0};});';
     html += 'series.setData(d);chart.timeScale().fitContent();';
     html += 'var colors={cost:"#ff4757",clicks:"#4285f4",conversions:"#00ff66",ctr:"#55f7d8",avgCPC:"#a855f7",roas:"#ffd700"};';
     html += 'series.applyOptions({color:colors[metric]||"#4285f4"});';
@@ -13417,6 +13449,7 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
 
     // Initial render
     html += 'switchMetric("cost");';
+    html += 'filterByRange();';
 
     html += 'window.addEventListener("resize",function(){chart.applyOptions({width:el.offsetWidth});});';
     html += '});';
