@@ -13899,6 +13899,7 @@ app.post('/square/api/analyze', express.json(), async function(req, res) {
 // SQUARE DASHBOARD PAGE
 // ==============================
 app.get('/square', requireAuth('owner'), async function(req, res) {
+  try {
   var session = getVoiceSession(req);
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
   html += '<title>WILDWOOD — SQUARE</title>';
@@ -14003,9 +14004,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+="Raw Orders: <span style=\\"color:#ef4444;font-weight:700;\\">"+d.raw_orders+"</span> | ";';
   html += 'h+="Raw Invoices: <span style=\\"color:#ef4444;font-weight:700;\\">"+d.raw_invoices+"</span> | ";';
   html += 'h+="Raw Customers: <span style=\\"color:#10b981;font-weight:700;\\">"+d.raw_customers+"</span> | ";';
-  html += 'h+="Locations: <span style=\\"color:#10b981;font-weight:700;\\">"+d.locations+"</span> | ";';
-  html += 'h+="Cached: <span style=\\"color:'+(d.cached?'#10b981':'#ef4444')+';\\">"+d.cached+"</span> | ";';
-  html += 'h+="Age: <span style=\\"color:#4af;\\">"+d.cache_age_sec+"s</span>";';
+  html += 'h+="Locations: <span style=\\"color:#10b981;font-weight:700;\\">"+d.locations+"</span>";';
   html += 'h+="</div>";el.insertAdjacentHTML("beforebegin",h);}';
 
   // Locations
@@ -14240,6 +14239,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'async function analyze(topic){var p=document.getElementById("analysisPanel");p.style.display="block";p.textContent="⚡ ATHENA analyzing...";try{var r=await(await fetch("/square/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:topic})})).json();p.textContent=r.analysis;}catch(e){p.textContent="Error: "+e.message;}}';
   html += 'loadAll();</script></body></html>';
   res.send(html);
+  } catch(err) { console.log('Square page error:', err.message, err.stack); res.status(500).send('Square page error: ' + err.message); }
 });
 
 // Discord Dashboard Page
