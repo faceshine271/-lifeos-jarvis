@@ -89,7 +89,7 @@ async function squareFetch(endpoint, method, body) {
     };
     if (body) opts.body = JSON.stringify(body);
     var r = await fetch(SQUARE_BASE + '/v2' + endpoint, opts);
-    if (!r.ok) { console.log('Square API error ' + endpoint + ':', r.status); return null; }
+    if (!r.ok) { var errBody = ''; try { errBody = await r.text(); } catch(e){} console.log('Square API error ' + endpoint + ':', r.status, errBody.substring(0,300)); return null; }
     return await r.json();
   } catch (err) { console.log('Square fetch error:', err.message); return null; }
 }
@@ -13621,6 +13621,7 @@ app.get('/square/api/snapshot', async function(req, res) {
     var invoices = snap.invoices || []; var orders = snap.orders || [];
 
     res.json({
+      debug: { token_prefix: SQUARE_ACCESS_TOKEN ? SQUARE_ACCESS_TOKEN.substring(0,12)+'...' : 'NOT SET', base_url: SQUARE_BASE, square_env: process.env.SQUARE_ENV || 'NOT SET', raw_payments: (snap.payments||[]).length, raw_orders: (snap.orders||[]).length, raw_invoices: (snap.invoices||[]).length, raw_customers: (snap.customers||[]).length, locations: (snap.locations||[]).length },
       analytics: a,
       locations: (snap.locations||[]).map(function(l) { return { id:l.id, name:l.name, address:l.address, status:l.status, timezone:l.timezone, currency:l.currency, country:l.country, phone:l.phone_number, businessName:l.business_name, businessEmail:l.business_email, description:l.description, capabilities:l.capabilities }; }),
       recentPayments: payments.slice(0,30).map(function(p) {
@@ -13659,6 +13660,28 @@ app.get('/square/api/locations', async function(req, res) {
     var locs = await squareGetLocations();
     res.json({ count: locs.length, locations: locs });
   } catch (err) { res.json({ locations: [], error: err.message }); }
+});
+app.get('/square/api/debug', async function(req, res) {
+  try {
+    var today = new Date(); today.setHours(0,0,0,0);
+    var raw = await squareFetch('/payments?begin_time=' + encodeURIComponent(today.toISOString()) + '&limit=100');
+    var rawAll = await squareFetch('/payments?limit=100&sort_order=DESC');
+    var locs = await squareGetLocations();
+    var locIds = locs.map(function(l){return l.id;});
+    // Try orders search across all locations
+    var ordersRaw = await squareFetch('/orders/search', 'POST', {
+      location_ids: locIds, query: { filter: { date_time_filter: { created_at: { start_at: today.toISOString() } } } }, limit: 100
+    });
+    res.json({
+      token_prefix: SQUARE_ACCESS_TOKEN ? SQUARE_ACCESS_TOKEN.substring(0,10) + '...' : 'NOT SET',
+      base_url: SQUARE_BASE,
+      square_env: process.env.SQUARE_ENV || 'NOT SET',
+      location_count: locs.length,
+      payments_today_raw: raw,
+      payments_all_raw: rawAll,
+      orders_today_raw: ordersRaw
+    });
+  } catch (err) { res.json({ error: err.message, stack: err.stack }); }
 });
 app.get('/square/api/customers', async function(req, res) { try { res.json({ customers: await squareGetCustomers() }); } catch (err) { res.json({ customers: [], error: err.message }); } });
 app.get('/square/api/payments', async function(req, res) { try { res.json({ payments: await squareGetPayments(parseInt(req.query.days)||30) }); } catch (err) { res.json({ payments: [], error: err.message }); } });
@@ -13841,7 +13864,21 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<button class="tab-btn" onclick="showTab(\'subs\',this)">🔄 SUBS</button></div>';
   html += '<div id="tabContent" style="overflow-x:auto;"><div style="color:#4a6a8a;">Loading...</div></div></div>';
   html += '<script>var D=null;var curTab="payments";';
-  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderDebug();renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+
+  // Debug panel
+  html += 'function renderDebug(){var d=D.debug;if(!d)return;var el=document.getElementById("locationsPanel");';
+  html += 'var h="<div style=\\"background:rgba(255,200,0,0.1);border:1px solid #f59e0b;padding:10px;margin-bottom:10px;font-size:0.85em;\\">";';
+  html += 'h+="<strong style=\\"color:#f59e0b;\\">⚡ DEBUG INFO</strong><br>";';
+  html += 'h+="Token: <span style=\\"color:#10b981;\\">"+d.token_prefix+"</span> | ";';
+  html += 'h+="API: <span style=\\"color:#10b981;\\">"+d.base_url+"</span> | ";';
+  html += 'h+="Env: <span style=\\"color:#10b981;\\">"+d.square_env+"</span><br>";';
+  html += 'h+="Raw Payments: <span style=\\"color:#ef4444;font-weight:700;\\">"+d.raw_payments+"</span> | ";';
+  html += 'h+="Raw Orders: <span style=\\"color:#ef4444;font-weight:700;\\">"+d.raw_orders+"</span> | ";';
+  html += 'h+="Raw Invoices: <span style=\\"color:#ef4444;font-weight:700;\\">"+d.raw_invoices+"</span> | ";';
+  html += 'h+="Raw Customers: <span style=\\"color:#10b981;font-weight:700;\\">"+d.raw_customers+"</span> | ";';
+  html += 'h+="Locations: <span style=\\"color:#10b981;font-weight:700;\\">"+d.locations+"</span>";';
+  html += 'h+="</div>";el.insertAdjacentHTML("beforebegin",h);}';
 
   // Locations
   html += 'function renderLocations(){var locs=D.locations||[];var el=document.getElementById("locationsPanel");';
