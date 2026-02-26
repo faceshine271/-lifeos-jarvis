@@ -5490,7 +5490,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -7921,7 +7921,7 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
@@ -10421,7 +10421,7 @@ app.get('/tookan', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     // Status overview cards
@@ -10877,7 +10877,7 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" class="active">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
@@ -11638,7 +11638,7 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics" class="active">ANALYTICS</a>';
     html += '<a href="/ads">GOOGLE ADS</a>';
-    html += '<a href="/followup">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/followup">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div class="title">PREDICTIVE ANALYTICS ENGINE</div>';
@@ -13153,7 +13153,12 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics">ANALYTICS</a>';
     html += '<a href="/ads" class="active">GOOGLE ADS</a>';
-    html += '<a href="/followup">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square">SQUARE</a>';
+    html += '<a href="/discord">DISCORD</a>';
+    html += '<a href="/followup">FOLLOW UP</a>';
+    html += '<a href="/ai">AI</a>';
+    html += '<a href="/audit">AUDIT</a>';
+    html += '<a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:5px;">GOOGLE ADS INTELLIGENCE</div>';
@@ -13179,7 +13184,7 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
 
     // ====== SECTION 1: ACCOUNT OVERVIEW ======
     html += '<div class="section">';
-    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;display:flex;align-items:center;gap:15px;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW <select id="adsRange" onchange="filterByRange()" style="background:#0a1520;color:#4285f4;border:1px solid #4285f440;font-family:Orbitron;font-size:0.65em;padding:4px 10px;letter-spacing:2px;cursor:pointer;"><option value="7">7 DAYS</option><option value="14">14 DAYS</option><option value="30">30 DAYS</option><option value="60">60 DAYS</option><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="365">1 YEAR</option><option value="0" selected>ALL TIME</option></select></div>';
+    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;display:flex;align-items:center;gap:15px;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW <select id="adsRange" onchange="filterByRange()" style="background:#0a1520;color:#4285f4;border:1px solid #4285f440;font-family:Orbitron;font-size:0.65em;padding:4px 10px;letter-spacing:2px;cursor:pointer;"><option value="1">TODAY</option><option value="7">7 DAYS</option><option value="14">14 DAYS</option><option value="30">30 DAYS</option><option value="thismonth">THIS MONTH</option><option value="60">60 DAYS</option><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="thisyear">THIS YEAR</option><option value="365">1 YEAR</option><option value="0" selected>ALL TIME</option></select></div>';
     html += '<div id="kpi-row" class="kpi-row">';
     var acctKPIs = [
       { label: 'TOTAL SPEND', val: '$' + as.totalSpend.toLocaleString(), sub: as.activeCampaigns + ' active campaigns', c: '#ff4757' },
@@ -13397,8 +13402,11 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
     // Client-side range filter
     html += 'var currentMetric="cost";';
     html += 'function filterByRange(){';
-    html += '  var range=parseInt(document.getElementById("adsRange").value)||0;';
-    html += '  var cutoff=range>0?new Date(Date.now()-range*86400000).toISOString().substring(0,10):"0000";';
+    html += '  var rangeVal=document.getElementById("adsRange").value;';
+    html += '  var cutoff="0000";';
+    html += '  if(rangeVal==="thismonth"){var d=new Date();cutoff=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-01";}';
+    html += '  else if(rangeVal==="thisyear"){cutoff=new Date().getFullYear()+"-01-01";}';
+    html += '  else{var range=parseInt(rangeVal)||0;if(range>0)cutoff=new Date(Date.now()-range*86400000).toISOString().substring(0,10);}';
     html += '  var fd=dailyData.filter(function(d){return d.date>=cutoff;});';
     html += '  var ts=0,tc=0,ti=0,tv=0,tvv=0;';
     html += '  fd.forEach(function(d){ts+=d.cost||0;tc+=d.clicks||0;ti+=d.impressions||0;tv+=d.conversions||0;tvv+=d.convValue||0;});';
@@ -13434,8 +13442,11 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
 
     html += 'window.switchMetric=function(metric){';
     html += 'currentMetric=metric;';
-    html += 'var range=parseInt(document.getElementById("adsRange").value)||0;';
-    html += 'var cutoff=range>0?new Date(Date.now()-range*86400000).toISOString().substring(0,10):"0000";';
+    html += 'var rangeVal=document.getElementById("adsRange").value;';
+    html += 'var cutoff="0000";';
+    html += 'if(rangeVal==="thismonth"){var d2=new Date();cutoff=d2.getFullYear()+"-"+String(d2.getMonth()+1).padStart(2,"0")+"-01";}';
+    html += 'else if(rangeVal==="thisyear"){cutoff=new Date().getFullYear()+"-01-01";}';
+    html += 'else{var range=parseInt(rangeVal)||0;if(range>0)cutoff=new Date(Date.now()-range*86400000).toISOString().substring(0,10);}';
     html += 'var filtered=dailyData.filter(function(r){return r.date>=cutoff;});';
     html += 'var d=filtered.map(function(r){return{time:r.date,value:r[metric]||0};});';
     html += 'series.setData(d);chart.timeScale().fitContent();';
@@ -14209,6 +14220,449 @@ app.get('/api/audit', requireAuth('owner'), async function(req, res) {
   res.json(await runSystemAudit());
 });
 
+// ====== AI INTELLIGENCE HUB — Demand Forecast, Daily Briefing, Pricing Optimizer ======
+app.get('/ai', requireAuth('owner'), async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var bm = global.bizMetrics || {};
+    var pm = global.profitMetrics || {};
+    var sq, sqA;
+    try { sq = await squareFullSnapshot(false); sqA = squareAnalyze(sq); } catch(e) { sq = {}; sqA = null; }
+    var ads;
+    try { ads = await buildAdsContext(); } catch(e) { ads = null; }
+
+    var monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var now = new Date();
+    var currentMonth = now.getMonth() + 1;
+    var currentYear = now.getFullYear();
+
+    // ====== DEMAND FORECASTING DATA ======
+    var forecast = { weeks: [], months: [], staffing: [] };
+    
+    // Historical monthly data from CRM + Square
+    var crmMonthly = bm.monthlyCalls || {};
+    var sqMonthly = sqA ? sqA.trends.monthlyRevenue : {};
+    var sqSeasonal = sqA ? sqA.trends.seasonalAvg : {};
+    var sqPaymentCount = sqA ? sqA.trends.monthlyPaymentCount : {};
+    
+    // Build forecast for next 6 months
+    for (var fm = 1; fm <= 6; fm++) {
+      var targetMonth = ((currentMonth - 1 + fm) % 12) + 1;
+      var targetYear = currentYear + Math.floor((currentMonth - 1 + fm) / 12);
+      var moKey = String(targetMonth).padStart(2, '0');
+      var monthKey = targetYear + '-' + moKey;
+      
+      // Seasonal average revenue
+      var seasonalRev = sqSeasonal[moKey] || 0;
+      
+      // Historical call volume for this calendar month
+      var historicalCalls = [];
+      Object.keys(crmMonthly).forEach(function(m) {
+        if (m.endsWith('-' + moKey)) historicalCalls.push(crmMonthly[m]);
+      });
+      var avgCalls = historicalCalls.length > 0 ? Math.round(historicalCalls.reduce(function(a,b){return a+b;},0) / historicalCalls.length) : 0;
+      
+      // Historical revenue for this calendar month
+      var historicalRevs = [];
+      Object.keys(sqMonthly).forEach(function(m) {
+        if (m.endsWith('-' + moKey)) historicalRevs.push(sqMonthly[m]);
+      });
+      var avgRev = historicalRevs.length > 0 ? Math.round(historicalRevs.reduce(function(a,b){return a+b;},0) / historicalRevs.length) : seasonalRev;
+      
+      // Growth adjustment (YoY)
+      var lastYearKey = (targetYear - 1) + '-' + moKey;
+      var twoYearKey = (targetYear - 2) + '-' + moKey;
+      var growthRate = 0;
+      if (sqMonthly[lastYearKey] && sqMonthly[twoYearKey] && sqMonthly[twoYearKey] > 0) {
+        growthRate = (sqMonthly[lastYearKey] - sqMonthly[twoYearKey]) / sqMonthly[twoYearKey];
+      }
+      
+      var projectedRev = Math.round(avgRev * (1 + growthRate * 0.5)); // dampen growth
+      var projectedCalls = Math.round(avgCalls * (1 + growthRate * 0.3));
+      
+      // Demand level
+      var allMonthlyRevs = Object.values(sqMonthly);
+      var overallAvg = allMonthlyRevs.length > 0 ? allMonthlyRevs.reduce(function(a,b){return a+b;},0) / allMonthlyRevs.length : 0;
+      var demandLevel = projectedRev > overallAvg * 1.3 ? 'HIGH' : projectedRev > overallAvg * 0.7 ? 'NORMAL' : 'LOW';
+      
+      // Staffing recommendation (based on avg ticket and techs needed)
+      var avgTicket = sqA ? sqA.revenue.avgTicket : 200;
+      var jobsNeeded = avgTicket > 0 ? Math.ceil(projectedRev / avgTicket) : 0;
+      var techsNeeded = Math.ceil(jobsNeeded / 22); // ~22 working days, 1 job/day/tech
+      
+      forecast.months.push({
+        month: monthKey,
+        label: monthNames[targetMonth] + ' ' + targetYear,
+        projectedRevenue: projectedRev,
+        projectedCalls: projectedCalls,
+        seasonalAvg: Math.round(seasonalRev),
+        historicalAvg: Math.round(avgRev),
+        growthRate: Math.round(growthRate * 100),
+        demandLevel: demandLevel,
+        estimatedJobs: jobsNeeded,
+        techsNeeded: techsNeeded,
+      });
+    }
+
+    // ====== DAILY BRIEFING DATA ======
+    var briefing = {};
+    
+    // Square today/week/month
+    briefing.revenue = sqA ? {
+      today: sqA.revenue.today,
+      week: sqA.revenue.week,
+      month30d: sqA.revenue.month30d,
+      weekGrowth: sqA.revenue.weekGrowth,
+      avgTicket: sqA.revenue.avgTicket,
+    } : {};
+    
+    // CRM today
+    briefing.crm = {
+      thisMonth: bm.thisMonthCalls || 0,
+      lastMonth: bm.lastMonthCalls || 0,
+      growth: bm.monthGrowth || 0,
+      todayBookings: bm.todayBookings || 0,
+      needsReschedule: bm.needsReschedule || 0,
+      conversionRate: bm.conversionRate || 0,
+    };
+    
+    // Google Ads recent
+    if (ads && ads.dailyPerformance && ads.dailyPerformance.length > 0) {
+      var last7 = ads.dailyPerformance.slice(-7);
+      var prev7 = ads.dailyPerformance.slice(-14, -7);
+      var last7Spend = last7.reduce(function(s,d){return s+d.cost;},0);
+      var last7Clicks = last7.reduce(function(s,d){return s+d.clicks;},0);
+      var last7Conv = last7.reduce(function(s,d){return s+d.conversions;},0);
+      var prev7Spend = prev7.reduce(function(s,d){return s+d.cost;},0);
+      briefing.ads = {
+        last7Spend: Math.round(last7Spend * 100) / 100,
+        last7Clicks: last7Clicks,
+        last7Conv: Math.round(last7Conv * 10) / 10,
+        spendTrend: prev7Spend > 0 ? Math.round((last7Spend - prev7Spend) / prev7Spend * 100) : 0,
+        costPerLead: last7Conv > 0 ? Math.round(last7Spend / last7Conv * 100) / 100 : 0,
+      };
+    }
+    
+    // Alerts
+    briefing.alerts = [];
+    if (sqA && sqA.revenue.weekGrowth < -20) briefing.alerts.push({ type: 'warning', msg: 'Revenue down ' + sqA.revenue.weekGrowth + '% vs last week' });
+    if (sqA && sqA.refunds.rate > 5) briefing.alerts.push({ type: 'warning', msg: 'Refund rate at ' + sqA.refunds.rate + '% — investigate' });
+    if (bm.needsReschedule > 3) briefing.alerts.push({ type: 'action', msg: bm.needsReschedule + ' jobs need rescheduling' });
+    if (ads && ads.accountSummary && ads.accountSummary.avgCPC > 10) briefing.alerts.push({ type: 'warning', msg: 'CPC is $' + ads.accountSummary.avgCPC + ' — check campaigns' });
+    if (bm.monthGrowth > 20) briefing.alerts.push({ type: 'positive', msg: 'Call volume up ' + bm.monthGrowth + '% vs last month!' });
+    if (sqA && sqA.revenue.weekGrowth > 15) briefing.alerts.push({ type: 'positive', msg: 'Weekly revenue up ' + sqA.revenue.weekGrowth + '%!' });
+    
+    // Next month demand
+    if (forecast.months.length > 0) {
+      var nextM = forecast.months[0];
+      if (nextM.demandLevel === 'HIGH') briefing.alerts.push({ type: 'action', msg: nextM.label + ' is projected HIGH demand ($' + nextM.projectedRevenue.toLocaleString() + ') — ensure ' + nextM.techsNeeded + '+ techs available' });
+      if (nextM.demandLevel === 'LOW') briefing.alerts.push({ type: 'action', msg: nextM.label + ' is projected LOW demand — run promotions or reduce ad spend' });
+    }
+
+    // ====== PRICING OPTIMIZER DATA ======
+    var pricing = { categories: [], recommendations: [] };
+    
+    // Equipment category analysis from CRM
+    var equipStats = bm.equipStats || {};
+    var equipSorted = Object.entries(equipStats).sort(function(a,b){return b[1]-a[1];}).slice(0, 15);
+    
+    // Revenue per job by looking at Square avg tickets over time
+    var monthlyTickets = sqA ? sqA.trends.monthlyAvgTicket || {} : {};
+    var ticketTrend = Object.keys(monthlyTickets).sort().slice(-12).map(function(m) { return { month: m, ticket: monthlyTickets[m] }; });
+    var currentAvgTicket = sqA ? sqA.revenue.avgTicket : 0;
+    var ticketValues = ticketTrend.map(function(t){return t.ticket;}).filter(function(v){return v > 0;});
+    var ticketMin = ticketValues.length > 0 ? Math.min.apply(null, ticketValues) : 0;
+    var ticketMax = ticketValues.length > 0 ? Math.max.apply(null, ticketValues) : 0;
+    var ticketAvg = ticketValues.length > 0 ? ticketValues.reduce(function(a,b){return a+b;},0) / ticketValues.length : 0;
+    
+    // Seasonal pricing intelligence
+    var seasonalPricing = {};
+    Object.keys(sqSeasonal).forEach(function(mo) {
+      var monthRev = sqSeasonal[mo] || 0;
+      var monthPayments = 0;
+      Object.keys(sqPaymentCount).forEach(function(m) {
+        if (m.endsWith('-' + mo)) monthPayments += sqPaymentCount[m] || 0;
+      });
+      var yearsOfData = 0;
+      Object.keys(sqMonthly).forEach(function(m) { if (m.endsWith('-' + mo)) yearsOfData++; });
+      seasonalPricing[mo] = {
+        label: monthNames[parseInt(mo)],
+        avgRevenue: monthRev,
+        avgPayments: yearsOfData > 0 ? Math.round(monthPayments / yearsOfData) : 0,
+        impliedTicket: monthPayments > 0 && yearsOfData > 0 ? Math.round(monthRev / (monthPayments / yearsOfData)) : 0,
+      };
+    });
+    
+    // Ad cost per lead
+    var costPerLead = ads && ads.accountSummary && ads.accountSummary.totalConversions > 0 ? 
+      Math.round(ads.accountSummary.totalSpend / ads.accountSummary.totalConversions * 100) / 100 : 0;
+    
+    // Pricing recommendations
+    var overallAvgTicket = Math.round(ticketAvg);
+    if (overallAvgTicket > 0) {
+      // Check if current pricing is below/above trend
+      if (currentAvgTicket < overallAvgTicket * 0.9) {
+        pricing.recommendations.push({ type: 'increase', msg: 'Current avg ticket ($' + Math.round(currentAvgTicket) + ') is below 12-month average ($' + overallAvgTicket + '). Consider raising base rates.', impact: 'high' });
+      }
+      
+      // Seasonal pricing suggestion
+      var nextMonthMo = String(((currentMonth) % 12) + 1).padStart(2, '0');
+      var nextSeason = seasonalPricing[nextMonthMo];
+      if (nextSeason && nextSeason.impliedTicket > overallAvgTicket * 1.2) {
+        pricing.recommendations.push({ type: 'seasonal', msg: monthNames[parseInt(nextMonthMo)] + ' historically has higher avg ticket ($' + nextSeason.impliedTicket + ' vs $' + overallAvgTicket + '). Peak demand = premium pricing opportunity.', impact: 'high' });
+      } else if (nextSeason && nextSeason.impliedTicket < overallAvgTicket * 0.8) {
+        pricing.recommendations.push({ type: 'promo', msg: monthNames[parseInt(nextMonthMo)] + ' is typically slow ($' + nextSeason.impliedTicket + ' avg ticket). Consider promo pricing or service bundles to drive volume.', impact: 'medium' });
+      }
+      
+      // Cost per lead vs ticket
+      if (costPerLead > 0 && costPerLead > currentAvgTicket * 0.3) {
+        pricing.recommendations.push({ type: 'warning', msg: 'Ad cost per lead ($' + costPerLead + ') is ' + Math.round(costPerLead / currentAvgTicket * 100) + '% of avg ticket. Raise prices or optimize ads.', impact: 'high' });
+      } else if (costPerLead > 0) {
+        pricing.recommendations.push({ type: 'positive', msg: 'Ad cost per lead ($' + costPerLead + ') is only ' + Math.round(costPerLead / currentAvgTicket * 100) + '% of avg ticket ($' + Math.round(currentAvgTicket) + '). Strong margin.', impact: 'low' });
+      }
+      
+      // Ticket trend direction
+      if (ticketTrend.length >= 6) {
+        var first3 = ticketTrend.slice(0, 3).reduce(function(s,t){return s+t.ticket;},0) / 3;
+        var last3 = ticketTrend.slice(-3).reduce(function(s,t){return s+t.ticket;},0) / 3;
+        if (last3 > first3 * 1.1) {
+          pricing.recommendations.push({ type: 'positive', msg: 'Avg ticket trending UP (' + Math.round(first3) + ' → $' + Math.round(last3) + '). Market supports higher prices.', impact: 'medium' });
+        } else if (last3 < first3 * 0.9) {
+          pricing.recommendations.push({ type: 'warning', msg: 'Avg ticket trending DOWN ($' + Math.round(first3) + ' → $' + Math.round(last3) + '). May need to review discounting or job mix.', impact: 'medium' });
+        }
+      }
+    }
+
+    // ====== RENDER HTML ======
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width"><title>AI Intelligence</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">';
+    html += '<style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#050d18;color:#c0d8f0;font-family:monospace;padding:20px;max-width:1400px;margin:0 auto;}';
+    html += '.nav{display:flex;gap:2px;margin-bottom:20px;flex-wrap:wrap;justify-content:center;}';
+    html += '.nav a{font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);}';
+    html += '.nav a.active{color:#c084fc;border-color:#c084fc40;background:rgba(192,132,252,0.1);}';
+    html += 'h1{font-family:Orbitron;color:#c084fc;letter-spacing:6px;margin-bottom:5px;}';
+    html += '.sub{font-family:Orbitron;font-size:0.6em;color:#4a6a8a;letter-spacing:3px;margin-bottom:20px;}';
+    html += '.tabs{display:flex;gap:0;margin-bottom:20px;}';
+    html += '.tab{font-family:Orbitron;font-size:0.65em;letter-spacing:3px;padding:12px 24px;cursor:pointer;border:1px solid #1a2a3a;background:#050d18;color:#4a6a8a;transition:all 0.3s;}';
+    html += '.tab.active{color:#c084fc;border-color:#c084fc40;background:rgba(192,132,252,0.08);}';
+    html += '.tab:hover{color:#c084fc;}';
+    html += '.panel{display:none;}.panel.active{display:block;}';
+    html += '.section{background:rgba(10,20,35,0.6);border:1px solid #1a2a3a;padding:16px;margin-bottom:16px;border-radius:4px;}';
+    html += '.section-title{font-family:Orbitron;font-size:0.85em;letter-spacing:4px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1a2a3a;}';
+    html += '.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;}';
+    html += '.card{background:rgba(5,10,20,0.6);border:1px solid #1a2a3a;padding:14px;border-radius:4px;text-align:center;}';
+    html += '.card-val{font-family:Orbitron;font-size:1.6em;margin:6px 0;}';
+    html += '.card-label{font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#4a6a8a;}';
+    html += '.card-sub{font-size:0.75em;color:#4a6a8a;margin-top:4px;}';
+    html += '.bar-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #0a1520;}';
+    html += '.bar-label{width:100px;font-family:Orbitron;font-size:0.7em;letter-spacing:2px;color:#4a6a8a;}';
+    html += '.bar-track{flex:1;height:28px;background:#0a1520;border-radius:4px;overflow:hidden;position:relative;}';
+    html += '.bar-fill{height:100%;border-radius:4px;transition:width 0.5s;}';
+    html += '.bar-text{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:0.75em;font-weight:bold;}';
+    html += '.alert{padding:10px 14px;margin-bottom:8px;border-radius:4px;font-size:0.85em;border-left:3px solid;}';
+    html += '.alert-warning{background:rgba(245,158,11,0.08);border-color:#f59e0b;color:#f59e0b;}';
+    html += '.alert-action{background:rgba(0,212,255,0.08);border-color:#00d4ff;color:#00d4ff;}';
+    html += '.alert-positive{background:rgba(16,185,129,0.08);border-color:#10b981;color:#10b981;}';
+    html += '.rec{padding:12px;margin-bottom:10px;border:1px solid #1a2a3a;border-radius:4px;display:flex;justify-content:space-between;align-items:center;}';
+    html += '.rec-msg{flex:1;font-size:0.85em;line-height:1.5;}';
+    html += '.rec-impact{font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border-radius:3px;}';
+    html += '.impact-high{background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef444440;}';
+    html += '.impact-medium{background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b40;}';
+    html += '.impact-low{background:rgba(16,185,129,0.15);color:#10b981;border:1px solid #10b98140;}';
+    html += '.forecast-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}';
+    html += '.fc-card{background:rgba(5,10,20,0.6);border:1px solid #1a2a3a;padding:14px;border-radius:4px;}';
+    html += '.fc-month{font-family:Orbitron;font-size:0.8em;letter-spacing:3px;margin-bottom:8px;}';
+    html += '.fc-val{font-family:Orbitron;font-size:1.3em;margin:4px 0;}';
+    html += '.fc-meta{font-size:0.75em;color:#4a6a8a;line-height:1.8;}';
+    html += '.demand-HIGH{color:#ef4444;border-color:#ef444440;}.demand-NORMAL{color:#f59e0b;border-color:#f59e0b40;}.demand-LOW{color:#00d4ff;border-color:#00d4ff40;}';
+    html += '@media(max-width:600px){.grid{grid-template-columns:1fr 1fr;}.forecast-grid{grid-template-columns:1fr 1fr;}}';
+    html += '</style></head><body>';
+
+    // Nav
+    html += '<div class="nav">';
+    html += '<a href="/jarvis">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a>';
+    html += '<a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
+    html += '<a href="/discord">DISCORD</a><a href="/ai" class="active">AI</a><a href="/audit">AUDIT</a>';
+    html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
+
+    html += '<h1>🧠 AI INTELLIGENCE HUB</h1>';
+    html += '<div class="sub">DEMAND FORECASTING · DAILY BRIEFING · PRICING OPTIMIZER</div>';
+
+    // Tabs
+    html += '<div class="tabs">';
+    html += '<div class="tab active" onclick="showPanel(\'briefing\')">📋 DAILY BRIEFING</div>';
+    html += '<div class="tab" onclick="showPanel(\'forecast\')">📈 DEMAND FORECAST</div>';
+    html += '<div class="tab" onclick="showPanel(\'pricing\')">💰 PRICING OPTIMIZER</div>';
+    html += '</div>';
+
+    // ====== PANEL 1: DAILY BRIEFING ======
+    html += '<div class="panel active" id="panel-briefing">';
+    html += '<div class="section"><div class="section-title" style="color:#10b981;">☀️ GOOD MORNING BRIEFING — ' + now.toLocaleDateString('en-US', {weekday:'long',month:'long',day:'numeric',year:'numeric'}) + '</div>';
+    
+    // Alerts first
+    if (briefing.alerts.length > 0) {
+      briefing.alerts.forEach(function(a) {
+        html += '<div class="alert alert-' + a.type + '">' + (a.type === 'warning' ? '⚠️' : a.type === 'action' ? '🎯' : '🚀') + ' ' + a.msg + '</div>';
+      });
+    } else {
+      html += '<div class="alert alert-positive">✅ All systems normal — no alerts today</div>';
+    }
+    html += '</div>';
+    
+    // Revenue snapshot
+    html += '<div class="section"><div class="section-title" style="color:#10b981;">💰 REVENUE</div><div class="grid">';
+    var brev = briefing.revenue || {};
+    html += '<div class="card"><div class="card-label">TODAY</div><div class="card-val" style="color:#10b981;">$' + Math.round(brev.today || 0).toLocaleString() + '</div></div>';
+    html += '<div class="card"><div class="card-label">THIS WEEK</div><div class="card-val" style="color:#10b981;">$' + Math.round(brev.week || 0).toLocaleString() + '</div><div class="card-sub">' + (brev.weekGrowth > 0 ? '↑' : '↓') + ' ' + (brev.weekGrowth || 0) + '% vs last week</div></div>';
+    html += '<div class="card"><div class="card-label">LAST 30 DAYS</div><div class="card-val" style="color:#10b981;">$' + Math.round(brev.month30d || 0).toLocaleString() + '</div></div>';
+    html += '<div class="card"><div class="card-label">AVG TICKET</div><div class="card-val" style="color:#ffd700;">$' + Math.round(brev.avgTicket || 0) + '</div></div>';
+    html += '</div></div>';
+    
+    // CRM snapshot
+    html += '<div class="section"><div class="section-title" style="color:#a855f7;">📞 BOOKINGS</div><div class="grid">';
+    html += '<div class="card"><div class="card-label">THIS MONTH</div><div class="card-val" style="color:#a855f7;">' + (briefing.crm.thisMonth || 0) + '</div><div class="card-sub">' + (briefing.crm.growth > 0 ? '↑' : '↓') + ' ' + (briefing.crm.growth || 0) + '% vs last month</div></div>';
+    html += '<div class="card"><div class="card-label">TODAY</div><div class="card-val" style="color:#a855f7;">' + (briefing.crm.todayBookings || 0) + '</div></div>';
+    html += '<div class="card"><div class="card-label">NEEDS RESCHEDULE</div><div class="card-val" style="color:' + ((briefing.crm.needsReschedule || 0) > 0 ? '#f59e0b' : '#10b981') + ';">' + (briefing.crm.needsReschedule || 0) + '</div></div>';
+    html += '<div class="card"><div class="card-label">CONVERSION</div><div class="card-val" style="color:#00d4ff;">' + (briefing.crm.conversionRate || 0) + '%</div></div>';
+    html += '</div></div>';
+    
+    // Ads snapshot
+    if (briefing.ads) {
+      html += '<div class="section"><div class="section-title" style="color:#4285f4;">📊 ADS (LAST 7 DAYS)</div><div class="grid">';
+      html += '<div class="card"><div class="card-label">SPEND</div><div class="card-val" style="color:#ff4757;">$' + (briefing.ads.last7Spend || 0) + '</div><div class="card-sub">' + (briefing.ads.spendTrend > 0 ? '↑' : '↓') + ' ' + (briefing.ads.spendTrend || 0) + '% WoW</div></div>';
+      html += '<div class="card"><div class="card-label">CLICKS</div><div class="card-val" style="color:#4285f4;">' + (briefing.ads.last7Clicks || 0) + '</div></div>';
+      html += '<div class="card"><div class="card-label">CONVERSIONS</div><div class="card-val" style="color:#00ff66;">' + (briefing.ads.last7Conv || 0) + '</div></div>';
+      html += '<div class="card"><div class="card-label">COST/LEAD</div><div class="card-val" style="color:#f59e0b;">$' + (briefing.ads.costPerLead || 0) + '</div></div>';
+      html += '</div></div>';
+    }
+    html += '</div>'; // end briefing panel
+
+    // ====== PANEL 2: DEMAND FORECAST ======
+    html += '<div class="panel" id="panel-forecast">';
+    html += '<div class="section"><div class="section-title" style="color:#00d4ff;">📈 6-MONTH DEMAND FORECAST</div>';
+    html += '<div class="forecast-grid">';
+    forecast.months.forEach(function(m) {
+      html += '<div class="fc-card demand-' + m.demandLevel + '">';
+      html += '<div class="fc-month">' + m.label + '</div>';
+      html += '<div class="fc-val">$' + m.projectedRevenue.toLocaleString() + '</div>';
+      html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:2px;margin:4px 0;" class="demand-' + m.demandLevel + '">' + m.demandLevel + ' DEMAND</div>';
+      html += '<div class="fc-meta">';
+      html += '~' + m.estimatedJobs + ' jobs expected<br>';
+      html += '~' + m.projectedCalls + ' calls predicted<br>';
+      html += m.techsNeeded + ' techs needed<br>';
+      html += 'Seasonal avg: $' + m.seasonalAvg.toLocaleString() + '<br>';
+      html += 'Growth trend: ' + (m.growthRate >= 0 ? '+' : '') + m.growthRate + '%';
+      html += '</div></div>';
+    });
+    html += '</div></div>';
+    
+    // Forecast chart (bar chart)
+    html += '<div class="section"><div class="section-title" style="color:#00d4ff;">📊 PROJECTED VS SEASONAL</div>';
+    html += '<div style="height:200px;" id="forecastChart">';
+    var maxFcRev = Math.max.apply(null, forecast.months.map(function(m){return Math.max(m.projectedRevenue, m.seasonalAvg);})) || 1;
+    html += '<svg width="100%" height="200">';
+    forecast.months.forEach(function(m, i) {
+      var x = (i / forecast.months.length) * 90 + 5;
+      var bw = 80 / forecast.months.length / 2;
+      var h1 = (m.projectedRevenue / maxFcRev) * 160;
+      var h2 = (m.seasonalAvg / maxFcRev) * 160;
+      // Projected bar
+      html += '<rect x="' + (x) + '%" y="' + (180 - h1) + '" width="' + (bw - 0.5) + '%" height="' + h1 + '" fill="#c084fc" opacity="0.7" rx="3"><title>' + m.label + ' Projected: $' + m.projectedRevenue.toLocaleString() + '</title></rect>';
+      // Seasonal bar
+      html += '<rect x="' + (x + bw) + '%" y="' + (180 - h2) + '" width="' + (bw - 0.5) + '%" height="' + h2 + '" fill="#10b98160" rx="3"><title>' + m.label + ' Seasonal Avg: $' + m.seasonalAvg.toLocaleString() + '</title></rect>';
+      // Label
+      html += '<text x="' + (x + bw) + '%" y="196" fill="#4a6a8a" font-size="10" font-family="Orbitron" text-anchor="middle">' + m.label.split(' ')[0] + '</text>';
+    });
+    html += '<text x="2%" y="12" fill="#c084fc" font-size="9" font-family="Orbitron">■ Projected</text>';
+    html += '<text x="2%" y="24" fill="#10b981" font-size="9" font-family="Orbitron">■ Seasonal Avg</text>';
+    html += '</svg></div></div>';
+    
+    // Staffing recommendations
+    html += '<div class="section"><div class="section-title" style="color:#f59e0b;">👥 STAFFING RECOMMENDATIONS</div>';
+    forecast.months.forEach(function(m) {
+      var color = m.demandLevel === 'HIGH' ? '#ef4444' : m.demandLevel === 'LOW' ? '#00d4ff' : '#f59e0b';
+      html += '<div class="bar-row"><div class="bar-label">' + m.label.split(' ')[0] + '</div>';
+      html += '<div class="bar-track"><div class="bar-fill" style="width:' + Math.min(100, (m.techsNeeded / 5) * 100) + '%;background:' + color + '40;"></div>';
+      html += '<div class="bar-text" style="color:' + color + ';">' + m.techsNeeded + ' techs · ' + m.estimatedJobs + ' jobs · $' + m.projectedRevenue.toLocaleString() + '</div></div></div>';
+    });
+    html += '</div></div>'; // end forecast panel
+
+    // ====== PANEL 3: PRICING OPTIMIZER ======
+    html += '<div class="panel" id="panel-pricing">';
+    
+    // Current pricing health
+    html += '<div class="section"><div class="section-title" style="color:#ffd700;">💰 PRICING HEALTH</div><div class="grid">';
+    html += '<div class="card"><div class="card-label">CURRENT AVG TICKET</div><div class="card-val" style="color:#ffd700;">$' + Math.round(currentAvgTicket) + '</div></div>';
+    html += '<div class="card"><div class="card-label">12-MO AVERAGE</div><div class="card-val" style="color:#c084fc;">$' + overallAvgTicket + '</div></div>';
+    html += '<div class="card"><div class="card-label">TICKET RANGE</div><div class="card-val" style="color:#00d4ff;">$' + Math.round(ticketMin) + '-$' + Math.round(ticketMax) + '</div></div>';
+    html += '<div class="card"><div class="card-label">COST PER LEAD</div><div class="card-val" style="color:#ff4757;">$' + costPerLead + '</div></div>';
+    html += '</div></div>';
+    
+    // Recommendations
+    if (pricing.recommendations.length > 0) {
+      html += '<div class="section"><div class="section-title" style="color:#ffd700;">🎯 AI RECOMMENDATIONS</div>';
+      pricing.recommendations.forEach(function(r) {
+        var icon = r.type === 'increase' ? '📈' : r.type === 'warning' ? '⚠️' : r.type === 'positive' ? '✅' : r.type === 'seasonal' ? '🌡️' : '💡';
+        html += '<div class="rec"><div class="rec-msg">' + icon + ' ' + r.msg + '</div>';
+        html += '<div class="rec-impact impact-' + r.impact + '">' + r.impact.toUpperCase() + '</div></div>';
+      });
+      html += '</div>';
+    }
+    
+    // Seasonal pricing chart
+    html += '<div class="section"><div class="section-title" style="color:#ffd700;">📅 SEASONAL TICKET ANALYSIS</div>';
+    var maxSeasonTicket = 0;
+    Object.values(seasonalPricing).forEach(function(s) { if (s.impliedTicket > maxSeasonTicket) maxSeasonTicket = s.impliedTicket; });
+    html += '<div style="display:flex;align-items:flex-end;height:160px;gap:6px;padding:20px 10px 0;">';
+    for (var sm = 1; sm <= 12; sm++) {
+      var smKey = String(sm).padStart(2, '0');
+      var sp = seasonalPricing[smKey] || {};
+      var barH = maxSeasonTicket > 0 ? Math.max(4, (sp.impliedTicket / maxSeasonTicket) * 120) : 4;
+      var barColor = sm === currentMonth ? '#c084fc' : sp.impliedTicket > overallAvgTicket * 1.1 ? '#10b981' : sp.impliedTicket < overallAvgTicket * 0.9 ? '#ef4444' : '#f59e0b';
+      html += '<div style="flex:1;text-align:center;">';
+      html += '<div style="font-size:10px;color:' + barColor + ';margin-bottom:2px;">$' + (sp.impliedTicket || 0) + '</div>';
+      html += '<div style="height:' + barH + 'px;background:' + barColor + '60;border-radius:3px 3px 0 0;margin:0 auto;width:80%;' + (sm === currentMonth ? 'border:1px solid #c084fc;' : '') + '"></div>';
+      html += '<div style="font-size:9px;color:#4a6a8a;margin-top:4px;">' + monthNames[sm] + '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<div style="text-align:center;font-size:0.75em;color:#4a6a8a;margin-top:8px;">Implied avg ticket by month · <span style="color:#10b981;">Green</span> = above avg · <span style="color:#ef4444;">Red</span> = below avg · <span style="color:#c084fc;">Purple</span> = current</div>';
+    html += '</div>';
+
+    // Equipment demand table
+    if (equipSorted.length > 0) {
+      html += '<div class="section"><div class="section-title" style="color:#ffd700;">🔧 TOP EQUIPMENT — DEMAND & PRICING OPPORTUNITY</div>';
+      html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.85em;">';
+      html += '<tr style="border-bottom:1px solid #1a2a3a;"><th style="text-align:left;padding:8px;color:#ffd700;font-family:Orbitron;font-size:0.8em;">Equipment</th><th style="text-align:right;padding:8px;color:#ffd700;font-family:Orbitron;font-size:0.8em;">Jobs</th><th style="text-align:right;padding:8px;color:#ffd700;font-family:Orbitron;font-size:0.8em;">Share</th><th style="text-align:left;padding:8px;color:#ffd700;font-family:Orbitron;font-size:0.8em;">Pricing Signal</th></tr>';
+      var totalEquipJobs = equipSorted.reduce(function(s,e){return s+e[1];},0);
+      equipSorted.forEach(function(e) {
+        var share = Math.round(e[1] / totalEquipJobs * 100);
+        var signal = share > 15 ? '🔥 High demand — premium pricing' : share > 8 ? '📊 Moderate — competitive pricing' : '💡 Niche — value pricing';
+        var sigColor = share > 15 ? '#10b981' : share > 8 ? '#f59e0b' : '#4a6a8a';
+        html += '<tr style="border-bottom:1px solid #0a1520;"><td style="padding:8px;">' + e[0] + '</td><td style="text-align:right;padding:8px;color:#c084fc;">' + e[1] + '</td><td style="text-align:right;padding:8px;color:#ffd700;">' + share + '%</td><td style="padding:8px;color:' + sigColor + ';font-size:0.9em;">' + signal + '</td></tr>';
+      });
+      html += '</table></div></div>';
+    }
+    
+    html += '</div>'; // end pricing panel
+
+    // Tab switching JS
+    html += '<script>';
+    html += 'function showPanel(name){';
+    html += '  document.querySelectorAll(".panel").forEach(function(p){p.classList.remove("active");});';
+    html += '  document.querySelectorAll(".tab").forEach(function(t){t.classList.remove("active");});';
+    html += '  document.getElementById("panel-"+name).classList.add("active");';
+    html += '  event.target.classList.add("active");';
+    html += '}';
+    html += '<\\/script>';
+    html += '</body></html>';
+    res.send(html);
+  } catch(err) {
+    console.error('AI page error:', err.stack || err.message);
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
 app.get('/audit', requireAuth('owner'), async function(req, res) {
   var auditRes = await runSystemAudit();
   
@@ -14576,7 +15030,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div class="nav">';
   if (session && session.access === 'all') {
     html += '<a href="/dashboard">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a>';
-    html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
+    html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a><a href="/ai">AI</a><a href="/audit">AUDIT</a>';
   } else { html += '<a href="/square" class="active">SQUARE</a>'; }
   html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
   html += '<div class="container"><h1 style="display:inline;">SQUARE</h1> <button onclick="forceRefresh()" id="refreshBtn" style="background:#1a3a5a;color:#4af;border:1px solid #4af;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:10px;vertical-align:middle;">⟳ REFRESH DATA</button> <button onclick="toggleSquareVoice()" id="sqVoiceBtn" style="background:#1a3a5a;color:#a855f7;border:1px solid #a855f740;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:6px;vertical-align:middle;">🎙 VOICE</button>';
@@ -15073,8 +15527,9 @@ app.get('/discord', requireAuth('all'), async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics">ANALYTICS</a>';
     html += '<a href="/ads">GOOGLE ADS</a>';
+    html += '<a href="/square">SQUARE</a>';
     html += '<a href="/discord" class="active">DISCORD</a>';
-    html += '<a href="/followup">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/followup">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
   } else {
     html += '<a href="/discord" class="active">DISCORD</a>';
   }
@@ -15737,7 +16192,7 @@ app.get('/followup', async function(req, res) {
 
     // Nav — only FOLLOW UP shown
     html += '<div class="nav">';
-    html += '<a href="/followup" class="active">FOLLOW UP</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/followup" class="active">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div class="container">';
