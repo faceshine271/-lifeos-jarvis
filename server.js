@@ -78,7 +78,7 @@ var discordCache = { channels: null, messages: {}, time: 0 };
 // Square API config
 const SQUARE_ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN || '';
 const SQUARE_BASE = process.env.SQUARE_ENV === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
-var squareCache = { time: 0 };
+// squareCache replaced by squareDataStore (see squareFullSnapshot)
 
 async function squareFetch(endpoint, method, body) {
   if (!SQUARE_ACCESS_TOKEN) return null;
@@ -282,26 +282,77 @@ function squareMoney(amtObj) {
 }
 function sqCents(amtObj) { return amtObj && amtObj.amount ? amtObj.amount / 100 : 0; }
 
-// ---- FULL SNAPSHOT (cached 5min) ----
-async function squareFullSnapshot() {
-  var now = Date.now();
-  if (squareCache.payments && (now - squareCache.time) < 300000) return squareCache;
+// ---- FULL SNAPSHOT (smart cache — stores all data, only fetches new) ----
+var squareDataStore = { payments: [], customers: [], invoices: [], orders: [], catalog: [], locations: [], team: [], refunds: [], disputes: [], payouts: [], shifts: [], giftCards: [], subscriptions: [], bookings: [], devices: [], loyalty: null, loyaltyAccounts: [], cashDrawers: [], bankAccounts: [], custGroups: [], custSegments: [], locIds: [], lastFullFetch: 0, lastIncrFetch: 0, initialized: false };
 
+async function squareFullSnapshot(forceRefresh) {
+  var now = Date.now();
+  var store = squareDataStore;
+
+  // If already initialized and not forcing refresh, do incremental update (every 5 min)
+  if (store.initialized && !forceRefresh && (now - store.lastIncrFetch) < 300000) {
+    store.time = now;
+    return store;
+  }
+
+  // If already initialized, do incremental fetch (only new data since last fetch)
+  if (store.initialized && !forceRefresh) {
+    console.log('Square: incremental fetch since ' + new Date(store.lastIncrFetch).toISOString());
+    var sinceDays = Math.max(1, Math.ceil((now - store.lastIncrFetch) / 86400000) + 1);
+    var sinceDate = new Date(store.lastIncrFetch - 86400000).toISOString(); // 1 day buffer
+
+    var [newPayments, newRefunds, newPayouts, newShifts] = await Promise.all([
+      squareGetPayments(sinceDays),
+      squareGetRefunds(sinceDays),
+      squareGetPayouts(sinceDays),
+      squareGetShifts(sinceDays)
+    ]);
+
+    // Fetch new orders across all location batches
+    var newOrders = store.locIds.length ? await squareGetOrders(store.locIds, sinceDays) : [];
+
+    // Fetch new invoices across all locations
+    var newInvoices = store.locIds.length ? await squareGetInvoices(store.locIds) : [];
+
+    // Merge: deduplicate by ID (new data wins)
+    store.payments = mergeById(store.payments, newPayments);
+    store.refunds = mergeById(store.refunds, newRefunds);
+    store.payouts = mergeById(store.payouts, newPayouts);
+    store.shifts = mergeById(store.shifts, newShifts);
+    store.orders = mergeById(store.orders, newOrders);
+    store.invoices = mergeById(store.invoices, newInvoices);
+
+    // Refresh customers less often (every 30 min)
+    if ((now - store.lastFullFetch) > 1800000) {
+      store.customers = await squareGetCustomers();
+      store.catalog = await squareGetCatalog();
+      store.team = await squareGetTeamMembers();
+      store.disputes = await squareGetDisputes();
+      store.giftCards = await squareGetGiftCards();
+      store.lastFullFetch = now;
+      console.log('Square: refreshed customers/catalog/team/disputes/giftCards');
+    }
+
+    store.lastIncrFetch = now;
+    store.time = now;
+    console.log('Square: incremental done — ' + store.payments.length + ' payments, ' + store.orders.length + ' orders, ' + store.invoices.length + ' invoices');
+    return store;
+  }
+
+  // FIRST LOAD: fetch everything
+  console.log('Square: FULL initial fetch (all historical data)...');
   var locations = await squareGetLocations();
-  var locId = locations.length > 0 ? locations[0].id : '';
   var locIds = locations.map(function(l){return l.id;});
 
-  // Parallel fetch for speed
-  var [payments, customers, invoices, orders, catalog, team, refunds, disputes, payouts, shifts, giftCards, subscriptions, bookings, devices, custGroups, custSegments] = await Promise.all([
-    squareGetPayments(30),
+  // Parallel fetch for speed — get ALL historical payments
+  var [payments, customers, catalog, team, refunds, disputes, payouts, shifts, giftCards, subscriptions, bookings, devices, custGroups, custSegments] = await Promise.all([
+    squareGetPayments(1500),
     squareGetCustomers(),
-    locIds.length ? squareGetInvoices(locIds) : Promise.resolve([]),
-    locIds.length ? squareGetOrders(locIds, 1500) : Promise.resolve([]),
     squareGetCatalog(),
     squareGetTeamMembers(),
-    squareGetRefunds(30),
+    squareGetRefunds(1500),
     squareGetDisputes(),
-    squareGetPayouts(30),
+    squareGetPayouts(1500),
     squareGetShifts(14),
     squareGetGiftCards(),
     squareGetSubscriptions(),
@@ -310,6 +361,10 @@ async function squareFullSnapshot() {
     squareGetCustomerGroups(),
     squareGetCustomerSegments()
   ]);
+
+  // Orders and invoices need location batching — run after locations are fetched
+  var orders = locIds.length ? await squareGetOrders(locIds, 1500) : [];
+  var invoices = locIds.length ? await squareGetInvoices(locIds) : [];
 
   // Try loyalty (may 404 if not enabled)
   var loyalty = null; var loyaltyAccounts = [];
@@ -328,16 +383,27 @@ async function squareFullSnapshot() {
   var bankAccounts = [];
   try { bankAccounts = await squareGetBankAccounts(); } catch(e){}
 
-  squareCache = {
-    payments: payments, customers: customers, invoices: invoices, orders: orders,
-    catalog: catalog, locations: locations, team: team, refunds: refunds,
-    disputes: disputes, payouts: payouts, shifts: shifts, giftCards: giftCards,
-    subscriptions: subscriptions, bookings: bookings, devices: devices,
-    loyalty: loyalty, loyaltyAccounts: loyaltyAccounts, cashDrawers: cashDrawers,
-    bankAccounts: bankAccounts, custGroups: custGroups, custSegments: custSegments,
-    locIds: locIds, time: now
-  };
-  return squareCache;
+  // Store everything
+  store.payments = payments; store.customers = customers; store.invoices = invoices; store.orders = orders;
+  store.catalog = catalog; store.locations = locations; store.team = team; store.refunds = refunds;
+  store.disputes = disputes; store.payouts = payouts; store.shifts = shifts; store.giftCards = giftCards;
+  store.subscriptions = subscriptions; store.bookings = bookings; store.devices = devices;
+  store.loyalty = loyalty; store.loyaltyAccounts = loyaltyAccounts; store.cashDrawers = cashDrawers;
+  store.bankAccounts = bankAccounts; store.custGroups = custGroups; store.custSegments = custSegments;
+  store.locIds = locIds; store.time = now; store.lastFullFetch = now; store.lastIncrFetch = now;
+  store.initialized = true;
+
+  console.log('Square: FULL fetch complete — ' + payments.length + ' payments, ' + orders.length + ' orders, ' + invoices.length + ' invoices, ' + customers.length + ' customers across ' + locations.length + ' locations');
+  return store;
+}
+
+// Merge arrays by ID — new items replace old ones with same ID
+function mergeById(existing, incoming) {
+  if (!incoming || !incoming.length) return existing;
+  var map = {};
+  existing.forEach(function(item) { if (item.id) map[item.id] = item; });
+  incoming.forEach(function(item) { if (item.id) map[item.id] = item; });
+  return Object.values(map);
 }
 
 // ---- DEEP ANALYTICS ENGINE ----
@@ -353,45 +419,90 @@ function squareAnalyze(snap) {
   var prevWeekStart = new Date(Date.now() - 14 * 86400000).toISOString();
   var completed = payments.filter(function(p){return p.status==='COMPLETED';});
 
-  // Revenue breakdown
+  // Revenue breakdown — from BOTH payments and orders
   var totalRev = 0; var todayRev = 0; var weekRev = 0; var prevWeekRev = 0;
   var grossRev = 0; var totalTips = 0; var totalFees = 0;
   var paymentsByDay = {}; var paymentsByHour = {}; var paymentsByDayOfWeek = {};
   var paymentsByMethod = {}; var paymentsByLocation = {};
   var avgTickets = []; var tipsByEmployee = {};
+  var totalPaymentCount = 0;
 
-  completed.forEach(function(p) {
-    var amt = sqCents(p.amount_money);
-    var tip = sqCents(p.tip_money);
-    var fee = sqCents(p.processing_fee ? p.processing_fee[0] : null);
-    grossRev += amt; totalTips += tip; totalFees += Math.abs(fee);
-    totalRev += amt;
-    avgTickets.push(amt);
+  // Use orders as primary revenue source if we have more orders than payments
+  var useOrders = orders.length > completed.length;
+  var completedOrders = orders.filter(function(o){return o.state==='COMPLETED';});
 
-    var day = (p.created_at || '').substring(0, 10);
-    var hour = new Date(p.created_at).getHours();
-    var dow = new Date(p.created_at).toLocaleDateString('en-US', { weekday: 'short' });
-    if (day === today) todayRev += amt;
-    if (p.created_at >= weekAgo) weekRev += amt;
-    if (p.created_at >= prevWeekStart && p.created_at < weekAgo) prevWeekRev += amt;
-    paymentsByDay[day] = (paymentsByDay[day] || 0) + amt;
-    paymentsByHour[hour] = (paymentsByHour[hour] || 0) + amt;
-    paymentsByDayOfWeek[dow] = (paymentsByDayOfWeek[dow] || 0) + amt;
+  if (useOrders && completedOrders.length > 0) {
+    // Calculate revenue from orders
+    completedOrders.forEach(function(o) {
+      var amt = sqCents(o.total_money);
+      var tip = sqCents(o.total_tip_money);
+      var tax = sqCents(o.total_tax_money);
+      grossRev += amt; totalTips += tip;
+      totalRev += amt;
+      if (amt > 0) avgTickets.push(amt);
+      totalPaymentCount++;
 
-    var method = p.source_type || 'OTHER';
-    if (!paymentsByMethod[method]) paymentsByMethod[method] = { count: 0, total: 0 };
-    paymentsByMethod[method].count++; paymentsByMethod[method].total += amt;
+      var day = (o.created_at || '').substring(0, 10);
+      var hour = new Date(o.created_at).getHours();
+      var dow = new Date(o.created_at).toLocaleDateString('en-US', { weekday: 'short' });
+      if (day === today) todayRev += amt;
+      if (o.created_at >= weekAgo) weekRev += amt;
+      if (o.created_at >= prevWeekStart && o.created_at < weekAgo) prevWeekRev += amt;
+      paymentsByDay[day] = (paymentsByDay[day] || 0) + amt;
+      paymentsByHour[hour] = (paymentsByHour[hour] || 0) + amt;
+      paymentsByDayOfWeek[dow] = (paymentsByDayOfWeek[dow] || 0) + amt;
 
-    var locName = p.location_id || 'unknown';
-    if (!paymentsByLocation[locName]) paymentsByLocation[locName] = { count: 0, total: 0 };
-    paymentsByLocation[locName].count++; paymentsByLocation[locName].total += amt;
+      var locName = o.location_id || 'unknown';
+      if (!paymentsByLocation[locName]) paymentsByLocation[locName] = { count: 0, total: 0 };
+      paymentsByLocation[locName].count++; paymentsByLocation[locName].total += amt;
 
-    // Tips by employee
-    if (p.employee_id && tip > 0) {
-      if (!tipsByEmployee[p.employee_id]) tipsByEmployee[p.employee_id] = { tips: 0, count: 0 };
-      tipsByEmployee[p.employee_id].tips += tip; tipsByEmployee[p.employee_id].count++;
-    }
-  });
+      // Payment source from tenders
+      if (o.tenders) o.tenders.forEach(function(t) {
+        var method = t.type || 'OTHER';
+        if (!paymentsByMethod[method]) paymentsByMethod[method] = { count: 0, total: 0 };
+        paymentsByMethod[method].count++; paymentsByMethod[method].total += sqCents(t.amount_money);
+      });
+    });
+    // Get fees from payments if available
+    completed.forEach(function(p) {
+      var fee = sqCents(p.processing_fee ? p.processing_fee[0] : null);
+      totalFees += Math.abs(fee);
+    });
+  } else {
+    // Fallback to payments-only revenue
+    completed.forEach(function(p) {
+      var amt = sqCents(p.amount_money);
+      var tip = sqCents(p.tip_money);
+      var fee = sqCents(p.processing_fee ? p.processing_fee[0] : null);
+      grossRev += amt; totalTips += tip; totalFees += Math.abs(fee);
+      totalRev += amt;
+      avgTickets.push(amt);
+      totalPaymentCount++;
+
+      var day = (p.created_at || '').substring(0, 10);
+      var hour = new Date(p.created_at).getHours();
+      var dow = new Date(p.created_at).toLocaleDateString('en-US', { weekday: 'short' });
+      if (day === today) todayRev += amt;
+      if (p.created_at >= weekAgo) weekRev += amt;
+      if (p.created_at >= prevWeekStart && p.created_at < weekAgo) prevWeekRev += amt;
+      paymentsByDay[day] = (paymentsByDay[day] || 0) + amt;
+      paymentsByHour[hour] = (paymentsByHour[hour] || 0) + amt;
+      paymentsByDayOfWeek[dow] = (paymentsByDayOfWeek[dow] || 0) + amt;
+
+      var method = p.source_type || 'OTHER';
+      if (!paymentsByMethod[method]) paymentsByMethod[method] = { count: 0, total: 0 };
+      paymentsByMethod[method].count++; paymentsByMethod[method].total += amt;
+
+      var locName = p.location_id || 'unknown';
+      if (!paymentsByLocation[locName]) paymentsByLocation[locName] = { count: 0, total: 0 };
+      paymentsByLocation[locName].count++; paymentsByLocation[locName].total += amt;
+
+      if (p.employee_id && tip > 0) {
+        if (!tipsByEmployee[p.employee_id]) tipsByEmployee[p.employee_id] = { tips: 0, count: 0 };
+        tipsByEmployee[p.employee_id].tips += tip; tipsByEmployee[p.employee_id].count++;
+      }
+    });
+  }
 
   var avgTicket = avgTickets.length > 0 ? avgTickets.reduce(function(a,b){return a+b;},0) / avgTickets.length : 0;
   var medianTicket = 0;
@@ -449,7 +560,7 @@ function squareAnalyze(snap) {
     var reason = r.reason || 'No reason';
     refundReasons[reason] = (refundReasons[reason] || 0) + 1;
   });
-  var refundRate = completed.length > 0 ? ((refunds.length / completed.length) * 100).toFixed(1) : '0';
+  var refundRate = totalPaymentCount > 0 ? ((refunds.length / totalPaymentCount) * 100).toFixed(1) : '0';
 
   // Payout analytics
   var payoutTotal = 0; var payoutsByStatus = {};
@@ -579,10 +690,11 @@ function squareAnalyze(snap) {
       uniquePayingCustomers: Object.keys(customerPayments).length
     },
     payments: {
-      total: payments.length, completed: completed.length,
-      failed: payments.filter(function(p){return p.status==='FAILED';}).length,
-      cancelled: payments.filter(function(p){return p.status==='CANCELED';}).length,
-      pending: payments.filter(function(p){return p.status==='PENDING';}).length,
+      total: useOrders ? orders.length : payments.length, completed: useOrders ? completedOrders.length : completed.length,
+      failed: useOrders ? orders.filter(function(o){return o.state==='CANCELED';}).length : payments.filter(function(p){return p.status==='FAILED';}).length,
+      cancelled: useOrders ? 0 : payments.filter(function(p){return p.status==='CANCELED';}).length,
+      pending: useOrders ? orders.filter(function(o){return o.state==='OPEN'||o.state==='DRAFT';}).length : payments.filter(function(p){return p.status==='PENDING';}).length,
+      dataSource: useOrders ? 'orders' : 'payments',
       byDay: paymentsByDay, byHour: paymentsByHour, byDayOfWeek: paymentsByDayOfWeek,
       byMethod: paymentsByMethod, byLocation: paymentsByLocation,
       peakHour: peakHour ? peakHour[0] + ':00' : '—', peakDay: peakDay ? peakDay[0] : '—',
@@ -13627,13 +13739,14 @@ app.post('/discord/api/improve', express.json(), async function(req, res) {
 // ==============================
 app.get('/square/api/snapshot', async function(req, res) {
   try {
-    var snap = await squareFullSnapshot();
+    var forceRefresh = req.query.refresh === '1';
+    var snap = await squareFullSnapshot(forceRefresh);
     var a = squareAnalyze(snap);
     var payments = snap.payments || []; var customers = snap.customers || [];
     var invoices = snap.invoices || []; var orders = snap.orders || [];
 
     res.json({
-      debug: { token_prefix: SQUARE_ACCESS_TOKEN ? SQUARE_ACCESS_TOKEN.substring(0,12)+'...' : 'NOT SET', base_url: SQUARE_BASE, square_env: process.env.SQUARE_ENV || 'NOT SET', raw_payments: (snap.payments||[]).length, raw_orders: (snap.orders||[]).length, raw_invoices: (snap.invoices||[]).length, raw_customers: (snap.customers||[]).length, locations: (snap.locations||[]).length },
+      debug: { token_prefix: SQUARE_ACCESS_TOKEN ? SQUARE_ACCESS_TOKEN.substring(0,12)+'...' : 'NOT SET', base_url: SQUARE_BASE, square_env: process.env.SQUARE_ENV || 'NOT SET', raw_payments: (snap.payments||[]).length, raw_orders: (snap.orders||[]).length, raw_invoices: (snap.invoices||[]).length, raw_customers: (snap.customers||[]).length, locations: (snap.locations||[]).length, cached: squareDataStore.initialized, cache_age_sec: squareDataStore.lastIncrFetch ? Math.round((Date.now()-squareDataStore.lastIncrFetch)/1000) : 0 },
       analytics: a,
       locations: (snap.locations||[]).map(function(l) { return { id:l.id, name:l.name, address:l.address, status:l.status, timezone:l.timezone, currency:l.currency, country:l.country, phone:l.phone_number, businessName:l.business_name, businessEmail:l.business_email, description:l.description, capabilities:l.capabilities }; }),
       recentPayments: payments.slice(0,30).map(function(p) {
@@ -13807,7 +13920,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
     html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
   } else { html += '<a href="/square" class="active">SQUARE</a>'; }
   html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
-  html += '<div class="container"><h1>SQUARE</h1><div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
+  html += '<div class="container"><h1 style="display:inline;">SQUARE</h1> <button onclick="forceRefresh()" id="refreshBtn" style="background:#1a3a5a;color:#4af;border:1px solid #4af;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:10px;vertical-align:middle;">⟳ REFRESH DATA</button><div class="subtitle">PAYMENTS · CUSTOMERS · INVOICES · ORDERS · LABOR · CATALOG · ANALYTICS</div>';
   html += '<div class="stats" id="statsGrid"><div style="color:#4a6a8a;padding:20px;grid-column:1/-1;">Loading Square data...</div></div>';
 
   // Locations panel
@@ -13876,7 +13989,8 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<button class="tab-btn" onclick="showTab(\'subs\',this)">🔄 SUBS</button></div>';
   html += '<div id="tabContent" style="overflow-x:auto;"><div style="color:#4a6a8a;">Loading...</div></div></div>';
   html += '<script>var D=null;var curTab="payments";';
-  html += 'async function loadAll(){try{var r=await(await fetch("/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderDebug();renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'async function loadAll(url){try{var r=await(await fetch(url||"/square/api/snapshot")).json();D=r;if(r.error){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+r.error+"</div>";return;}renderDebug();renderLocations();renderStats();renderChart();renderHourChart();renderMonthly();renderBollinger();renderFib();renderYoY();renderCustGrowth();renderSeason();renderMethods();renderMA();renderRefundChart();showTab("payments");document.getElementById("refreshBtn").textContent="⟳ REFRESH DATA";}catch(e){document.getElementById("statsGrid").innerHTML="<div style=\\"color:#ef4444;grid-column:1/-1;\\">"+e.message+"</div>";}}';
+  html += 'async function forceRefresh(){document.getElementById("refreshBtn").textContent="⟳ REFRESHING...";document.getElementById("refreshBtn").style.color="#f59e0b";await loadAll("/square/api/snapshot?refresh=1");document.getElementById("refreshBtn").style.color="#4af";}';
 
   // Debug panel
   html += 'function renderDebug(){var d=D.debug;if(!d)return;var el=document.getElementById("locationsPanel");';
@@ -13889,7 +14003,9 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+="Raw Orders: <span style=\\"color:#ef4444;font-weight:700;\\">"+d.raw_orders+"</span> | ";';
   html += 'h+="Raw Invoices: <span style=\\"color:#ef4444;font-weight:700;\\">"+d.raw_invoices+"</span> | ";';
   html += 'h+="Raw Customers: <span style=\\"color:#10b981;font-weight:700;\\">"+d.raw_customers+"</span> | ";';
-  html += 'h+="Locations: <span style=\\"color:#10b981;font-weight:700;\\">"+d.locations+"</span>";';
+  html += 'h+="Locations: <span style=\\"color:#10b981;font-weight:700;\\">"+d.locations+"</span> | ";';
+  html += 'h+="Cached: <span style=\\"color:'+(d.cached?'#10b981':'#ef4444')+';\\">"+d.cached+"</span> | ";';
+  html += 'h+="Age: <span style=\\"color:#4af;\\">"+d.cache_age_sec+"s</span>";';
   html += 'h+="</div>";el.insertAdjacentHTML("beforebegin",h);}';
 
   // Locations
@@ -13910,7 +14026,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'h+=sc("$"+a.revenue.today.toFixed(0),"TODAY","");h+=sc("$"+a.revenue.week.toFixed(0),"THIS WEEK","");h+=sc((a.revenue.weekGrowth>=0?"+":"")+a.revenue.weekGrowth+"%","WEEK GROWTH",a.revenue.weekGrowth>=0?"":"danger");';
   html += 'h+=sc("$"+a.revenue.month30d.toFixed(0),"30-DAY REV","");h+=sc("$"+a.revenue.net.toFixed(0),"NET REVENUE","blue");h+=sc("$"+a.revenue.tips.toFixed(0),"TIPS","");h+=sc("$"+a.revenue.fees.toFixed(0),"FEES","warn");';
   html += 'h+=sc("$"+a.revenue.avgTicket.toFixed(0),"AVG TICKET","");h+=sc("$"+a.revenue.medianTicket.toFixed(0),"MEDIAN","blue");h+=sc("$"+a.revenue.avgDailyRev.toFixed(0),"AVG DAILY","");';
-  html += 'h+=sc(a.payments.completed,"PAYMENTS","");h+=sc(a.payments.failed,"FAILED",a.payments.failed>0?"danger":"");';
+  html += 'h+=sc(a.payments.completed,a.payments.dataSource==="orders"?"ORDERS":"PAYMENTS","");h+=sc(a.payments.failed,"FAILED",a.payments.failed>0?"danger":"");';
   html += 'h+=sc(a.customers.total,"CUSTOMERS","");h+=sc(a.customers.new30d,"NEW 30D","blue");h+=sc(a.customers.emailCaptureRate+"%","EMAIL RATE",a.customers.emailCaptureRate<50?"warn":"");';
   html += 'h+=sc(a.invoices.unpaid,"UNPAID",a.invoices.unpaid>0?"warn":"");h+=sc("$"+a.invoices.unpaidTotal.toFixed(0),"OUTSTANDING",a.invoices.unpaidTotal>0?"warn":"");h+=sc(a.invoices.overdue,"OVERDUE",a.invoices.overdue>0?"danger":"");h+=sc(a.invoices.collectionRate+"%","COLLECT RATE",a.invoices.collectionRate<70?"warn":"");';
   html += 'h+=sc(a.refunds.count,"REFUNDS",a.refunds.count>0?"warn":"");h+=sc(a.refunds.rate+"%","REFUND RATE",parseFloat(a.refunds.rate)>5?"danger":"");h+=sc(a.disputes.open,"DISPUTES",a.disputes.open>0?"danger":"");';
