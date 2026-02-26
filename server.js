@@ -6184,7 +6184,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
     // ====== ROW 1: Core Stats ======
     html += '<div class="grid">';
     html += '<div class="card" style="--accent:#a855f7;border-color:#a855f715;"><div class="label">Total Calls</div><div class="value">' + totalLeads + '</div><div class="sub">All calls received (deduplicated)</div><div class="bar"><div class="bar-fill" style="width:85%;background:#a855f7;"></div></div></div>';
-    html += '<div class="card" style="--accent:#00ff66;border-color:#00ff6615;"><div class="label">Booked</div><div class="value">' + totalBooked + '</div><div class="sub">Status = Booked</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalBooked/Math.max(1,totalLeads)*100)) + '%;background:#00ff66;"></div></div></div>';
+    html += '<div class="card" style="--accent:#00ff66;border-color:#00ff6615;"><div class="label">Booked</div><div class="value">' + totalBooked + '</div><div class="sub">CRM status = Booked (may include serviced if not updated)</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalBooked/Math.max(1,totalLeads)*100)) + '%;background:#00ff66;"></div></div></div>';
     html += '<div class="card" style="--accent:#00d4ff;border-color:#00d4ff15;"><div class="label">Completed</div><div class="value">' + totalCompleted + '</div><div class="sub">Tookan = Completed</div><div class="bar"><div class="bar-fill" style="width:' + (totalLeads > 0 ? Math.round(totalCompleted/totalLeads*100) : 0) + '%;background:#00d4ff;"></div></div></div>';
     var cancelRate = totalLeads > 0 ? Math.round(totalCancelled/totalLeads*100) : 0;
     html += '<div class="card" style="--accent:#ff4757;border-color:#ff475715;"><div class="label">Cancelled</div><div class="value">' + totalCancelled + '</div><div class="sub">' + cancelRate + '% cancel rate' + (cancelRate > 20 ? ' — HIGH' : '') + '</div><div class="bar"><div class="bar-fill" style="width:' + cancelRate + '%;background:#ff4757;"></div></div></div>';
@@ -7749,9 +7749,33 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     var locationBreakdown = Object.entries(bm.locationStats || {}).sort(function(a,b){return b[1].total-a[1].total;}).map(function(l) {
       return l[0] + ': ' + l[1].total + ' total, ' + l[1].booked + ' booked, ' + l[1].completed + ' completed, ' + l[1].cancelled + ' cancelled';
     });
-    var techs = Object.entries(bm.techStats || {}).sort(function(a,b){return b[1].total-a[1].total;}).map(function(t) {
+    // Merge techs from CRM + Profit Sheet
+    var allTechMap = {};
+    Object.entries(bm.techStats || {}).forEach(function(t) {
+      allTechMap[t[0]] = { total: t[1].total, completed: t[1].completed, cancelled: t[1].cancelled, payout: 0 };
+    });
+    // Add techs from profit sheet that might not be in CRM
+    var pmTech = global.profitMetrics || {};
+    if (pmTech.techPayouts) {
+      Object.entries(pmTech.techPayouts).forEach(function(t) {
+        if (!allTechMap[t[0]]) allTechMap[t[0]] = { total: 0, completed: 0, cancelled: 0, payout: 0 };
+        allTechMap[t[0]].payout = t[1];
+      });
+    }
+    // Add yearly payouts
+    if (pmTech.yearlyTechPayouts) {
+      Object.entries(pmTech.yearlyTechPayouts).forEach(function(t) {
+        if (!allTechMap[t[0]]) allTechMap[t[0]] = { total: 0, completed: 0, cancelled: 0, payout: 0, yearlyPay: t[1] };
+        else allTechMap[t[0]].yearlyPay = t[1];
+      });
+    }
+    var techs = Object.entries(allTechMap).sort(function(a,b){ return (b[1].payout || b[1].total) - (a[1].payout || a[1].total); }).map(function(t) {
       var s = t[1]; var rate = s.total > 0 ? Math.round((s.completed/s.total)*100) : 0;
-      return t[0] + ': ' + s.total + ' jobs (' + s.completed + ' completed, ' + rate + '% rate)';
+      var info = t[0];
+      if (s.total > 0) info += ': ' + s.total + ' jobs (' + s.completed + ' completed, ' + rate + '% rate)';
+      if (s.payout > 0) info += ' · $' + Math.round(s.payout).toLocaleString() + ' this month';
+      if (!s.total && s.payout > 0) info += ': $' + Math.round(s.payout).toLocaleString() + ' this month';
+      return info;
     });
 
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
@@ -7943,7 +7967,7 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     // Stats Grid
     html += '<div class="grid">';
 
-    html += '<div class="card"><div class="label">Booked</div><div class="value">' + totalBooked + '</div><div class="sub">Status = Booked</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalBooked/Math.max(1,totalLeads)*100)) + '%;background:#a855f7;"></div></div></div>';
+    html += '<div class="card"><div class="label">Booked</div><div class="value">' + totalBooked + '</div><div class="sub">CRM status = Booked (may include serviced if not updated)</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalBooked/Math.max(1,totalLeads)*100)) + '%;background:#a855f7;"></div></div></div>';
 
     html += '<div class="card"><div class="label">Dispatched</div><div class="value">' + totalAssigned + '</div><div class="sub">Assigned/Acknowledged in Tookan</div><div class="bar"><div class="bar-fill" style="width:' + Math.min(100, Math.round(totalAssigned/Math.max(1,totalLeads)*100)) + '%;background:#00d4ff;"></div></div></div>';
 
@@ -10922,11 +10946,11 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     // Chart containers
     html += '<div id="main-chart" style="width:100%;height:400px;"></div>';
     html += '<div class="legend" id="main-legend"></div>';
-    html += '<div class="indicator-label">RSI (14)</div>';
+    html += '<div class="indicator-label">RSI (14) <span style="font-size:0.8em;color:#4a6a8a;font-family:Rajdhani,sans-serif;letter-spacing:0;">— Above 70 = overbought (unusually high call volume, expect slowdown). Below 30 = oversold (unusually low, expect rebound). 40-60 = neutral.</span></div>';
     html += '<div id="rsi-chart" style="width:100%;height:120px;"></div>';
-    html += '<div class="indicator-label">MACD (12, 26, 9)</div>';
+    html += '<div class="indicator-label">MACD (12, 26, 9) <span style="font-size:0.8em;color:#4a6a8a;font-family:Rajdhani,sans-serif;letter-spacing:0;">— MACD crossing above Signal = momentum turning positive (growth accelerating). Below = slowing. Green histogram = bullish momentum. Red = bearish.</span></div>';
     html += '<div id="macd-chart" style="width:100%;height:120px;"></div>';
-    html += '<div class="indicator-label">BOLLINGER BAND WIDTH (Squeeze Detector)</div>';
+    html += '<div class="indicator-label">BOLLINGER BAND WIDTH (Squeeze Detector) <span style="font-size:0.8em;color:#4a6a8a;font-family:Rajdhani,sans-serif;letter-spacing:0;">— Low width = call volume stabilizing (squeeze). Width expanding = breakout incoming — big move up or down likely.</span></div>';
     html += '<div id="bbw-chart" style="width:100%;height:100px;"></div>';
 
     // Add Square revenue data to chart series
@@ -11434,9 +11458,45 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     });
     var seasonAvg = {};
     for (var m = 1; m <= 12; m++) {
-      var sd = seasonByMonth[m] || { snow: 0, mower: 0, generator: 0, other: 0, count: 1 };
+      var sd = seasonByMonth[m] || { snow: 0, mower: 0, generator: 0, other: 0, count: 0 };
       var c = Math.max(sd.count, 1);
       seasonAvg[m] = { snow: Math.round(sd.snow / c), mower: Math.round(sd.mower / c), generator: Math.round(sd.generator / c), other: Math.round(sd.other / c) };
+    }
+    // Interpolate months with 0 data from adjacent months and overall monthly calls
+    var totalMonthlyCalls = bm.monthlyCalls || {};
+    for (var im = 1; im <= 12; im++) {
+      var iTotal = (seasonAvg[im].mower||0)+(seasonAvg[im].snow||0)+(seasonAvg[im].generator||0)+(seasonAvg[im].other||0);
+      if (iTotal === 0) {
+        // Use monthly call average for this calendar month from monthlyCalls
+        var histCalls = [];
+        Object.keys(totalMonthlyCalls).forEach(function(mk) {
+          var mo = parseInt(mk.split('-')[1]);
+          if (mo === im && totalMonthlyCalls[mk] > 0) histCalls.push(totalMonthlyCalls[mk]);
+        });
+        if (histCalls.length > 0) {
+          var avgC = Math.round(histCalls.reduce(function(a,b){return a+b;},0) / histCalls.length);
+          // Estimate equipment split from overall ratios
+          var totalEquip = Object.keys(bm.equipStats || {}).reduce(function(s,k){return s+(bm.equipStats[k]||0);},0) || 1;
+          var mowerPct = ((bm.equipStats||{})['Mower']||0) / totalEquip;
+          var snowPct = ((bm.equipStats||{})['Snow Blower']||0) / totalEquip;
+          var genPct = ((bm.equipStats||{})['Generator']||0) / totalEquip;
+          seasonAvg[im] = { mower: Math.round(avgC*mowerPct), snow: Math.round(avgC*snowPct), generator: Math.round(avgC*genPct), other: Math.round(avgC*(1-mowerPct-snowPct-genPct)) };
+        } else {
+          // Interpolate from nearest months with data
+          var prev = im - 1 < 1 ? 12 : im - 1;
+          var next = im + 1 > 12 ? 1 : im + 1;
+          var pTotal = (seasonAvg[prev].mower||0)+(seasonAvg[prev].snow||0)+(seasonAvg[prev].generator||0)+(seasonAvg[prev].other||0);
+          var nTotal = (seasonAvg[next].mower||0)+(seasonAvg[next].snow||0)+(seasonAvg[next].generator||0)+(seasonAvg[next].other||0);
+          if (pTotal > 0 || nTotal > 0) {
+            seasonAvg[im] = {
+              mower: Math.round(((seasonAvg[prev].mower||0)+(seasonAvg[next].mower||0))/2),
+              snow: Math.round(((seasonAvg[prev].snow||0)+(seasonAvg[next].snow||0))/2),
+              generator: Math.round(((seasonAvg[prev].generator||0)+(seasonAvg[next].generator||0))/2),
+              other: Math.round(((seasonAvg[prev].other||0)+(seasonAvg[next].other||0))/2),
+            };
+          }
+        }
+      }
     }
 
     // Equipment Fibonacci
@@ -12213,6 +12273,63 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += '</div></div>';
 
     // ====================================================================
+    // SECTION 11b: GOOGLE ADS SEARCH INTELLIGENCE
+    var adsD = global.adsData || {};
+    var searchTerms = adsD.searchTerms || [];
+    if (searchTerms.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;"><span class="dot" style="background:#4285f4;"></span>GOOGLE ADS SEARCH INTELLIGENCE</div>';
+      html += '<div class="chart-box">';
+      html += '<div class="chart-title" style="color:#4285f4;margin-bottom:10px;">TOP SEARCH TERMS DRIVING LEADS (All Time)</div>';
+      
+      // Sort by conversions then clicks
+      var topTerms = searchTerms.sort(function(a,b) { return (b.conversions||0) - (a.conversions||0) || (b.clicks||0) - (a.clicks||0); }).slice(0, 20);
+      var maxClicks = Math.max.apply(null, topTerms.map(function(t){return t.clicks||0;})) || 1;
+      
+      html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.82em;">';
+      html += '<tr style="border-bottom:1px solid #1a2a3a;"><th style="text-align:left;padding:6px;color:#4285f4;font-family:Orbitron;font-size:0.8em;">Search Term</th><th style="text-align:right;padding:6px;color:#4285f4;font-family:Orbitron;font-size:0.8em;">Clicks</th><th style="text-align:right;padding:6px;color:#4285f4;font-family:Orbitron;font-size:0.8em;">Impr</th><th style="text-align:right;padding:6px;color:#4285f4;font-family:Orbitron;font-size:0.8em;">Conv</th><th style="text-align:right;padding:6px;color:#4285f4;font-family:Orbitron;font-size:0.8em;">Cost</th><th style="text-align:right;padding:6px;color:#4285f4;font-family:Orbitron;font-size:0.8em;">CTR</th><th style="padding:6px;width:25%;">Volume</th></tr>';
+      
+      topTerms.forEach(function(t) {
+        var ctr = (t.impressions||0) > 0 ? ((t.clicks||0)/(t.impressions||1)*100).toFixed(1) : '0';
+        var barW = Math.max(3, Math.round((t.clicks||0)/maxClicks*100));
+        var barColor = (t.conversions||0) > 0 ? '#10b981' : '#4285f4';
+        html += '<tr style="border-bottom:1px solid #0a1520;">';
+        html += '<td style="padding:6px;color:#c0d8f0;">' + (t.term || '').substring(0,40) + '</td>';
+        html += '<td style="text-align:right;padding:6px;color:#4285f4;">' + (t.clicks||0) + '</td>';
+        html += '<td style="text-align:right;padding:6px;color:#4a6a8a;">' + (t.impressions||0) + '</td>';
+        html += '<td style="text-align:right;padding:6px;color:' + ((t.conversions||0) > 0 ? '#10b981' : '#4a6a8a') + ';">' + Math.round((t.conversions||0)*10)/10 + '</td>';
+        html += '<td style="text-align:right;padding:6px;color:#ff4757;">$' + ((t.cost||0)).toFixed(0) + '</td>';
+        html += '<td style="text-align:right;padding:6px;color:#f59e0b;">' + ctr + '%</td>';
+        html += '<td style="padding:6px;"><div style="height:14px;background:#0a1520;border-radius:3px;overflow:hidden;"><div style="width:' + barW + '%;height:100%;background:' + barColor + '60;border-radius:3px;"></div></div></td>';
+        html += '</tr>';
+      });
+      html += '</table></div>';
+      
+      // Demand signals from search terms
+      html += '<div style="margin-top:15px;padding-top:10px;border-top:1px solid #1a2a3a;">';
+      html += '<div class="chart-title" style="color:#4285f4;margin-bottom:8px;">🔍 DEMAND SIGNALS FROM SEARCH DATA</div>';
+      
+      // Categorize search terms
+      var mowerTerms = 0, snowTerms = 0, genTerms = 0, repairTerms = 0;
+      searchTerms.forEach(function(t) {
+        var term = (t.term || '').toLowerCase();
+        if (term.includes('mower') || term.includes('lawn') || term.includes('zero turn')) mowerTerms += (t.clicks||0);
+        if (term.includes('snow') || term.includes('blower')) snowTerms += (t.clicks||0);
+        if (term.includes('generator')) genTerms += (t.clicks||0);
+        if (term.includes('repair') || term.includes('fix') || term.includes('service')) repairTerms += (t.clicks||0);
+      });
+      var totalSearchClicks = mowerTerms + snowTerms + genTerms + repairTerms || 1;
+      
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">';
+      html += '<div style="background:#00ff6610;border:1px solid #00ff6620;padding:10px;text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;">MOWER DEMAND</div><div style="font-family:Orbitron;font-size:1.2em;color:#00ff66;">' + Math.round(mowerTerms/totalSearchClicks*100) + '%</div><div style="font-size:0.75em;color:#4a6a8a;">' + mowerTerms + ' clicks</div></div>';
+      html += '<div style="background:#00d4ff10;border:1px solid #00d4ff20;padding:10px;text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;">SNOW DEMAND</div><div style="font-family:Orbitron;font-size:1.2em;color:#00d4ff;">' + Math.round(snowTerms/totalSearchClicks*100) + '%</div><div style="font-size:0.75em;color:#4a6a8a;">' + snowTerms + ' clicks</div></div>';
+      html += '<div style="background:#ff9f4310;border:1px solid #ff9f4320;padding:10px;text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;">GENERATOR DEMAND</div><div style="font-family:Orbitron;font-size:1.2em;color:#ff9f43;">' + Math.round(genTerms/totalSearchClicks*100) + '%</div><div style="font-size:0.75em;color:#4a6a8a;">' + genTerms + ' clicks</div></div>';
+      html += '<div style="background:#a855f710;border:1px solid #a855f720;padding:10px;text-align:center;"><div style="font-family:Orbitron;font-size:0.5em;color:#4a6a8a;">REPAIR INTENT</div><div style="font-family:Orbitron;font-size:1.2em;color:#a855f7;">' + Math.round(repairTerms/totalSearchClicks*100) + '%</div><div style="font-size:0.75em;color:#4a6a8a;">' + repairTerms + ' clicks</div></div>';
+      html += '</div></div>';
+      
+      html += '</div></div>';
+    }
+
     // SECTION 12: WHAT-IF SCENARIO CALCULATOR
     // ====================================================================
     html += '<div class="section">';
@@ -14198,6 +14315,88 @@ async function runSystemAudit() {
       hasSquare: true, // always fetched fresh
     };
 
+    // 6. CRM DEEP DIVE
+    audit.summary.crmDeepDive = {
+      totalSheets: bm.sheetsRead || 0,
+      totalTabs: bm.tabsRead || 0,
+      totalJobRows: bm.totalJobRows || (bm.allJobRows || []).length,
+      statusBreakdown: {},
+      techCoverage: { crmTechs: Object.keys(bm.techStats || {}).length, profitTechs: Object.keys((global.profitMetrics || {}).techPayouts || {}).length },
+      locationCount: Object.keys(bm.locationStats || {}).length,
+      equipmentTypes: Object.keys(bm.equipStats || {}).length,
+      brandCount: Object.keys(bm.brandStats || {}).length,
+    };
+    // Status distribution
+    var statusDist = {};
+    (bm.allJobRows || []).forEach(function(j) {
+      var st = (j.status || 'empty/unknown').toLowerCase().trim();
+      if (!st) st = 'empty/unknown';
+      statusDist[st] = (statusDist[st] || 0) + 1;
+    });
+    audit.summary.crmDeepDive.statusBreakdown = statusDist;
+    
+    // Tech assignment rate
+    var withTech = (bm.allJobRows || []).filter(function(j) { return j.tech && j.tech.length > 1; }).length;
+    var totalRows = (bm.allJobRows || []).length;
+    audit.summary.crmDeepDive.techAssignmentRate = totalRows > 0 ? Math.round(withTech / totalRows * 100) + '% (' + withTech + '/' + totalRows + ')' : 'N/A';
+    
+    // Missing data analysis
+    var missingPhone = (bm.allJobRows || []).filter(function(j) { return !j.phone || j.phone.length < 7; }).length;
+    var missingLocation = (bm.allJobRows || []).filter(function(j) { return !j.city || j.city.length < 3; }).length;
+    var missingEquip = (bm.allJobRows || []).filter(function(j) { return !j.equipType || j.equipType.length < 2; }).length;
+    audit.summary.crmDeepDive.dataQuality = {
+      missingPhone: missingPhone + ' (' + (totalRows > 0 ? Math.round(missingPhone/totalRows*100) : 0) + '%)',
+      missingLocation: missingLocation + ' (' + (totalRows > 0 ? Math.round(missingLocation/totalRows*100) : 0) + '%)',
+      missingEquipment: missingEquip + ' (' + (totalRows > 0 ? Math.round(missingEquip/totalRows*100) : 0) + '%)',
+      missingTech: (totalRows - withTech) + ' (' + (totalRows > 0 ? Math.round((totalRows-withTech)/totalRows*100) : 0) + '%)',
+    };
+    
+    // Monthly call volume check
+    var callMonths = Object.keys(bm.monthlyCalls || {}).sort();
+    if (callMonths.length > 0) {
+      audit.summary.crmDeepDive.callDataRange = callMonths[0] + ' to ' + callMonths[callMonths.length - 1];
+      audit.summary.crmDeepDive.totalMonthsOfData = callMonths.length;
+      var zeroMonths = callMonths.filter(function(m) { return bm.monthlyCalls[m] === 0; });
+      if (zeroMonths.length > 0) {
+        audit.warnings.push('CRM: ' + zeroMonths.length + ' months with 0 calls — possible missing data: ' + zeroMonths.join(', '));
+      }
+    }
+    
+    // CRM vs Square cross-check
+    if (sqA && bm.totalCompleted > 0) {
+      var completedOrderCount = (sq.orders || []).filter(function(o) { return o.state === 'COMPLETED'; }).length;
+      audit.summary.crossCheck = {
+        crmCompleted: bm.totalCompleted,
+        squareCompletedOrders: completedOrderCount,
+        note: Math.abs(completedOrderCount - bm.totalCompleted) > completedOrderCount * 0.5 ? 'Large gap — CRM status updates may be inconsistent' : 'Reasonable alignment',
+      };
+    }
+
+    // 7. Profit Sheet Check
+    if (global.profitMetrics) {
+      var pm3 = global.profitMetrics;
+      audit.summary.profitSheet = {
+        currentMonth: pm3.currentMonth || 'Unknown',
+        revenue: '$' + Math.round(pm3.revenue || 0).toLocaleString(),
+        expenses: '$' + Math.round(pm3.expenses || 0).toLocaleString(),
+        profit: '$' + Math.round(pm3.profit || 0).toLocaleString(),
+        margin: (pm3.margin || 0) + '%',
+        techCount: Object.keys(pm3.techPayouts || {}).length,
+        techs: Object.keys(pm3.techPayouts || {}).join(', '),
+        receptionistCount: Object.keys(pm3.receptionistPayouts || {}).length,
+        receptionists: Object.keys(pm3.receptionistPayouts || {}).join(', '),
+      };
+    }
+
+    // 8. Sheet Metadata
+    if (global.sheetMetadata) {
+      audit.summary.sheetsRead = {};
+      Object.entries(global.sheetMetadata).forEach(function(s) {
+        var tabs = Array.isArray(s[1].tabs) ? s[1].tabs : [];
+        audit.summary.sheetsRead[s[0]] = { tabs: tabs.length, tabNames: tabs.join(', '), desc: s[1].desc || '' };
+      });
+    }
+
     // Overall health
     var passCount = audit.checks.filter(function(c) { return c.pass; }).length;
     audit.health = {
@@ -14321,8 +14520,8 @@ app.get('/ai', requireAuth('owner'), async function(req, res) {
       thisMonth: bm.thisMonthCalls || 0,
       lastMonth: bm.lastMonthCalls || 0,
       growth: bm.monthGrowth || 0,
-      todayBookings: bm.todayBookings || 0,
-      needsReschedule: bm.needsReschedule || 0,
+      todayBookings: (bm.todayBookings || []).length || 0,
+      needsReschedule: (bm.needsReschedule || []).length || 0,
       conversionRate: bm.conversionRate || 0,
     };
     
@@ -14347,7 +14546,7 @@ app.get('/ai', requireAuth('owner'), async function(req, res) {
     briefing.alerts = [];
     if (sqA && sqA.revenue.weekGrowth < -20) briefing.alerts.push({ type: 'warning', msg: 'Revenue down ' + sqA.revenue.weekGrowth + '% vs last week' });
     if (sqA && sqA.refunds.rate > 5) briefing.alerts.push({ type: 'warning', msg: 'Refund rate at ' + sqA.refunds.rate + '% — investigate' });
-    if (bm.needsReschedule > 3) briefing.alerts.push({ type: 'action', msg: bm.needsReschedule + ' jobs need rescheduling' });
+    if ((bm.needsReschedule || []).length > 3) briefing.alerts.push({ type: 'action', msg: (bm.needsReschedule || []).length + ' jobs need rescheduling' });
     if (ads && ads.accountSummary && ads.accountSummary.avgCPC > 10) briefing.alerts.push({ type: 'warning', msg: 'CPC is $' + ads.accountSummary.avgCPC + ' — check campaigns' });
     if (bm.monthGrowth > 20) briefing.alerts.push({ type: 'positive', msg: 'Call volume up ' + bm.monthGrowth + '% vs last month!' });
     if (sqA && sqA.revenue.weekGrowth > 15) briefing.alerts.push({ type: 'positive', msg: 'Weekly revenue up ' + sqA.revenue.weekGrowth + '%!' });
@@ -14482,7 +14681,7 @@ app.get('/ai', requireAuth('owner'), async function(req, res) {
     html += '<div class="nav">';
     html += '<a href="/jarvis">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
-    html += '<a href="/discord">DISCORD</a><a href="/ai" class="active">AI</a><a href="/audit">AUDIT</a>';
+    html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a><a href="/ai" class="active">AI</a><a href="/audit">AUDIT</a>';
     html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
 
     html += '<h1>🧠 AI INTELLIGENCE HUB</h1>';
@@ -14690,6 +14889,7 @@ app.get('/audit', requireAuth('owner'), async function(req, res) {
   html += '<div class="nav">';
   html += '<a href="/jarvis">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a>';
   html += '<a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
+  html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a><a href="/ai">AI</a>';
   html += '<a href="/audit" class="active">AUDIT</a>';
   html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
   
@@ -14803,6 +15003,77 @@ app.get('/audit', requireAuth('owner'), async function(req, res) {
       var v = summary.athenaDataSources[k];
       var color = v === true ? '#10b981' : '#ef4444';
       html += '<div class="kv"><span class="k">' + k + '</span><span class="v" style="color:' + color + ';">' + (v ? '✅ Connected' : '❌ Missing') + '</span></div>';
+    });
+    html += '</div>';
+  }
+  
+  // CRM Deep Dive
+  if (summary.crmDeepDive) {
+    var dd = summary.crmDeepDive;
+    html += '<div class="section"><div class="section-title" style="color:#a855f7;">🔬 CRM DEEP DIVE</div>';
+    html += '<div class="kv"><span class="k">Sheets Read</span><span class="v">' + dd.totalSheets + '</span></div>';
+    html += '<div class="kv"><span class="k">Tabs Read</span><span class="v">' + dd.totalTabs + '</span></div>';
+    html += '<div class="kv"><span class="k">Total Job Rows</span><span class="v">' + dd.totalJobRows + '</span></div>';
+    html += '<div class="kv"><span class="k">Unique Locations</span><span class="v">' + dd.locationCount + '</span></div>';
+    html += '<div class="kv"><span class="k">Equipment Types</span><span class="v">' + dd.equipmentTypes + '</span></div>';
+    html += '<div class="kv"><span class="k">Brands Tracked</span><span class="v">' + dd.brandCount + '</span></div>';
+    html += '<div class="kv"><span class="k">CRM Techs (from jobs)</span><span class="v">' + dd.techCoverage.crmTechs + '</span></div>';
+    html += '<div class="kv"><span class="k">Profit Sheet Techs</span><span class="v">' + dd.techCoverage.profitTechs + '</span></div>';
+    html += '<div class="kv"><span class="k">Tech Assignment Rate</span><span class="v">' + dd.techAssignmentRate + '</span></div>';
+    if (dd.callDataRange) {
+      html += '<div class="kv"><span class="k">Call Data Range</span><span class="v">' + dd.callDataRange + ' (' + dd.totalMonthsOfData + ' months)</span></div>';
+    }
+    
+    // Status Distribution
+    if (dd.statusBreakdown) {
+      html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #1a2a3a;font-family:Orbitron;font-size:0.7em;letter-spacing:2px;color:#a855f7;margin-bottom:8px;">STATUS DISTRIBUTION</div>';
+      var statusEntries = Object.entries(dd.statusBreakdown).sort(function(a,b){return b[1]-a[1];});
+      statusEntries.forEach(function(s) {
+        var pct = dd.totalJobRows > 0 ? Math.round(s[1]/dd.totalJobRows*100) : 0;
+        var barColor = s[0].includes('completed') || s[0].includes('done') || s[0].includes('paid') || s[0].includes('serviced') ? '#10b981' : s[0].includes('cancel') ? '#ef4444' : s[0] === 'booked' ? '#a855f7' : '#4a6a8a';
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:3px 0;"><span style="width:180px;color:#c0d8f0;font-size:0.85em;">' + s[0] + '</span><div style="flex:1;height:16px;background:#0a1520;border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + barColor + '40;border-radius:3px;"></div></div><span style="width:80px;text-align:right;font-size:0.85em;color:' + barColor + ';">' + s[1] + ' (' + pct + '%)</span></div>';
+      });
+    }
+    
+    // Data Quality
+    if (dd.dataQuality) {
+      html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #1a2a3a;font-family:Orbitron;font-size:0.7em;letter-spacing:2px;color:#f59e0b;margin-bottom:8px;">DATA QUALITY</div>';
+      Object.entries(dd.dataQuality).forEach(function(q) {
+        var pctNum = parseInt(q[1].split('(')[1]) || 0;
+        var color = pctNum > 50 ? '#ef4444' : pctNum > 20 ? '#f59e0b' : '#10b981';
+        html += '<div class="kv"><span class="k">' + q[0] + '</span><span class="v" style="color:' + color + ';">' + q[1] + '</span></div>';
+      });
+    }
+    html += '</div>';
+  }
+  
+  // Cross-Check CRM vs Square
+  if (summary.crossCheck) {
+    html += '<div class="section"><div class="section-title" style="color:#ff9f43;">🔄 CRM vs SQUARE CROSS-CHECK</div>';
+    html += '<div class="kv"><span class="k">CRM Completed Jobs</span><span class="v">' + summary.crossCheck.crmCompleted + '</span></div>';
+    html += '<div class="kv"><span class="k">Square Completed Orders</span><span class="v">' + summary.crossCheck.squareCompletedOrders + '</span></div>';
+    var noteColor = summary.crossCheck.note.includes('Large gap') ? '#f59e0b' : '#10b981';
+    html += '<div class="kv"><span class="k">Assessment</span><span class="v" style="color:' + noteColor + ';">' + summary.crossCheck.note + '</span></div>';
+    html += '</div>';
+  }
+  
+  // Profit Sheet
+  if (summary.profitSheet) {
+    html += '<div class="section"><div class="section-title" style="color:#ffd700;">💵 PROFIT SHEET (' + summary.profitSheet.currentMonth + ')</div>';
+    Object.entries(summary.profitSheet).forEach(function(p) {
+      if (p[0] !== 'currentMonth') {
+        html += '<div class="kv"><span class="k">' + p[0] + '</span><span class="v">' + p[1] + '</span></div>';
+      }
+    });
+    html += '</div>';
+  }
+  
+  // Sheets Read
+  if (summary.sheetsRead && Object.keys(summary.sheetsRead).length > 0) {
+    html += '<div class="section"><div class="section-title" style="color:#00d4ff;">📄 SHEETS READ</div>';
+    Object.entries(summary.sheetsRead).forEach(function(s) {
+      html += '<div class="kv"><span class="k">' + s[0] + (s[1].desc ? ' <span style="color:#4a6a8a;font-size:0.8em;">(' + s[1].desc + ')</span>' : '') + '</span><span class="v">' + s[1].tabs + ' tabs</span></div>';
+      if (s[1].tabNames) { html += '<div style="padding-left:20px;color:#4a6a8a;font-size:0.8em;margin-bottom:8px;">' + s[1].tabNames + '</div>'; }
     });
     html += '</div>';
   }
@@ -15057,14 +15328,17 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
 
   // Bollinger Bands
   html += '<div class="section-title">📊 BOLLINGER BANDS <select id="bollingerRange" onchange="renderBollinger()" style="background:#0a1520;color:#a855f7;border:1px solid #a855f740;font-family:Orbitron;font-size:0.8em;padding:2px 8px;margin-left:10px;"><option value="0" selected>ALL TIME</option><option value="365">1 YEAR</option><option value="730">2 YEARS</option><option value="180">6 MONTHS</option></select></div>';
+  html += '<div style="color:#4a6a8a;font-size:0.8em;margin:-8px 0 10px;line-height:1.5;">Revenue between the bands = normal. Touching upper band = unusually high month (peak demand). Touching lower band = slow month. Bands narrowing = revenue stabilizing. Bands widening = more volatility.</div>';
   html += '<div class="chart-area" id="bollingerChart" style="height:220px;"></div>';
 
   // Fibonacci Retracement
   html += '<div class="section-title">🔢 FIBONACCI CASH FLOW LEVELS</div>';
+  html += '<div style="color:#4a6a8a;font-size:0.8em;margin:-8px 0 10px;line-height:1.5;">Revenue targets based on your historical low→high range. 0% = your lowest month. 100% = your best month. Above 100% = new territory. The 61.8% and 50% levels are key support — if revenue drops below these, action may be needed.</div>';
   html += '<div class="chart-area" id="fibChart" style="height:220px;"></div>';
 
   // YoY comparison
   html += '<div class="section-title">📈 YEAR OVER YEAR COMPARISON</div>';
+  html += '<div style="color:#4a6a8a;font-size:0.8em;margin:-8px 0 10px;line-height:1.5;">Each bar = total revenue for that year. Percentage shows growth vs prior year. Green = grew, Red = shrunk. Use this to track annual trajectory.</div>';
   html += '<div class="chart-area" id="yoyChart" style="height:200px;"></div>';
 
   // Customer growth
