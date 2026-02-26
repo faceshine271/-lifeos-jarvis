@@ -1,4 +1,4 @@
-; // LINE_GUARD — do not remove
+0; // LINE_GUARD — do not remove
 // ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
@@ -12526,7 +12526,7 @@ async function executeGAQL(query, customerId) {
     var res = await fetch('https://googleads.googleapis.com/v23/customers/' + cid + '/googleAds:search', {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify({ query: query, pageSize: 10000 }),
+      body: JSON.stringify({ query: query }),
     });
     var rawText = await res.text();
     var data;
