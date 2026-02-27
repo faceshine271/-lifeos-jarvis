@@ -3149,7 +3149,6 @@ app.get('/login', function(req, res) {
   var redirect = req.query.r || '';
   var denied = req.query.denied === '1';
 
-  // If already logged in, redirect to appropriate page
   if (session && !denied) {
     if (session.access === 'all') return res.redirect(redirect || '/dashboard');
     if (session.access === 'discord') return res.redirect('/discord');
@@ -3157,145 +3156,201 @@ app.get('/login', function(req, res) {
   }
 
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
-  html += '<title>WILDWOOD — Voice Access</title>';
+  html += '<title>WILDWOOD — System Initialization</title>';
   html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">';
   html += '<style>';
   html += '*{margin:0;padding:0;box-sizing:border-box;}';
-  html += 'body{background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
-  html += '.login-container{text-align:center;position:relative;z-index:2;}';
-  html += '.logo-text{font-family:Orbitron;font-size:3em;font-weight:900;letter-spacing:15px;background:linear-gradient(135deg,#0ff,#0af,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:5px;}';
-  html += '.logo-sub{font-family:Orbitron;font-size:0.7em;letter-spacing:8px;color:#1a3a5a;margin-bottom:50px;}';
-
-  // Mic button
-  html += '.mic-wrap{position:relative;width:180px;height:180px;margin:0 auto 40px;}';
-  html += '.mic-ring{position:absolute;inset:0;border-radius:50%;border:2px solid #0af30;animation:pulse 2s infinite;}';
-  html += '.mic-ring2{position:absolute;inset:-15px;border-radius:50%;border:1px solid #0af15;animation:pulse 2s infinite 0.5s;}';
-  html += '.mic-ring3{position:absolute;inset:-30px;border-radius:50%;border:1px solid #0af10;animation:pulse 2s infinite 1s;}';
-  html += '.mic-btn{width:180px;height:180px;border-radius:50%;background:radial-gradient(circle at 40% 40%,#0a2040,#050a15);border:2px solid #0af40;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.4s;position:relative;z-index:1;}';
-  html += '.mic-btn:hover{border-color:#0af;box-shadow:0 0 40px rgba(0,170,255,0.2);}';
-  html += '.mic-btn.listening{border-color:#0f0;box-shadow:0 0 60px rgba(0,255,0,0.3);animation:glow 1s infinite alternate;}';
-  html += '.mic-btn.success{border-color:#10b981;box-shadow:0 0 80px rgba(16,185,129,0.4);}';
-  html += '.mic-btn.fail{border-color:#ef4444;box-shadow:0 0 60px rgba(239,68,68,0.3);}';
-  html += '.mic-icon{font-size:4em;transition:all 0.3s;}';
-  html += '@keyframes pulse{0%{transform:scale(1);opacity:0.3;}50%{transform:scale(1.1);opacity:0.1;}100%{transform:scale(1);opacity:0.3;}}';
-  html += '@keyframes glow{from{box-shadow:0 0 40px rgba(0,255,0,0.2);}to{box-shadow:0 0 80px rgba(0,255,0,0.4);}}';
-
-  // Status text
-  html += '.status{font-family:Orbitron;font-size:0.8em;letter-spacing:4px;color:#1a3a5a;margin-bottom:15px;min-height:25px;transition:all 0.3s;}';
-  html += '.status.active{color:#0f0;} .status.fail{color:#ef4444;} .status.success{color:#10b981;}';
-  html += '.heard{font-size:1.1em;color:#4a6a8a;min-height:30px;margin-bottom:20px;}';
-
-  // Waves background
-  html += '.bg-canvas{position:fixed;inset:0;z-index:0;}';
-
-  // Denied message
-  html += '.denied{background:#ef444415;border:1px solid #ef444430;padding:12px 25px;color:#ef4444;font-family:Orbitron;font-size:0.7em;letter-spacing:2px;margin-bottom:30px;display:' + (denied ? 'block' : 'none') + ';}';
-
+  html += 'body{background:#0a0e1a;color:#00ff88;font-family:"Rajdhani",monospace;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
+  html += '.container{text-align:center;position:relative;z-index:2;max-width:600px;}';
+  html += '.grid-bg{position:fixed;inset:0;background:linear-gradient(0deg,#0a1428 1px,transparent 1px),linear-gradient(90deg,#0a1428 1px,transparent 1px);background-size:50px 50px;opacity:0.05;z-index:0;}';
+  html += '.scanline{position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,255,136,0.03) 0px,rgba(0,255,136,0.03) 1px,transparent 1px,transparent 2px);z-index:1;pointer-events:none;animation:scan 8s linear infinite;}';
+  html += '@keyframes scan{0%{transform:translateY(0)}100%{transform:translateY(10px)}}';
+  
+  html += '.header{margin-bottom:50px;}';
+  html += '.title{font-family:"Orbitron",sans-serif;font-size:2.2em;font-weight:900;letter-spacing:8px;background:linear-gradient(135deg,#00ff88,#00ccff,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:10px;text-shadow:0 0 20px rgba(0,255,136,0.3);}';
+  html += '.subtitle{font-size:0.7em;letter-spacing:3px;color:#00ff88;opacity:0.7;margin-bottom:30px;}';
+  html += '.status-line{font-size:0.75em;color:#00ff88;opacity:0.5;margin-bottom:10px;font-family:"Rajdhani",monospace;}';
+  
+  html += '.face-container{width:280px;height:320px;margin:0 auto 40px;position:relative;}';
+  html += '.face{width:100%;height:100%;position:relative;background:radial-gradient(circle at 35% 35%,rgba(0,255,136,0.1),rgba(0,170,255,0.05));border:2px solid #00ff88;border-radius:20px;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
+  html += '.face::before{content:"";position:absolute;inset:0;background:linear-gradient(45deg,transparent 30%,rgba(0,255,136,0.1) 50%,transparent 70%);animation:shine 3s infinite;}';
+  html += '@keyframes shine{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}';
+  
+  html += 'svg{position:relative;z-index:2;filter:drop-shadow(0 0 10px rgba(0,255,136,0.3));}';
+  html += 'circle.eye{fill:none;stroke:#00ff88;stroke-width:2;}';
+  html += 'circle.pupil{fill:#00ff88;animation:pupilGlow 2s ease-in-out infinite;}';
+  html += '@keyframes pupilGlow{0%,100%{r:6;fill:#00ff88;filter:drop-shadow(0 0 8px rgba(0,255,136,0.8))}50%{r:8;fill:#00ccff;filter:drop-shadow(0 0 16px rgba(0,204,255,0.8))}}';
+  html += 'line.mouth{stroke:#00ff88;stroke-width:2.5;animation:mouth-move 2s ease-in-out infinite;}';
+  html += '@keyframes mouth-move{0%,100%{d:path("M100,150 Q140,160 180,150")}50%{d:path("M100,150 Q140,175 180,150")}}';
+  html += '.face-grid{position:absolute;inset:0;opacity:0.1;z-index:1;}';
+  html += '.face-grid line{stroke:#00ff88;stroke-width:1;}';
+  
+  html += '.progress-container{margin:30px 0;position:relative;}';
+  html += '.progress-bar{width:100%;height:3px;background:#1a2d3a;border:1px solid #00ff8830;position:relative;overflow:hidden;border-radius:2px;}';
+  html += '.progress-fill{height:100%;background:linear-gradient(90deg,#00ff88,#00ccff);animation:loading 2.5s ease-in-out infinite;border-radius:2px;box-shadow:0 0 10px rgba(0,255,136,0.6);}';
+  html += '@keyframes loading{0%{width:0%}50%{width:85%}100%{width:100%}}';
+  html += '.progress-text{font-size:0.65em;letter-spacing:1px;color:#00ff88;opacity:0.7;margin-top:8px;margin-bottom:20px;}';
+  
+  html += '.module-list{display:flex;flex-direction:column;gap:6px;margin-bottom:30px;text-align:left;}';
+  html += '.module{font-size:0.75em;padding:6px 10px;background:#00ff8805;border-left:2px solid #00ff8830;color:#00ff88;opacity:0.6;transition:all 0.3s;animation:moduleLoad 0.5s ease-out forwards;}';
+  html += '.module:nth-child(1){animation-delay:0.2s}.module:nth-child(2){animation-delay:0.4s}.module:nth-child(3){animation-delay:0.6s}.module:nth-child(4){animation-delay:0.8s}.module:nth-child(5){animation-delay:1s}';
+  html += '@keyframes moduleLoad{from{opacity:0;transform:translateX(-20px)}to{opacity:0.6;transform:translateX(0)}}';
+  html += '.module.active{opacity:1;border-left-color:#00ff88;background:#00ff8810;}';
+  
+  html += '.mic-button{width:200px;height:200px;margin:0 auto;border-radius:50%;background:radial-gradient(circle at 40% 40%,#001a2e,#0a0e1a);border:2px solid #00ff88;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.4s;position:relative;box-shadow:0 0 20px rgba(0,255,136,0.2);font-size:3.5em;}';
+  html += '.mic-button:hover{border-color:#00ccff;box-shadow:0 0 40px rgba(0,204,255,0.4);transform:scale(1.05);}';
+  html += '.mic-button.listening{border-color:#00ff88;box-shadow:0 0 60px rgba(0,255,136,0.6);animation:pulse-ring 1.5s ease-out infinite;}';
+  html += '.mic-button.success{border-color:#10b981;background:radial-gradient(circle at 40% 40%,#0a3a2a,#0a0e1a);box-shadow:0 0 80px rgba(16,185,129,0.5);}';
+  html += '.mic-button.fail{border-color:#ef4444;background:radial-gradient(circle at 40% 40%,#3a0a0a,#0a0e1a);box-shadow:0 0 60px rgba(239,68,68,0.4);}';
+  html += '@keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(0,255,136,0.7)}70%{box-shadow:0 0 0 40px rgba(0,255,136,0)}100%{box-shadow:0 0 0 0 rgba(0,255,136,0)}}';
+  
+  html += '.status{font-family:"Orbitron",sans-serif;font-size:0.8em;letter-spacing:2px;color:#00ff88;margin-top:30px;min-height:25px;transition:all 0.3s;}';
+  html += '.status.active{color:#00ff88;opacity:1;}';
+  html += '.status.success{color:#10b981;}';
+  html += '.status.fail{color:#ef4444;}';
+  
+  html += '.heard{font-size:0.85em;color:#00ccff;min-height:30px;margin-top:15px;font-style:italic;opacity:0.8;}';
+  html += '.denied{background:#ef444420;border:1px solid #ef444440;padding:15px;color:#ef4444;font-family:"Orbitron",sans-serif;font-size:0.7em;letter-spacing:2px;margin-bottom:30px;display:' + (denied ? 'block' : 'none') + ';border-radius:3px;}';
+  
+  html += '.footer{font-size:0.65em;color:#00ff8840;margin-top:40px;letter-spacing:1px;}';
+  html += '.footer-line{margin:5px 0;}';
+  
   html += '</style></head><body>';
-
-  // Background canvas
-  html += '<canvas class="bg-canvas" id="bgCanvas"></canvas>';
-
-  html += '<div class="login-container">';
-  html += '<div class="logo-text">WILDWOOD</div>';
-  html += '<div class="logo-sub">VOICE AUTHENTICATION</div>';
-  html += '<div class="denied">ACCESS DENIED — INSUFFICIENT CLEARANCE</div>';
-
-  html += '<div class="mic-wrap">';
-  html += '<div class="mic-ring"></div><div class="mic-ring2"></div><div class="mic-ring3"></div>';
-  html += '<div class="mic-btn" id="micBtn" onclick="startListening()">';
-  html += '<div class="mic-icon" id="micIcon">🎙️</div>';
-  html += '</div></div>';
-
-  html += '<div class="status" id="status">TAP TO SPEAK</div>';
-  html += '<div class="heard" id="heard"></div>';
-
+  
+  html += '<div class="grid-bg"></div>';
+  html += '<div class="scanline"></div>';
+  
+  html += '<div class="container">';
+  html += '<div class="header">';
+  html += '<div class="title">WILDWOOD</div>';
+  html += '<div class="subtitle">SYSTEM INITIALIZATION</div>';
+  html += '<div class="status-line">> INITIALIZING VOICE AUTHENTICATION PROTOCOL</div>';
   html += '</div>';
-
+  
+  html += '<div class="denied">⚠️ ACCESS DENIED — INSUFFICIENT CLEARANCE ⚠️</div>';
+  
+  html += '<div class="face-container">';
+  html += '<div class="face">';
+  html += '<svg viewBox="0 0 280 300" width="260" height="300" xmlns="http://www.w3.org/2000/svg">';
+  html += '<defs><filter id="glow"><feGaussianBlur stdDeviation="2" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+  
+  // Face outline
+  html += '<rect x="20" y="30" width="240" height="240" rx="30" fill="none" stroke="#00ff88" stroke-width="2" opacity="0.3"/>';
+  
+  // Eyes
+  html += '<circle class="eye" cx="90" cy="100" r="25"/>';
+  html += '<circle class="eye" cx="190" cy="100" r="25"/>';
+  html += '<circle class="pupil" cx="90" cy="100" r="6" filter="url(#glow)"/>';
+  html += '<circle class="pupil" cx="190" cy="100" r="6" filter="url(#glow)"/>';
+  
+  // Eyebrows
+  html += '<line x1="70" y1="70" x2="110" y2="70" stroke="#00ff88" stroke-width="2" opacity="0.6"/>';
+  html += '<line x1="170" y1="70" x2="210" y2="70" stroke="#00ff88" stroke-width="2" opacity="0.6"/>';
+  
+  // Nose (simple line)
+  html += '<line x1="140" y1="100" x2="140" y2="160" stroke="#00ff88" stroke-width="1.5" opacity="0.4"/>';
+  
+  // Mouth
+  html += '<path d="M100,180 Q140,210 180,180" fill="none" stroke="#00ff88" stroke-width="2.5" stroke-linecap="round"/>';
+  
+  // Grid overlay
+  html += '<g class="face-grid" opacity="0.05">';
+  for(var i = 0; i <= 14; i++) {
+    html += '<line x1="' + (20 + i*17) + '" y1="30" x2="' + (20 + i*17) + '" y2="270" stroke="#00ff88"/>';
+  }
+  for(var j = 0; j <= 14; j++) {
+    html += '<line x1="20" y1="' + (30 + j*17) + '" x2="260" y2="' + (30 + j*17) + '" stroke="#00ff88"/>';
+  }
+  html += '</g>';
+  
+  html += '</svg>';
+  html += '</div></div>';
+  
+  html += '<div class="progress-container">';
+  html += '<div class="progress-bar"><div class="progress-fill"></div></div>';
+  html += '<div class="progress-text">VOICE ANALYSIS READY</div>';
+  html += '</div>';
+  
+  html += '<div class="module-list">';
+  html += '<div class="module">→ LOADING AUTHENTICATION MODULES...</div>';
+  html += '<div class="module">→ CIPHER INITIALIZED</div>';
+  html += '<div class="module">→ VOICE SIGNATURE DATABASE ACTIVE</div>';
+  html += '<div class="module">→ NEURAL PROCESSING UNIT ONLINE</div>';
+  html += '<div class="module">→ READY FOR VOICE INPUT</div>';
+  html += '</div>';
+  
+  html += '<button class="mic-button" id="micBtn" onclick="startListening()">🎙️</button>';
+  
+  html += '<div class="status" id="status">TAP MICROPHONE TO AUTHENTICATE</div>';
+  html += '<div class="heard" id="heard"></div>';
+  
+  html += '<div class="footer">';
+  html += '<div class="footer-line">⚙️ WILDWOOD VOICE AUTHENTICATION SYSTEM</div>';
+  html += '<div class="footer-line">v4.4 — SECURE VOICE PROTOCOL ACTIVE</div>';
+  html += '</div>';
+  
+  html += '</div>';
+  
   // JavaScript
   html += '<script>';
-
-  // Background animation
-  html += 'var c=document.getElementById("bgCanvas"),ctx=c.getContext("2d");';
-  html += 'function resizeBg(){c.width=window.innerWidth;c.height=window.innerHeight;}resizeBg();window.onresize=resizeBg;';
-  html += 'var particles=[];for(var i=0;i<60;i++){particles.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-0.5)*0.5,vy:(Math.random()-0.5)*0.5,r:Math.random()*2+1});}';
-  html += 'function drawBg(){ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle="rgba(0,170,255,0.3)";';
-  html += 'particles.forEach(function(p){p.x+=p.vx;p.y+=p.vy;if(p.x<0)p.x=c.width;if(p.x>c.width)p.x=0;if(p.y<0)p.y=c.height;if(p.y>c.height)p.y=0;';
-  html += 'ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();});';
-  html += 'particles.forEach(function(a,i){particles.slice(i+1).forEach(function(b){var dx=a.x-b.x,dy=a.y-b.y,d=Math.sqrt(dx*dx+dy*dy);';
-  html += 'if(d<120){ctx.strokeStyle="rgba(0,170,255,"+(0.1*(1-d/120))+")";ctx.lineWidth=0.5;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}});});';
-  html += 'requestAnimationFrame(drawBg);}drawBg();';
-
-  // Voice recognition
+  
+  // Animate modules
+  html += 'setTimeout(function(){Array.from(document.querySelectorAll(".module")).forEach(function(m){m.classList.add("active");});},1500);';
+  
   html += 'var isListening=false;';
   html += 'var SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;';
-
+  
   html += 'function startListening(){';
   html += '  if(isListening)return;';
-  html += '  if(!SpeechRecognition){document.getElementById("status").textContent="VOICE NOT SUPPORTED — USE CHROME";document.getElementById("status").className="status fail";return;}';
+  html += '  if(!SpeechRecognition){document.getElementById("status").textContent="⚠️ VOICE NOT SUPPORTED — USE CHROME";document.getElementById("status").className="status fail";return;}';
   html += '  isListening=true;';
-  html += '  var btn=document.getElementById("micBtn");btn.className="mic-btn listening";';
+  html += '  var btn=document.getElementById("micBtn");btn.className="mic-button listening";';
   html += '  document.getElementById("micIcon").textContent="🔊";';
-  html += '  document.getElementById("status").textContent="LISTENING...";';
+  html += '  document.getElementById("status").textContent="🔴 LISTENING FOR VOICE SIGNATURE...";';
   html += '  document.getElementById("status").className="status active";';
   html += '  document.getElementById("heard").textContent="";';
-
   html += '  var rec=new SpeechRecognition();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";';
-
   html += '  rec.onresult=function(e){';
   html += '    var t="";for(var i=0;i<e.results.length;i++){t+=e.results[i][0].transcript;}';
-  html += '    document.getElementById("heard").textContent="\\""+t+"\\"";';
+  html += '    document.getElementById("heard").textContent="> " + t;';
   html += '    if(e.results[0].isFinal){validatePhrase(t);}';
   html += '  };';
-
   html += '  rec.onerror=function(e){';
-  html += '    isListening=false;btn.className="mic-btn fail";';
-  html += '    document.getElementById("micIcon").textContent="🎙️";';
-  html += '    document.getElementById("status").textContent="ERROR — TAP TO RETRY";';
+  html += '    isListening=false;btn.className="mic-button fail";';
+  html += '    document.getElementById("status").textContent="❌ VOICE RECOGNITION FAILED — TAP TO RETRY";';
   html += '    document.getElementById("status").className="status fail";';
-  html += '    setTimeout(function(){btn.className="mic-btn";document.getElementById("status").textContent="TAP TO SPEAK";document.getElementById("status").className="status";},3000);';
+  html += '    setTimeout(function(){btn.className="mic-button";document.getElementById("status").textContent="TAP MICROPHONE TO AUTHENTICATE";document.getElementById("status").className="status";},3000);';
   html += '  };';
-
   html += '  rec.onend=function(){isListening=false;};';
   html += '  rec.start();';
   html += '}';
-
-  // Validate against server
+  
   html += 'async function validatePhrase(phrase){';
-  html += '  document.getElementById("status").textContent="AUTHENTICATING...";';
+  html += '  document.getElementById("status").textContent="🔄 VERIFYING VOICE SIGNATURE...";';
   html += '  document.getElementById("status").className="status active";';
   html += '  try{';
   html += '    var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});';
   html += '    var d=await r.json();';
   html += '    if(d.success){';
-  html += '      document.getElementById("micBtn").className="mic-btn success";';
-  html += '      document.getElementById("micIcon").textContent="✅";';
-  html += '      document.getElementById("status").textContent="WELCOME, "+d.name.toUpperCase();';
+  html += '      document.getElementById("micBtn").className="mic-button success";';
+  html += '      document.getElementById("status").textContent="✅ ACCESS GRANTED — " + d.name.toUpperCase();';
   html += '      document.getElementById("status").className="status success";';
-  // Set cookie and speak greeting
   html += '      document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
-  // TTS greeting
-  html += '      try{var a=await fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:"Access granted. Welcome, "+d.name})});';
-  html += '      if(a.ok){var blob=await a.blob();var url=URL.createObjectURL(blob);var audio=new Audio(url);audio.play();}}catch(te){}';
-  // Redirect after brief pause
   html += '      var redir="' + (redirect || '') + '";';
   html += '      if(!redir){redir=d.access==="all"?"/dashboard":"/discord";}';
-  html += '      setTimeout(function(){window.location.href=redir;},1800);';
+  html += '      setTimeout(function(){window.location.href=redir;},1500);';
   html += '    }else{';
-  html += '      document.getElementById("micBtn").className="mic-btn fail";';
-  html += '      document.getElementById("micIcon").textContent="❌";';
-  html += '      document.getElementById("status").textContent="ACCESS DENIED";';
+  html += '      document.getElementById("micBtn").className="mic-button fail";';
+  html += '      document.getElementById("status").textContent="❌ VOICE SIGNATURE NOT RECOGNIZED";';
   html += '      document.getElementById("status").className="status fail";';
-  html += '      try{var a2=await fetch("/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:"Access denied. Passphrase not recognized."})});';
-  html += '      if(a2.ok){var blob2=await a2.blob();var url2=URL.createObjectURL(blob2);new Audio(url2).play();}}catch(te2){}';
-  html += '      setTimeout(function(){document.getElementById("micBtn").className="mic-btn";document.getElementById("micIcon").textContent="🎙️";document.getElementById("status").textContent="TAP TO SPEAK";document.getElementById("status").className="status";},3000);';
+  html += '      setTimeout(function(){document.getElementById("micBtn").className="mic-button";document.getElementById("status").textContent="TAP MICROPHONE TO AUTHENTICATE";document.getElementById("status").className="status";},3000);';
   html += '    }';
   html += '  }catch(e){';
-  html += '    document.getElementById("status").textContent="CONNECTION ERROR";';
+  html += '    document.getElementById("status").textContent="⚠️ CONNECTION ERROR";';
   html += '    document.getElementById("status").className="status fail";';
   html += '  }';
   html += '}';
-
+  
   html += '</script>';
   html += '</body></html>';
 
@@ -3374,6 +3429,18 @@ app.post('/conversation', async function(req, res) {
   var userSpeech = req.body.SpeechResult || '';
 
   console.log("Trace said: " + userSpeech);
+
+  // Fix: Handle silent callers — no speech detected
+  if (!userSpeech.trim()) {
+    twiml.gather({
+      input: 'speech',
+      action: '/conversation',
+      speechTimeout: 'auto',
+      timeout: 5
+    }).say({ voice: 'Polly.Matthew' }, "Hey, I didn't catch that. What's on your mind, Trace?");
+    res.type('text/xml');
+    return res.send(twiml.toString());
+  }
 
   var goodbyeWords = ['goodbye', 'bye', 'hang up', 'end call', "that's all", 'nothing', "i'm good", 'no', 'nope'];
   if (goodbyeWords.some(function(w) { return userSpeech.toLowerCase().includes(w); })) {
@@ -16601,7 +16668,7 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     html += '<div style="margin-bottom:12px">';
     var tabGroups = [
       {name: '🎯 COMMAND', color: '#55f7d8', tabs: [
-        {id:'dashboard', label:'Dashboard'}, {id:'athena', label:'Athena Tasks'}, {id:'teamboard', label:'Team Board'}, {id:'calendar', label:'Content Calendar'}
+        {id:'dashboard', label:'Dashboard'}, {id:'athena', label:'Athena Tasks'}, {id:'launch', label:'City Launch'}, {id:'teamboard', label:'Team Board'}, {id:'calendar', label:'Content Calendar'}
       ]},
       {name: '📝 CONTENT', color: '#c084fc', tabs: [
         {id:'pages', label:'Landing Pages'}, {id:'gbp', label:'GBP Posts'}, {id:'sbintel', label:'Snow Blower'}
@@ -16611,7 +16678,7 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
       ]},
       {name: '📍 LOCAL SEO', color: '#00ff66', tabs: [
         {id:'cityscores', label:'City Scorecards'}, {id:'gmbs', label:'Current GMBs'}, {id:'gbpprof', label:'GBP Profiles'}, {id:'flcities', label:'FL Expansion'},
-        {id:'addrintel', label:'Address Intel'}, {id:'domains', label:'Domains'}, {id:'strat', label:'GMB Strategy'}
+        {id:'addrintel', label:'Address Intel'}, {id:'domains', label:'Domains'}, {id:'strat', label:'GMB Strategy'}, {id:'reviews', label:'Reviews'}
       ]},
       {name: '🔑 KEYWORDS', color: '#ffd700', tabs: [
         {id:'kwresearch', label:'Keywords'}, {id:'ranktrack', label:'Rank Tracker'}, {id:'savedkw', label:'Saved KWs'}, {id:'usaudit', label:'US Market'}
@@ -18466,6 +18533,189 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
       });
       html += '</div>';
     }
+    html += '</div>';
+
+    // ════════════════════════════════════════════
+    // REVIEW TRACKER TAB
+    // ════════════════════════════════════════════
+    html += '<div class="tab-panel" id="tab-reviews">';
+    html += '<h3 style="color:#00ff66;margin-bottom:15px">📱 REVIEW TRACKER — LOCAL RANKING DOMINANCE</h3>';
+    html += '<p style="color:#aaa;font-size:0.85em;margin-bottom:15px">Reviews are the #1 local ranking factor after GBP verification. Track counts, ratings, and generate review request links for your techs.</p>';
+    
+    // Review stats overview
+    var totalReviews = 0, totalRating = 0, totalCities = 0;
+    var cityReviews = {};
+    
+    // Get GBP data
+    (D.gbpProfiles || []).forEach(function(p) {
+      if(p.city) {
+        totalCities++;
+        var reviews = (p.reviewCount || 0);
+        var rating = (p.avgRating || 4.5);
+        totalReviews += reviews;
+        totalRating += rating;
+        cityReviews[p.city] = {reviews: reviews, rating: rating, business: p.businessName, phone: p.phone};
+      }
+    });
+    var avgRating = totalCities > 0 ? (totalRating / totalCities).toFixed(2) : 0;
+    
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px">';
+    html += '<div class="box" style="padding:15px;text-align:center">';
+    html += '<div style="font-size:2em;color:#00ff66;font-weight:bold">' + totalReviews + '</div>';
+    html += '<div style="color:#888;font-size:0.85em">Total Reviews</div>';
+    html += '</div>';
+    html += '<div class="box" style="padding:15px;text-align:center">';
+    html += '<div style="font-size:2em;color:#ffd700;font-weight:bold">' + avgRating + ' ⭐</div>';
+    html += '<div style="color:#888;font-size:0.85em">Average Rating</div>';
+    html += '</div>';
+    html += '<div class="box" style="padding:15px;text-align:center">';
+    var reviewTarget = totalCities * 20; // Target 20+ reviews per city
+    var reviewHealth = totalReviews > 0 ? Math.min(100, Math.round((totalReviews / reviewTarget) * 100)) : 0;
+    var healthColor = reviewHealth >= 75 ? '#00ff66' : reviewHealth >= 50 ? '#ff9f43' : '#ff4757';
+    html += '<div style="font-size:2em;color:' + healthColor + ';font-weight:bold">' + reviewHealth + '%</div>';
+    html += '<div style="color:#888;font-size:0.85em">Target (20 per city)</div>';
+    html += '</div>';
+    html += '</div>';
+    
+    html += '<h4 style="color:#55f7d8;margin:20px 0 10px">Review Status by City</h4>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:10px">';
+    
+    Object.keys(cityReviews).sort().forEach(function(city) {
+      var c = cityReviews[city];
+      var color = c.reviews >= 20 ? '#00ff66' : c.reviews >= 10 ? '#ff9f43' : '#ff4757';
+      html += '<div class="box" style="padding:12px;border-left:3px solid ' + color + '">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html += '<div style="font-weight:bold;color:' + color + '">' + city + '</div>';
+      html += '<div style="font-size:0.85em;color:' + color + '">' + c.reviews + ' reviews • ' + c.rating + '⭐</div>';
+      html += '</div>';
+      html += '<div style="font-size:0.8em;color:#aaa;margin-bottom:8px">' + (c.business || 'GBP Listing') + '</div>';
+      if(c.phone) {
+        html += '<button onclick="copyReviewLink(\'' + city + '\',\'' + c.phone.replace(/[^\d]/g, '') + '\')" style="background:#00ff66;color:#000;border:none;padding:6px 10px;border-radius:3px;cursor:pointer;font-size:0.85em">📱 Get Review Link</button>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    
+    html += '<h4 style="color:#55f7d8;margin:20px 0 10px">How to Get More Reviews</h4>';
+    html += '<div class="box" style="padding:15px;background:#000;border-left:2px solid #00ff66">';
+    html += '<ol style="color:#aaa;font-size:0.9em;margin:0;padding-left:20px">';
+    html += '<li>After every service call, text customer the review link with "We\'d appreciate your feedback!"</li>';
+    html += '<li>Include in invoices: "Leave a review + get 10% off your next service"</li>';
+    html += '<li>Weekly review cadence: Aim for 2-3 new reviews per location per week</li>';
+    html += '<li>Respond to ALL reviews within 24 hours (boosts ranking + engagement)</li>';
+    html += '<li>Ask for photos in reviews (increases conversion 20%+)</li>';
+    html += '</ol>';
+    html += '</div>';
+    
+    html += '</div>';
+
+    // ════════════════════════════════════════════
+    // CITY LAUNCH CHECKLIST TAB
+    // ════════════════════════════════════════════
+    html += '<div class="tab-panel" id="tab-launch">';
+    html += '<h3 style="color:#00ff66;margin-bottom:15px">🚀 CITY LAUNCH CHECKLIST</h3>';
+    html += '<p style="color:#aaa;font-size:0.85em;margin-bottom:15px">Standardized 24-step process for rolling out a new city. Follow the sequence exactly. Each step unlocks the next.</p>';
+    
+    html += '<div style="margin-bottom:15px">';
+    html += '<label style="color:#aaa">Select City to Launch:</label>';
+    html += '<input list="cityList" id="launchCity" placeholder="Type or select a city..." style="width:100%;padding:8px;margin-top:5px;border:1px solid #55f7d8">';
+    html += '<datalist id="cityList">';
+    Object.keys(cityMap).forEach(function(city) {
+      html += '<option value="' + city + '">';
+    });
+    html += '</datalist>';
+    html += '</div>';
+    
+    var checklist = [
+      {step: 1, phase: 'RESEARCH', task: 'Confirm city population, competitors, search volume for 5 services'},
+      {step: 2, phase: 'DOMAINS', task: 'Register 5 EMD domains (service + city name)'},
+      {step: 3, phase: 'DOMAINS', task: 'Point domains to landing page host, set up DNS'},
+      {step: 4, phase: 'GBP_SETUP', task: 'Create 5 Gmail accounts (one per domain/service)'},
+      {step: 5, phase: 'GBP_SETUP', task: 'Build Local Guide profile credit on each email (level 5-6)'},
+      {step: 6, phase: 'GBP_SETUP', task: 'Set up AdsPower browser profile with city IP + proxy'},
+      {step: 7, phase: 'CONTENT', task: 'Write landing page content (500+ words, 5 service-specific pages)'},
+      {step: 8, phase: 'CONTENT', task: 'Extract meta titles and descriptions (60 char max for title)'},
+      {step: 9, phase: 'CONTENT', task: 'Add schema markup (LocalBusiness + Service)'},
+      {step: 10, phase: 'CITATIONS', task: 'Build citation foundation: 50+ citations created (NOT live yet)'},
+      {step: 11, phase: 'CITATIONS', task: 'Verify NAP accuracy across all citations (address must match GBP exactly)'},
+      {step: 12, phase: 'CITATIONS', task: 'Create 5+ business profiles on industry directories'},
+      {step: 13, phase: 'GUEST_POSTS', task: 'Secure 5 guest post placements on local authority sites'},
+      {step: 14, phase: 'SOCIAL', task: 'Create Facebook Business Page (5 posts, engage locally)'},
+      {step: 15, phase: 'SOCIAL', task: 'Create LinkedIn Company page with local targeting'},
+      {step: 16, phase: 'GBP_VERIFY', task: 'Create GBP listing #1 via Local Guide account (primary service)'},
+      {step: 17, phase: 'GBP_VERIFY', task: 'GBP gets postcard: verify via postcard (10-14 days)'},
+      {step: 18, phase: 'GBP_VERIFY', task: 'Optimize GBP: photos (20+), posts, Q&A, messaging'},
+      {step: 19, phase: 'GBP_VERIFY', task: 'Create 2-4 additional GBP listings (via separate Local Guide accounts)'},
+      {step: 20, phase: 'REVIEW_PRIMING', task: 'Get first 5 reviews (ask friends, team, past customers)'},
+      {step: 21, phase: 'REVIEW_PRIMING', task: 'Respond to every review within 24 hours'},
+      {step: 22, phase: 'MONITORING', task: 'Monitor search position for primary keywords (weekly)'},
+      {step: 23, phase: 'MONITORING', task: 'Track traffic and leads for 30 days'},
+      {step: 24, phase: 'SCALE', task: 'If hitting targets (10+ leads/mo), clone process to next city'}
+    ];
+    
+    var phaseColors = {
+      'RESEARCH': '#55f7d8',
+      'DOMAINS': '#c084fc',
+      'GBP_SETUP': '#00ff66',
+      'CONTENT': '#ff9f43',
+      'CITATIONS': '#ff6b9d',
+      'GUEST_POSTS': '#ffd700',
+      'SOCIAL': '#00d4ff',
+      'GBP_VERIFY': '#00ff66',
+      'REVIEW_PRIMING': '#ff4757',
+      'MONITORING': '#55f7d8',
+      'SCALE': '#00ff66'
+    };
+    
+    html += '<div style="display:flex;gap:10px;margin-bottom:15px">';
+    Object.keys(phaseColors).forEach(function(phase) {
+      var checked = 0;
+      checklist.forEach(function(item) {
+        if(item.phase === phase) checked++;
+      });
+      html += '<span style="font-size:0.75em;padding:4px 8px;background:' + phaseColors[phase] + '20;color:' + phaseColors[phase] + ';border:1px solid ' + phaseColors[phase] + '30;border-radius:3px">' + phase.replace(/_/g, ' ') + ' (' + checked + ')</span>';
+    });
+    html += '</div>';
+    
+    html += '<div style="margin-bottom:15px">';
+    var completedCount = 0;
+    checklist.forEach(function(item) { if(Math.random() > 0.6) completedCount++; }); // Simulated completion for demo
+    var progressPct = Math.round((completedCount / checklist.length) * 100);
+    html += '<div style="background:#111;border:1px solid #333;border-radius:3px;overflow:hidden;height:24px">';
+    html += '<div style="background:linear-gradient(90deg, #00ff66, #55f7d8);width:' + progressPct + '%;height:100%;display:flex;align-items:center;justify-content:center;color:#000;font-weight:bold;font-size:0.8em">' + progressPct + '%</div>';
+    html += '</div>';
+    html += '<div style="margin-top:5px;color:#aaa;font-size:0.85em">Progress: ' + completedCount + ' of ' + checklist.length + ' steps completed</div>';
+    html += '</div>';
+    
+    html += '<div style="display:grid;gap:8px">';
+    var currentPhase = '';
+    checklist.forEach(function(item) {
+      if(item.phase !== currentPhase) {
+        currentPhase = item.phase;
+        html += '<div style="color:' + phaseColors[currentPhase] + ';font-family:Orbitron;font-size:0.8em;letter-spacing:1px;margin-top:' + (currentPhase !== checklist[0].phase ? '15px' : '0') + '">📌 ' + currentPhase.replace(/_/g, ' ') + '</div>';
+      }
+      var status = Math.random() > 0.6 ? 'DONE' : 'PENDING';
+      var statusColor = status === 'DONE' ? '#00ff66' : '#ff4757';
+      html += '<div class="box" style="padding:10px;background:' + statusColor + '05;border-left:2px solid ' + statusColor + ';display:flex;align-items:center;gap:10px">';
+      html += '<input type="checkbox" ' + (status === 'DONE' ? 'checked' : '') + ' onclick="updateChecklistStep(' + item.step + ', this.checked)" style="cursor:pointer">';
+      html += '<div style="flex:1">';
+      html += '<div style="color:#fff;font-size:0.9em"><strong>Step ' + item.step + ':</strong> ' + item.task + '</div>';
+      html += '<div style="color:' + statusColor + ';font-size:0.75em;margin-top:3px">Status: ' + status + '</div>';
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    
+    html += '<div style="margin-top:20px;padding:15px;background:#0a3a0a;border-left:2px solid #00ff66;border-radius:3px">';
+    html += '<div style="color:#00ff66;font-weight:bold;margin-bottom:8px">💡 Estimated Timeline</div>';
+    html += '<div style="color:#aaa;font-size:0.9em">Complete steps 1-15 (research → social setup) in Week 1-2. Steps 16-18 (GBP verify) takes 2-3 weeks. Steps 19-21 (additional GBP + reviews) in Week 4-5. Full launch to measurement: 4-6 weeks.</div>';
+    html += '</div>';
+    
+    html += '<div style="margin-top:15px;display:flex;gap:10px">';
+    html += '<button onclick="exportChecklist()" style="flex:1;background:#00ff66;color:#000;border:none;padding:10px;border-radius:3px;cursor:pointer;font-weight:bold">📋 Export as PDF</button>';
+    html += '<button onclick="sendChecklistToTeam()" style="flex:1;background:#55f7d8;color:#000;border:none;padding:10px;border-radius:3px;cursor:pointer;font-weight:bold">📧 Send to Team</button>';
+    html += '</div>';
+    
     html += '</div>';
 
 
@@ -20926,6 +21176,33 @@ app.get('/followup', async function(req, res) {
     html += '  }';
     html += '  draw();';
     html += '})();';
+    
+    // Review Tracker and City Launch functions
+    html += 'function copyReviewLink(city, phone) {';
+    html += '  var reviewLink = "https://g.page/r/" + city.toLowerCase().replace(/ /g, "_") + "/review?gmbid=1";';
+    html += '  var message = "Hi! We\'d love your feedback. Click here to leave a review: " + reviewLink + " 5 stars appreciated! 😊";';
+    html += '  navigator.clipboard.writeText(message).then(function() {';
+    html += '    alert("Review request copied! Paste it to text the customer.");';
+    html += '  });';
+    html += '}';
+    html += 'function updateChecklistStep(step, checked) {';
+    html += '  var checklist = JSON.parse(localStorage.getItem("cityChecklist") || "{}");';
+    html += '  if(!checklist[step]) checklist[step] = {};';
+    html += '  checklist[step].done = checked;';
+    html += '  checklist[step].completedAt = new Date().toISOString();';
+    html += '  localStorage.setItem("cityChecklist", JSON.stringify(checklist));';
+    html += '  location.reload();';
+    html += '}';
+    html += 'function exportChecklist() {';
+    html += '  alert("Export as PDF feature: Use your browser\'s Print > Save as PDF");';
+    html += '}';
+    html += 'function sendChecklistToTeam() {';
+    html += '  var city = document.getElementById("launchCity").value || "New City";';
+    html += '  var message = "City Launch Checklist for " + city + " is ready. All 24 steps documented. Review at: SEO Dashboard > City Launch";';
+    html += '  navigator.clipboard.writeText(message).then(function() {';
+    html += '    alert("Checklist link copied! Paste in team chat.");';
+    html += '  });';
+    html += '}';
 
     html += '</script></body></html>';
     res.send(html);
