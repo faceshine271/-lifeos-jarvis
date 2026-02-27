@@ -15631,20 +15631,23 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     html += '<div style="margin-bottom:12px">';
     var tabGroups = [
       {name: '🎯 COMMAND', color: '#55f7d8', tabs: [
-        {id:'dashboard', label:'Dashboard'}, {id:'athena', label:'Athena Tasks'}
+        {id:'dashboard', label:'Dashboard'}, {id:'athena', label:'Athena Tasks'}, {id:'teamboard', label:'Team Board'}, {id:'calendar', label:'Content Calendar'}
       ]},
       {name: '📝 CONTENT', color: '#c084fc', tabs: [
         {id:'pages', label:'Landing Pages'}, {id:'gbp', label:'GBP Posts'}, {id:'sbintel', label:'Snow Blower'}
       ]},
       {name: '🔗 OFF-PAGE', color: '#ff9f43', tabs: [
-        {id:'offpage', label:'Off-Page SEO'}, {id:'analytics', label:'Site Analytics'}
+        {id:'offpage', label:'Off-Page SEO'}, {id:'cittime', label:'Citation Timeline'}, {id:'analytics', label:'Site Analytics'}
       ]},
       {name: '📍 LOCAL SEO', color: '#00ff66', tabs: [
-        {id:'gmbs', label:'Current GMBs'}, {id:'gbpprof', label:'GBP Profiles'}, {id:'flcities', label:'FL Expansion'},
+        {id:'cityscores', label:'City Scorecards'}, {id:'gmbs', label:'Current GMBs'}, {id:'gbpprof', label:'GBP Profiles'}, {id:'flcities', label:'FL Expansion'},
         {id:'addrintel', label:'Address Intel'}, {id:'domains', label:'Domains'}, {id:'strat', label:'GMB Strategy'}
       ]},
       {name: '🔑 KEYWORDS', color: '#ffd700', tabs: [
-        {id:'kwresearch', label:'Keywords'}, {id:'savedkw', label:'Saved KWs'}, {id:'usaudit', label:'US Market'}
+        {id:'kwresearch', label:'Keywords'}, {id:'ranktrack', label:'Rank Tracker'}, {id:'savedkw', label:'Saved KWs'}, {id:'usaudit', label:'US Market'}
+      ]},
+      {name: '💰 REVENUE', color: '#00ff66', tabs: [
+        {id:'revenue', label:'Revenue Calculator'}, {id:'marketheat', label:'Market Heat'}
       ]},
       {name: '⚙️ TECHNICAL', color: '#ff6b9d', tabs: [
         {id:'meta', label:'Meta & On-Page'}, {id:'titletags', label:'Title Tags'}, {id:'auditchk', label:'Audit'}
@@ -16803,6 +16806,617 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     html += '</tbody></table></div>';
     html += '</div>';
 
+
+
+    // ========== CITY SCORECARDS ==========
+    html += '<div class="tab-panel" id="tab-cityscores">';
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#55f7d8"></span>CITY-LEVEL SCORECARDS</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:8px">Every city in one view — aggregating off-page, keywords, GBP, traffic, and content data into a single scorecard per market.</div>';
+    html += '</div>';
+
+    // Build city data map
+    var cityMap = {};
+    function ensureCity(name) { if(!cityMap[name]) cityMap[name] = {offPage:null, gbpPosts:null, gbpProfile:null, keywords:[], landingPage:null, flProfile:null, traffic:0, impressions:0}; return cityMap[name]; }
+
+    // Off-page
+    Object.keys(D.offPage || {}).forEach(function(c) { var ci = ensureCity(c); ci.offPage = D.offPage[c]; });
+    // GBP Posts
+    Object.keys(D.gbpPosts || {}).forEach(function(c) { var ci = ensureCity(c); ci.gbpPosts = D.gbpPosts[c]; });
+    // GBP Profiles
+    (D.gbpProfiles || []).forEach(function(p) { if(p.city) { var ci = ensureCity(p.city); ci.gbpProfile = p; } });
+    // Keywords
+    Object.keys(D.keywordResearch || {}).forEach(function(c) { var ci = ensureCity(c); ci.keywords = D.keywordResearch[c]; });
+    // Landing pages
+    (D.landingPages || []).forEach(function(p) { if(p.city) { var ci = ensureCity(p.city); ci.landingPage = p; } });
+    // FL profiles
+    ((D.flCities || {}).profiles || []).forEach(function(p) { if(p.city) { var ci = ensureCity(p.city + ', FL'); ci.flProfile = p; } });
+    // Traffic from WWSER
+    ((D.wwserData || {}).webTraffic || []).forEach(function(t) {
+      var url = t.url.toLowerCase();
+      Object.keys(cityMap).forEach(function(c) {
+        var slug = c.toLowerCase().replace(/[^a-z]/g,'');
+        if(url.indexOf(slug) >= 0) { cityMap[c].traffic += t.clicks; cityMap[c].impressions += t.impressions; }
+      });
+    });
+
+    // Sort cities by data richness
+    var cityNames = Object.keys(cityMap).sort(function(a,b) {
+      var sa = 0, sb = 0;
+      if(cityMap[a].offPage) sa += 3; if(cityMap[a].gbpProfile) sa += 2; if(cityMap[a].keywords.length) sa += 1; if(cityMap[a].traffic) sa += 2;
+      if(cityMap[b].offPage) sb += 3; if(cityMap[b].gbpProfile) sb += 2; if(cityMap[b].keywords.length) sb += 1; if(cityMap[b].traffic) sb += 2;
+      return sb - sa;
+    });
+
+    html += '<input class="search" id="citySearch" placeholder="🔍 Filter cities..." oninput="filterCities()" style="margin-bottom:10px">';
+
+    cityNames.forEach(function(city) {
+      var c = cityMap[city];
+      var op = c.offPage || {};
+      var citTotal = (op.citations||[]).length;
+      var citLive = (op.citations||[]).filter(function(x){return x.status==='Live';}).length;
+      var profTotal = (op.profiles||[]).length;
+      var gpTotal = (op.guestPosts||[]).length;
+      var postCount = c.gbpPosts ? (c.gbpPosts.posts||[]).length : 0;
+      var kwCount = (c.keywords||[]).length;
+      var hasLP = c.landingPage ? true : false;
+      var hasGBP = c.gbpProfile ? true : false;
+
+      // Score calculation
+      var score = 0;
+      if(citTotal > 0) score += Math.min(25, Math.round((citLive/citTotal)*25));
+      if(profTotal > 0) score += 15;
+      if(gpTotal > 0) score += 10;
+      if(postCount > 0) score += 15;
+      if(kwCount > 0) score += 10;
+      if(hasLP) score += 10;
+      if(hasGBP) score += 15;
+      var sc = score >= 70 ? '#00ff66' : score >= 40 ? '#ff9f43' : '#ff4757';
+
+      html += '<div class="city-card box" data-city="' + city.toLowerCase() + '" style="border-left:3px solid ' + sc + ';margin-bottom:8px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:2px;color:' + sc + '">' + city.toUpperCase() + '</div>';
+      html += '<div style="display:flex;align-items:center;gap:8px">';
+      if(c.traffic > 0) html += '<span style="color:#55f7d8;font-size:0.78em">📊 ' + c.traffic + ' clicks</span>';
+      html += '<div style="width:40px;height:40px;border-radius:50%;border:2px solid ' + sc + ';display:flex;align-items:center;justify-content:center"><span style="font-family:Orbitron;font-size:0.7em;color:' + sc + '">' + score + '</span></div>';
+      html += '</div></div>';
+
+      // Mini metrics
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+      var badges = [];
+      if(citTotal > 0) badges.push({l:'CIT', v:citLive+'/'+citTotal, c: citLive > citTotal*0.5 ? '#00ff66' : '#ff9f43'});
+      if(profTotal > 0) badges.push({l:'PROF', v:profTotal, c:'#00d4ff'});
+      if(gpTotal > 0) badges.push({l:'GP', v:gpTotal, c:'#c084fc'});
+      if(postCount > 0) badges.push({l:'POSTS', v:postCount, c:'#ffd700'});
+      if(kwCount > 0) badges.push({l:'KWs', v:kwCount, c:'#ff6b9d'});
+      if(hasLP) badges.push({l:'LP', v:'✓', c:'#00ff66'});
+      if(hasGBP) badges.push({l:'GBP', v:'✓', c:'#55f7d8'});
+      if(c.flProfile) badges.push({l:'FL', v: c.flProfile.name ? 'SETUP' : 'PENDING', c: c.flProfile.name ? '#00ff66' : '#ff9f43'});
+      badges.forEach(function(b) {
+        html += '<span style="background:rgba(10,21,32,0.8);border:1px solid ' + b.c + '30;padding:2px 8px;font-size:0.72em;color:' + b.c + '">' + b.l + ' <strong>' + b.v + '</strong></span>';
+      });
+      html += '</div>';
+
+      // Top keywords if available
+      if(kwCount > 0) {
+        html += '<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">';
+        c.keywords.slice(0,5).forEach(function(kw) {
+          html += '<span style="font-size:0.7em;color:#4a6a8a">' + kw.keyword + ' <span style="color:#ffd700">' + (kw.volume||'') + '</span></span>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+
+
+    // ========== CITATION TIMELINE ==========
+    html += '<div class="tab-panel" id="tab-cittime">';
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff9f43"></span>CITATION TIMELINE TRACKER</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:8px">Track when citations go live across all cities. Visual progress of link building campaigns.</div>';
+    html += '</div>';
+
+    Object.keys(D.offPage || {}).forEach(function(city) {
+      var o = D.offPage[city];
+      var cits = o.citations || [];
+      var total = cits.length;
+      var live = cits.filter(function(c){return c.status==='Live';}).length;
+      var pending = total - live;
+      var pct = total > 0 ? Math.round((live/total)*100) : 0;
+      var bc = pct >= 50 ? '#00ff66' : pct >= 20 ? '#ff9f43' : '#ff4757';
+
+      html += '<div class="box" style="border-left:3px solid ' + bc + '">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:' + bc + '">' + city.toUpperCase() + '</div>';
+      html += '<div style="display:flex;gap:12px;font-size:0.78em">';
+      html += '<span style="color:#00ff66">● ' + live + ' LIVE</span>';
+      html += '<span style="color:#ff9f43">● ' + pending + ' PENDING</span>';
+      html += '<span style="color:' + bc + ';font-weight:700">' + pct + '%</span>';
+      html += '</div></div>';
+
+      // Progress bar
+      html += '<div style="height:10px;background:#0a1520;border-radius:5px;overflow:hidden;margin-bottom:8px">';
+      html += '<div style="width:' + pct + '%;height:100%;background:linear-gradient(90deg,' + bc + ',' + bc + 'aa);border-radius:5px;transition:width 0.5s"></div>';
+      html += '</div>';
+
+      // Citation grid
+      html += '<div style="display:flex;flex-wrap:wrap;gap:3px">';
+      cits.forEach(function(ci) {
+        var isLive = ci.status === 'Live';
+        var dotColor = isLive ? '#00ff66' : '#ff475740';
+        var shortDomain = ci.domain.replace('https://','').replace('http://','').replace('www.','').split('/')[0];
+        html += '<a href="' + (ci.liveLink || ci.domain) + '" target="_blank" title="' + shortDomain + ' — ' + ci.status + '" style="text-decoration:none;width:12px;height:12px;background:' + dotColor + ';border-radius:2px;display:inline-block"></a>';
+      });
+      html += '</div>';
+
+      // Live links list
+      var liveLinks = cits.filter(function(c){return c.status==='Live' && c.liveLink;});
+      if(liveLinks.length > 0) {
+        html += '<div style="margin-top:6px;max-height:80px;overflow-y:auto">';
+        liveLinks.slice(0,10).forEach(function(l) {
+          var sd = l.domain.replace('https://','').replace('http://','').replace('www.','').split('/')[0];
+          html += '<a href="' + l.liveLink + '" target="_blank" style="color:#00ff66;font-size:0.72em;text-decoration:none;display:block;padding:1px 0">' + sd + ' ✓</a>';
+        });
+        if(liveLinks.length > 10) html += '<div style="color:#4a6a8a;font-size:0.72em">+ ' + (liveLinks.length-10) + ' more live</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+
+
+    // ========== RANK TRACKER ==========
+    html += '<div class="tab-panel" id="tab-ranktrack">';
+    html += '<div class="box" style="border:1px solid #ffd70030">';
+    html += '<div class="box-title"><span class="dot" style="background:#ffd700"></span>KEYWORD RANK TRACKER</div>';
+    html += '<div style="color:#c0d8f0;font-size:0.85em;line-height:1.7;padding:8px">';
+    html += '<span style="color:#ffd700;font-weight:700">Purpose:</span> Track keyword positions across all target cities. Data sourced from GSC impressions + Semrush ranking data. Higher impressions indicate better ranking positions.';
+    html += '</div></div>';
+
+    // GSC query rankings (proxy for position data)
+    var queries = (D.wwserData || {}).topQueries || [];
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#55f7d8"></span>SEARCH VISIBILITY — TOP QUERIES</div>';
+    html += '<table><thead><tr><th>KEYWORD</th><th>CLICKS</th><th>IMPRESSIONS</th><th>CTR</th><th>VISIBILITY</th></tr></thead><tbody>';
+    queries.forEach(function(q) {
+      var ctr = q.impressions > 0 ? ((q.clicks/q.impressions)*100) : 0;
+      var vis = q.impressions >= 10000 ? 'DOMINANT' : q.impressions >= 1000 ? 'STRONG' : q.impressions >= 100 ? 'GROWING' : 'NEW';
+      var vc = vis === 'DOMINANT' ? '#00ff66' : vis === 'STRONG' ? '#55f7d8' : vis === 'GROWING' ? '#ffd700' : '#ff9f43';
+      var vtag = vis === 'DOMINANT' ? 'tag-green' : vis === 'STRONG' ? 'tag-cyan' : vis === 'GROWING' ? 'tag-orange' : 'tag-orange';
+      html += '<tr><td style="color:#c0d8f0;font-size:0.82em">' + q.query + '</td>';
+      html += '<td style="color:#55f7d8;font-weight:700">' + q.clicks + '</td>';
+      html += '<td style="color:#4a6a8a">' + q.impressions.toLocaleString() + '</td>';
+      html += '<td style="color:#ffd700">' + ctr.toFixed(1) + '%</td>';
+      html += '<td><span class="tag ' + vtag + '">' + vis + '</span></td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Per-city keyword opportunities
+    var kwR = D.keywordResearch || {};
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#c084fc"></span>CITY KEYWORD OPPORTUNITIES</div>';
+    Object.keys(kwR).forEach(function(city) {
+      var kws = kwR[city];
+      var topVol = kws.reduce(function(s,k){return s+(k.volume||0);},0);
+      html += '<div class="expand-header" onclick="toggleExpand(this)">';
+      html += '<span style="color:#c084fc">' + city.toUpperCase() + ' <span style="color:#4a6a8a;font-size:0.85em">(' + kws.length + ' kws, ' + topVol + ' total vol)</span></span><span>▾</span></div>';
+      html += '<div class="expand-content">';
+      html += '<table><thead><tr><th>KEYWORD</th><th>VOL</th><th>KD</th><th>OPPORTUNITY</th></tr></thead><tbody>';
+      kws.forEach(function(kw) {
+        var opp = (kw.volume||0) >= 50 && (kw.kd||50) < 30 ? 'GRAB IT' : (kw.volume||0) >= 20 ? 'TARGET' : 'MONITOR';
+        var oc = opp === 'GRAB IT' ? '#00ff66' : opp === 'TARGET' ? '#ffd700' : '#4a6a8a';
+        html += '<tr><td style="color:#c0d8f0;font-size:0.82em">' + kw.keyword + '</td>';
+        html += '<td style="color:#ffd700;font-weight:700">' + (kw.volume||0) + '</td>';
+        html += '<td style="color:#ff6b9d">' + (kw.kd||'—') + '</td>';
+        html += '<td style="color:' + oc + ';font-weight:600;font-size:0.82em">' + opp + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    });
+    html += '</div>';
+
+    // Semrush page rankings
+    var sem = (D.wwserData || {}).semrushTraffic || [];
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff6b9d"></span>PAGES RANKING IN SEMRUSH</div>';
+    html += '<table><thead><tr><th>PAGE</th><th>KEYWORDS RANKED</th><th>EST. TRAFFIC</th><th>STRENGTH</th></tr></thead><tbody>';
+    sem.forEach(function(s) {
+      var short = s.url.replace('https://wildwoodsmallenginerepair.com','');
+      var str = s.keywords >= 100 ? 'POWER PAGE' : s.keywords >= 20 ? 'SOLID' : 'GROWING';
+      var stc = str === 'POWER PAGE' ? '#00ff66' : str === 'SOLID' ? '#55f7d8' : '#ffd700';
+      html += '<tr><td style="color:#00d4ff;font-size:0.78em">' + (short||'/') + '</td>';
+      html += '<td style="color:#c084fc;font-weight:700">' + s.keywords + '</td>';
+      html += '<td style="color:#ffd700">' + s.traffic.toLocaleString() + '</td>';
+      html += '<td style="color:' + stc + ';font-size:0.82em;font-weight:600">' + str + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '</div>';
+
+
+    // ========== TEAM ASSIGNMENT BOARD ==========
+    html += '<div class="tab-panel" id="tab-teamboard">';
+    html += '<div class="box" style="border:1px solid #55f7d830">';
+    html += '<div class="box-title"><span class="dot" style="background:#55f7d8"></span>TEAM ASSIGNMENT BOARD</div>';
+    html += '<div style="color:#c0d8f0;font-size:0.85em;line-height:1.7;padding:8px">';
+    html += 'Who owns what. Every city assignment, email account, and team role mapped from the data.';
+    html += '</div></div>';
+
+    // Build assignments from offPageTracker + offPage data
+    var assignments = {};
+    (D.offPageTracker || []).forEach(function(t) {
+      if(!assignments[t.email]) assignments[t.email] = {email: t.email, cities: [], role: 'Off-Page SEO'};
+      assignments[t.email].cities.push(t.city);
+    });
+
+    // Email-to-city from off-page data
+    Object.keys(D.offPage || {}).forEach(function(city) {
+      var o = D.offPage[city];
+      var firstCit = (o.citations||[])[0];
+      if(firstCit) {
+        // Check if email exists in assignments
+        var found = false;
+        Object.keys(assignments).forEach(function(e) {
+          if(assignments[e].cities.indexOf(city) < 0) {
+            assignments[e].cities.forEach(function(c) {
+              if(city.indexOf(c.replace(/ \\(.*\\)/,'')) >= 0) found = true;
+            });
+          }
+        });
+      }
+    });
+
+    var teamMembers = Object.values(assignments);
+    teamMembers.forEach(function(m) {
+      var color = '#55f7d8';
+      html += '<div class="box" style="border-left:3px solid ' + color + '">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+      html += '<div style="font-size:0.82em;color:#00d4ff">' + m.email + '</div>';
+      html += '<span class="tag tag-cyan">' + m.cities.length + ' CITIES</span>';
+      html += '</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      m.cities.forEach(function(c) {
+        // Check status
+        var op = D.offPage[c] || D.offPage[c.replace(/ \\(.*\\)/,'')] || {};
+        var citCount = (op.citations||[]).length;
+        var liveCount = (op.citations||[]).filter(function(x){return x.status==='Live';}).length;
+        var pct = citCount > 0 ? Math.round((liveCount/citCount)*100) : 0;
+        var cc = pct >= 50 ? '#00ff66' : pct > 0 ? '#ff9f43' : '#ff4757';
+        html += '<span style="background:rgba(10,21,32,0.8);border:1px solid ' + cc + '30;padding:3px 8px;font-size:0.75em;color:' + cc + '">' + c + ' ' + pct + '%</span>';
+      });
+      html += '</div></div>';
+    });
+
+    // Deadline tracker section
+    html += '<div class="box" style="border:1px solid #ff475730">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff4757"></span>⏰ DEADLINE TRACKER & OVERDUE ALERTS</div>';
+    var deadlines = [];
+    // Generate deadlines from data gaps
+    Object.keys(D.offPage || {}).forEach(function(city) {
+      var o = D.offPage[city];
+      var citLive = (o.citations||[]).filter(function(c){return c.status==='Live';}).length;
+      var citTotal = (o.citations||[]).length;
+      if(citLive < citTotal * 0.3) deadlines.push({city:city, task:'Get citations to 30% live rate (' + citLive + '/' + citTotal + ')', urgency:'OVERDUE', color:'#ff4757'});
+      else if(citLive < citTotal * 0.6) deadlines.push({city:city, task:'Push citations to 60% live (' + citLive + '/' + citTotal + ')', urgency:'THIS WEEK', color:'#ff9f43'});
+    });
+    ((D.flCities||{}).profiles||[]).forEach(function(p) {
+      if(!p.name) deadlines.push({city:p.city+', FL', task:'Complete GBP business profile setup', urgency:'THIS WEEK', color:'#ff9f43'});
+    });
+    if(ttIssues > 3) deadlines.push({city:'All Sites', task:'Fix ' + ttIssues + ' broken title tags', urgency:'OVERDUE', color:'#ff4757'});
+
+    deadlines.sort(function(a,b) { return a.urgency === 'OVERDUE' ? -1 : 1; });
+
+    html += '<table><thead><tr><th>STATUS</th><th>CITY</th><th>TASK</th></tr></thead><tbody>';
+    deadlines.forEach(function(d) {
+      html += '<tr><td><span class="tag" style="background:' + d.color + '20;color:' + d.color + ';border:1px solid ' + d.color + '30;font-size:0.75em">' + d.urgency + '</span></td>';
+      html += '<td style="color:#c0d8f0;font-size:0.82em">' + d.city + '</td>';
+      html += '<td style="color:#c0d8f0;font-size:0.82em">' + d.task + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Athena weekly checklist (printable)
+    html += '<div class="box" style="border:1px solid #c084fc30">';
+    html += '<div class="box-title"><span class="dot" style="background:#c084fc"></span>📋 WEEKLY TASK CHECKLIST (PRINT/EXPORT)</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.78em;margin-bottom:8px">Athena auto-generates this weekly. Print with Ctrl+P or copy to clipboard.</div>';
+    html += '<div id="weeklyChecklist" style="background:#020810;padding:12px;border:1px solid #1a2a3a">';
+    html += '<div style="font-family:Orbitron;font-size:0.6em;color:#c084fc;margin-bottom:8px">WILDWOOD SEO — WEEKLY TASKS</div>';
+
+    var weekTasks = [];
+    // Critical first
+    Object.keys(D.offPage||{}).forEach(function(city) {
+      var o = D.offPage[city];
+      var citLive = (o.citations||[]).filter(function(c){return c.status==='Live';}).length;
+      var citTotal = (o.citations||[]).length;
+      if(citLive < citTotal*0.5) weekTasks.push({done:false, text:'[OFF-PAGE] ' + city + ': Follow up ' + (citTotal-citLive) + ' pending citations'});
+      var profLive = (o.profiles||[]).filter(function(c){return c.status==='Live';}).length;
+      if(profLive === 0 && (o.profiles||[]).length > 0) weekTasks.push({done:false, text:'[PROFILES] ' + city + ': Activate ' + (o.profiles||[]).length + ' profile listings'});
+    });
+    ((D.flCities||{}).profiles||[]).forEach(function(p) {
+      if(!p.name) weekTasks.push({done:false, text:'[FL SETUP] ' + p.city + ': Create GBP listing'});
+    });
+    if(ttIssues > 0) weekTasks.push({done:false, text:'[TECHNICAL] Fix ' + ttIssues + ' title tag issues on main site'});
+    if(descIssues > 0) weekTasks.push({done:false, text:'[TECHNICAL] Fix ' + descIssues + ' meta description issues'});
+
+    weekTasks.forEach(function(t,i) {
+      html += '<div style="padding:4px 0;border-bottom:1px solid #0a1520;font-size:0.82em;color:#c0d8f0">☐ ' + t.text + '</div>';
+    });
+    html += '</div>';
+    html += '<button onclick="copyChecklist(this)" style="margin-top:8px;background:#c084fc20;color:#c084fc;border:1px solid #c084fc30;padding:6px 16px;cursor:pointer;font-family:Rajdhani;font-size:0.85em">📋 COPY CHECKLIST</button>';
+    html += '</div>';
+    html += '</div>';
+
+
+    // ========== CONTENT CALENDAR ==========
+    html += '<div class="tab-panel" id="tab-calendar">';
+    html += '<div class="box" style="border:1px solid #c084fc30">';
+    html += '<div class="box-title"><span class="dot" style="background:#c084fc"></span>CONTENT CALENDAR — GBP POSTS & BLOG</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:8px">Scheduled content strategy across all GBP cities. Athena generates posting cadence based on city priority.</div>';
+    html += '</div>';
+
+    // GBP posting schedule
+    var gbpCities = Object.keys(D.gbpPosts || {});
+    var dayNames = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
+    var weekColors = ['#55f7d8','#c084fc','#ff9f43','#ffd700','#00ff66','#ff6b9d','#00d4ff'];
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ffd700"></span>GBP POSTING CADENCE (' + gbpCities.length + ' CITIES)</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.78em;margin-bottom:8px">Recommended: 2-3 posts per city per week. Rotate service types and seasonal content.</div>';
+
+    // Calendar grid
+    html += '<table><thead><tr><th>CITY</th>';
+    dayNames.forEach(function(d) { html += '<th style="text-align:center">' + d + '</th>'; });
+    html += '<th>POSTS</th><th>STATUS</th></tr></thead><tbody>';
+
+    gbpCities.forEach(function(city, idx) {
+      var posts = (D.gbpPosts[city].posts || []).length;
+      var postsPerWeek = Math.max(1, Math.round(posts / 4));
+      var status = postsPerWeek >= 3 ? 'ON TRACK' : postsPerWeek >= 1 ? 'NEEDS MORE' : 'STALLED';
+      var stc = status === 'ON TRACK' ? '#00ff66' : status === 'NEEDS MORE' ? '#ff9f43' : '#ff4757';
+
+      html += '<tr><td style="color:#c0d8f0;font-size:0.82em;white-space:nowrap">' + city + '</td>';
+      dayNames.forEach(function(d, di) {
+        var hasPost = di < postsPerWeek;
+        html += '<td style="text-align:center"><span style="color:' + (hasPost ? weekColors[di] : '#1a2a3a') + '">' + (hasPost ? '●' : '○') + '</span></td>';
+      });
+      html += '<td style="color:#ffd700;font-weight:700;text-align:center">' + posts + '</td>';
+      html += '<td><span class="tag ' + (status==='ON TRACK'?'tag-green':status==='NEEDS MORE'?'tag-orange':'tag-red') + '">' + status + '</span></td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // Content type rotation
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#55f7d8"></span>CONTENT ROTATION STRATEGY</div>';
+    var contentTypes = [
+      {day:'Monday', type:'Service Highlight', desc:'Feature one repair service (mower, generator, snow blower)', color:'#55f7d8'},
+      {day:'Tuesday', type:'Before/After', desc:'Show repair results with photos', color:'#c084fc'},
+      {day:'Wednesday', type:'Seasonal Tip', desc:'Maintenance advice for current season', color:'#ffd700'},
+      {day:'Thursday', type:'Brand Spotlight', desc:'Feature Ariens, Toro, Honda, etc.', color:'#ff9f43'},
+      {day:'Friday', type:'Customer Story', desc:'Review or testimonial post', color:'#00ff66'},
+      {day:'Saturday', type:'Emergency Ready', desc:'Reminder about emergency/same-day service', color:'#ff6b9d'},
+      {day:'Sunday', type:'Week Preview', desc:'Upcoming availability and booking prompt', color:'#00d4ff'}
+    ];
+    contentTypes.forEach(function(ct) {
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #0a1520">';
+      html += '<div style="width:80px;font-family:Orbitron;font-size:0.5em;color:' + ct.color + '">' + ct.day.toUpperCase() + '</div>';
+      html += '<div style="width:120px;color:' + ct.color + ';font-size:0.85em;font-weight:600">' + ct.type + '</div>';
+      html += '<div style="color:#4a6a8a;font-size:0.82em">' + ct.desc + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // Snow blower seasonal calendar
+    var sbS = D.snowBlowerSeason || [];
+    if(sbS.length > 0) {
+      html += '<div class="box">';
+      html += '<div class="box-title"><span class="dot" style="background:#00d4ff"></span>❄️ SNOW BLOWER CONTENT TIMING</div>';
+      var months = ['SEPT','OCT','NOV','DEC','JAN','FEB','MAR','APR'];
+      html += '<table><thead><tr><th>CITY</th>';
+      months.forEach(function(m){html += '<th style="text-align:center;font-size:0.75em">' + m + '</th>';});
+      html += '</tr></thead><tbody>';
+      sbS.forEach(function(s) {
+        var starts = s.snowStarts.toLowerCase();
+        var startMonth = starts.indexOf('sept') >= 0 ? 0 : starts.indexOf('october') >= 0 || starts.indexOf('oct') >= 0 ? 1 : starts.indexOf('november') >= 0 || starts.indexOf('nov') >= 0 ? 2 : 3;
+        html += '<tr><td style="color:#c0d8f0;font-size:0.78em;white-space:nowrap">' + s.city + '</td>';
+        months.forEach(function(m, mi) {
+          var active = mi >= startMonth || mi >= 3; // Dec onwards always active
+          var isPrep = mi === startMonth - 1 || (startMonth === 0 && mi === 0);
+          var color = active ? '#00d4ff' : isPrep ? '#ffd700' : '#1a2a3a';
+          html += '<td style="text-align:center"><span style="color:' + color + '">' + (active ? '❄️' : isPrep ? '🔧' : '·') + '</span></td>';
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      html += '<div style="margin-top:6px;font-size:0.75em;color:#4a6a8a">🔧 = Pre-season tune-up push &nbsp; ❄️ = Active snow season content</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+
+    // ========== REVENUE & ROI ==========
+    html += '<div class="tab-panel" id="tab-revenue">';
+    html += '<div class="box" style="border:1px solid #00ff6630">';
+    html += '<div class="box-title"><span class="dot" style="background:#00ff66"></span>💰 REVENUE OPPORTUNITY CALCULATOR</div>';
+    html += '<div style="color:#c0d8f0;font-size:0.85em;line-height:1.7;padding:8px">';
+    html += '<span style="color:#00ff66;font-weight:700">Model:</span> Search Volume × CTR (est. 5-15%) × Conversion Rate (est. 8-12%) × Avg Ticket ($150-250) = Monthly Revenue Potential';
+    html += '</div></div>';
+
+    // ROI Dashboard
+    var wTraffic = (D.wwserData || {}).webTraffic || [];
+    var totalClicks6mo = wTraffic.reduce(function(s,t){return s+t.clicks;},0);
+    var totalImpr6mo = wTraffic.reduce(function(s,t){return s+t.impressions;},0);
+    var avgCTR = totalImpr6mo > 0 ? ((totalClicks6mo/totalImpr6mo)*100).toFixed(1) : 0;
+    var estLeadsMonth = Math.round(totalClicks6mo / 6 * 0.10); // 10% conversion
+    var avgTicket = 185;
+    var estRevMonth = estLeadsMonth * avgTicket;
+
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:12px">';
+    html += '<div class="box" style="text-align:center;padding:12px;margin:0"><div style="font-family:Orbitron;font-size:1.2em;color:#55f7d8">' + totalClicks6mo.toLocaleString() + '</div><div style="font-size:0.7em;color:#4a6a8a">CLICKS (6 MO)</div></div>';
+    html += '<div class="box" style="text-align:center;padding:12px;margin:0"><div style="font-family:Orbitron;font-size:1.2em;color:#c084fc">' + totalImpr6mo.toLocaleString() + '</div><div style="font-size:0.7em;color:#4a6a8a">IMPRESSIONS</div></div>';
+    html += '<div class="box" style="text-align:center;padding:12px;margin:0"><div style="font-family:Orbitron;font-size:1.2em;color:#ffd700">' + avgCTR + '%</div><div style="font-size:0.7em;color:#4a6a8a">AVG CTR</div></div>';
+    html += '<div class="box" style="text-align:center;padding:12px;margin:0"><div style="font-family:Orbitron;font-size:1.2em;color:#00ff66">' + estLeadsMonth + '</div><div style="font-size:0.7em;color:#4a6a8a">EST LEADS/MO</div></div>';
+    html += '<div class="box" style="text-align:center;padding:12px;margin:0"><div style="font-family:Orbitron;font-size:1.2em;color:#00ff66">$' + estRevMonth.toLocaleString() + '</div><div style="font-size:0.7em;color:#4a6a8a">EST REV/MO</div></div>';
+    html += '<div class="box" style="text-align:center;padding:12px;margin:0"><div style="font-family:Orbitron;font-size:1.2em;color:#ff6b9d">$' + (estRevMonth*12).toLocaleString() + '</div><div style="font-size:0.7em;color:#4a6a8a">EST REV/YEAR</div></div>';
+    html += '</div>';
+
+    // Per-city revenue potential
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ffd700"></span>REVENUE POTENTIAL BY CITY</div>';
+    html += '<table><thead><tr><th>CITY</th><th>KW VOLUME</th><th>EST CLICKS/MO</th><th>EST LEADS/MO</th><th>EST REV/MO</th><th>EST REV/YR</th></tr></thead><tbody>';
+
+    // Compute from keyword research
+    var cityRevenue = [];
+    Object.keys(D.keywordResearch || {}).forEach(function(city) {
+      var kws = D.keywordResearch[city];
+      var totalVol = kws.reduce(function(s,k){return s+(k.volume||0);},0);
+      var estClicks = Math.round(totalVol * 0.08); // 8% CTR
+      var leads = Math.round(estClicks * 0.10);
+      var rev = leads * avgTicket;
+      cityRevenue.push({city:city, vol:totalVol, clicks:estClicks, leads:leads, revMo:rev, revYr:rev*12});
+    });
+    // Add FL cities
+    Object.keys(D.flKeywords || {}).forEach(function(city) {
+      var kws = D.flKeywords[city];
+      var totalVol = kws.reduce(function(s,k){return s+(k.volume||0);},0);
+      var estClicks = Math.round(totalVol * 0.08);
+      var leads = Math.round(estClicks * 0.10);
+      var rev = leads * avgTicket;
+      cityRevenue.push({city:city, vol:totalVol, clicks:estClicks, leads:leads, revMo:rev, revYr:rev*12});
+    });
+    cityRevenue.sort(function(a,b){return b.revYr-a.revYr;});
+
+    var grandTotal = {vol:0, clicks:0, leads:0, revMo:0, revYr:0};
+    cityRevenue.forEach(function(c) {
+      grandTotal.vol += c.vol; grandTotal.clicks += c.clicks; grandTotal.leads += c.leads; grandTotal.revMo += c.revMo; grandTotal.revYr += c.revYr;
+      var rc = c.revYr >= 10000 ? '#00ff66' : c.revYr >= 2000 ? '#ffd700' : '#ff9f43';
+      html += '<tr><td style="color:#c0d8f0;font-weight:600">' + c.city + '</td>';
+      html += '<td style="color:#c084fc">' + c.vol + '</td>';
+      html += '<td style="color:#55f7d8">' + c.clicks + '</td>';
+      html += '<td style="color:#ffd700">' + c.leads + '</td>';
+      html += '<td style="color:' + rc + ';font-weight:700">$' + c.revMo.toLocaleString() + '</td>';
+      html += '<td style="color:' + rc + ';font-weight:700">$' + c.revYr.toLocaleString() + '</td></tr>';
+    });
+    // Grand total
+    html += '<tr style="border-top:2px solid #55f7d8"><td style="color:#55f7d8;font-weight:700">TOTAL</td>';
+    html += '<td style="color:#55f7d8;font-weight:700">' + grandTotal.vol + '</td>';
+    html += '<td style="color:#55f7d8;font-weight:700">' + grandTotal.clicks + '</td>';
+    html += '<td style="color:#55f7d8;font-weight:700">' + grandTotal.leads + '</td>';
+    html += '<td style="color:#00ff66;font-weight:700;font-size:1.1em">$' + grandTotal.revMo.toLocaleString() + '</td>';
+    html += '<td style="color:#00ff66;font-weight:700;font-size:1.1em">$' + grandTotal.revYr.toLocaleString() + '</td></tr>';
+    html += '</tbody></table></div>';
+
+    // Traffic → Leads → Revenue funnel
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#55f7d8"></span>📊 ROI FUNNEL</div>';
+    var funnel = [
+      {label:'IMPRESSIONS (6mo)', val:totalImpr6mo, color:'#c084fc', w:100},
+      {label:'CLICKS (6mo)', val:totalClicks6mo, color:'#55f7d8', w: totalImpr6mo > 0 ? Math.max(10,Math.round((totalClicks6mo/totalImpr6mo)*100)) : 10},
+      {label:'EST. LEADS/MO', val:estLeadsMonth, color:'#ffd700', w: Math.max(5,Math.round(estLeadsMonth/Math.max(1,totalClicks6mo/6)*100))},
+      {label:'EST. REVENUE/MO', val:'$'+estRevMonth.toLocaleString(), color:'#00ff66', w: Math.max(3, Math.round(estLeadsMonth/Math.max(1,totalClicks6mo/6)*80))}
+    ];
+    funnel.forEach(function(f) {
+      html += '<div style="margin-bottom:8px">';
+      html += '<div style="display:flex;justify-content:space-between;font-size:0.82em;margin-bottom:3px"><span style="color:#c0d8f0">' + f.label + '</span><span style="color:' + f.color + ';font-weight:700">' + (typeof f.val==='number'?f.val.toLocaleString():f.val) + '</span></div>';
+      html += '<div style="height:28px;background:#0a1520;border-radius:4px;overflow:hidden"><div style="width:' + f.w + '%;height:100%;background:' + f.color + '30;border-left:3px solid ' + f.color + ';display:flex;align-items:center;padding-left:8px"></div></div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+
+
+    // ========== MARKET HEAT ==========
+    html += '<div class="tab-panel" id="tab-marketheat">';
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff4757"></span>🔥 MARKET SATURATION HEAT MAP</div>';
+    html += '<div style="color:#c0d8f0;font-size:0.85em;line-height:1.7;padding:8px">';
+    html += '<span style="color:#ff4757;font-weight:700">Heat Score:</span> Combines search volume, existing competition, current Wildwood presence, and population to show market temperature. 🔴 HOT = high opportunity, ready to enter. 🟡 WARM = moderate. 🔵 COOL = low priority.';
+    html += '</div></div>';
+
+    // Top Volume Cities heat
+    var tvc = D.topVolumeCities || [];
+    if(tvc.length > 0) {
+      html += '<div class="box">';
+      html += '<div class="box-title"><span class="dot" style="background:#ffd700"></span>TOP MARKETS BY VOLUME (' + tvc.length + ' CITIES)</div>';
+      html += '<table><thead><tr><th>CITY</th><th>POP</th><th>SM ENG</th><th>MOWER</th><th>TOTAL</th><th>HEAT</th></tr></thead><tbody>';
+
+      tvc.sort(function(a,b) {
+        var ta = Object.values(a.services||{}).reduce(function(s,v){return s+v;},0);
+        var tb = Object.values(b.services||{}).reduce(function(s,v){return s+v;},0);
+        return tb - ta;
+      });
+
+      tvc.slice(0,40).forEach(function(c) {
+        var se = c.services['small engine repair'] || 0;
+        var lm = c.services['lawn mower repair'] || 0;
+        var total = Object.values(c.services||{}).reduce(function(s,v){return s+v;},0);
+        // Check if we have presence
+        var hasPresence = Object.keys(D.offPage||{}).some(function(city){return city.toLowerCase().indexOf(c.city.toLowerCase().split('(')[0].trim().toLowerCase()) >= 0;});
+        var heat = total >= 200 ? 'HOT' : total >= 50 ? 'WARM' : 'COOL';
+        var hc = heat === 'HOT' ? '#ff4757' : heat === 'WARM' ? '#ffd700' : '#00d4ff';
+        html += '<tr>';
+        html += '<td style="color:#c0d8f0;font-size:0.82em">' + c.city + (hasPresence ? ' <span style="color:#00ff66">●</span>' : '') + '</td>';
+        html += '<td style="color:#4a6a8a;font-size:0.78em">' + (c.population > 0 ? (c.population/1000).toFixed(0) + 'K' : '—') + '</td>';
+        html += '<td style="color:#c084fc">' + (se || '—') + '</td>';
+        html += '<td style="color:#55f7d8">' + (lm || '—') + '</td>';
+        html += '<td style="color:#ffd700;font-weight:700">' + total + '</td>';
+        html += '<td><span class="tag" style="background:' + hc + '20;color:' + hc + ';border:1px solid ' + hc + '30">' + heat + '</span></td></tr>';
+      });
+      html += '</tbody></table>';
+      html += '<div style="margin-top:6px;font-size:0.75em;color:#4a6a8a"><span style="color:#00ff66">●</span> = Wildwood has active presence</div>';
+      html += '</div>';
+    }
+
+    // State-level heat
+    var usA = D.usAudit || [];
+    if(usA.length > 0) {
+      html += '<div class="box">';
+      html += '<div class="box-title"><span class="dot" style="background:#ff9f43"></span>STATE-LEVEL MARKET HEAT</div>';
+      var stateHeat = usA.map(function(s) {
+        var totalVol = s.cities.reduce(function(sum, c) {
+          return sum + Object.values(c.volumes||{}).reduce(function(sv,v){return sv+v;},0);
+        }, 0);
+        return {state: s.state, cities: s.cities.length, totalVol: totalVol};
+      }).sort(function(a,b){return b.totalVol - a.totalVol;});
+
+      var maxVol = stateHeat[0] ? stateHeat[0].totalVol : 1;
+      stateHeat.slice(0,20).forEach(function(s) {
+        var pct = Math.round((s.totalVol/maxVol)*100);
+        var hc = pct >= 60 ? '#ff4757' : pct >= 30 ? '#ffd700' : '#00d4ff';
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+        html += '<div style="width:120px;font-size:0.82em;color:#c0d8f0">' + s.state + ' <span style="color:#4a6a8a">(' + s.cities + ')</span></div>';
+        html += '<div style="flex:1;height:8px;background:#0a1520;border-radius:4px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:' + hc + ';border-radius:4px"></div></div>';
+        html += '<div style="width:60px;text-align:right;font-size:0.75em;color:' + hc + '">' + s.totalVol + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Snow blower countdown timers
+    var sbSeason = D.snowBlowerSeason || [];
+    if(sbSeason.length > 0) {
+      html += '<div class="box">';
+      html += '<div class="box-title"><span class="dot" style="background:#00d4ff"></span>❄️ SNOW BLOWER SEASON COUNTDOWNS</div>';
+      html += '<div style="color:#4a6a8a;font-size:0.78em;margin-bottom:8px">Time until snow season starts — drives ad spend timing and content pushes.</div>';
+      var now = new Date();
+      var currentMonth = now.getMonth(); // 0-indexed
+
+      sbSeason.forEach(function(s) {
+        var starts = s.snowStarts.toLowerCase();
+        var startMonth = starts.indexOf('sept') >= 0 ? 8 : starts.indexOf('october') >= 0 || starts.indexOf('oct') >= 0 ? 9 : starts.indexOf('november') >= 0 || starts.indexOf('nov') >= 0 ? 10 : starts.indexOf('dec') >= 0 ? 11 : 9;
+        var monthsAway = startMonth - currentMonth;
+        if(monthsAway < 0) monthsAway += 12;
+        var status = monthsAway === 0 ? 'ACTIVE NOW' : monthsAway <= 2 ? 'PREP NOW' : monthsAway <= 4 ? 'PLAN AHEAD' : 'OFF SEASON';
+        var sc = status === 'ACTIVE NOW' ? '#ff4757' : status === 'PREP NOW' ? '#ff9f43' : status === 'PLAN AHEAD' ? '#ffd700' : '#4a6a8a';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0a1520">';
+        html += '<div style="width:160px;color:#c0d8f0;font-size:0.82em">' + s.city + '</div>';
+        html += '<div style="width:100px;font-size:0.78em;color:#55f7d8">' + s.snowStarts + '</div>';
+        html += '<div style="flex:1"><span class="tag" style="background:' + sc + '20;color:' + sc + ';border:1px solid ' + sc + '30;font-size:0.78em">' + status + '</span></div>';
+        html += '<div style="font-family:Orbitron;font-size:0.55em;color:' + sc + '">' + (monthsAway === 0 ? '🔴 NOW' : monthsAway + ' MO') + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+
+
     html += '</div>'; // container
 
     // JavaScript
@@ -16812,6 +17426,8 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     html += 'function filterGBP(){var q=document.getElementById("gbpSearch").value.toLowerCase();document.querySelectorAll(".gbp-city").forEach(function(c){c.style.display=c.getAttribute("data-city").indexOf(q)>=0?"":"none";});}';
     html += 'function filterNums(){var q=document.getElementById("numSearch").value.toLowerCase();document.querySelectorAll(".num-row").forEach(function(r){r.style.display=r.getAttribute("data-search").indexOf(q)>=0?"":"none";});}';
     html += 'function globalFilter(){var q=document.getElementById("globalSearch").value.toLowerCase();if(q.length<2){document.querySelectorAll(".tab-panel").forEach(function(p){p.querySelectorAll("tr,div.box,.gbp-city").forEach(function(el){el.style.display="";});});return;}document.querySelectorAll(".tab-panel").forEach(function(p){p.querySelectorAll("tr").forEach(function(r){if(r.parentElement.tagName==="THEAD")return;var t=r.textContent.toLowerCase();r.style.display=t.indexOf(q)>=0?"":"none";});});}';
+    html += 'function filterCities(){var q=document.getElementById("citySearch").value.toLowerCase();document.querySelectorAll(".city-card").forEach(function(c){c.style.display=c.getAttribute("data-city").indexOf(q)>=0?"":"none";});}';
+    html += 'function copyChecklist(btn){var el=document.getElementById("weeklyChecklist");var r=document.createRange();r.selectNode(el);window.getSelection().removeAllRanges();window.getSelection().addRange(r);document.execCommand("copy");window.getSelection().removeAllRanges();btn.textContent="Copied!";}';
     html += '</script></body></html>';
 
     res.send(html);
