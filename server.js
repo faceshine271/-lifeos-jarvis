@@ -16490,6 +16490,19 @@ app.get('/api/wp/full-audit', requireAuth('owner'), async function(req, res) {
     });
   } catch(e) { res.json({ error: e.message }); }
 });
+// ── AI ANALYSIS ENDPOINT ──
+app.post('/api/ai/analyze', requireAuth('owner'), async function(req, res) {
+  try {
+    var prompt = req.body.prompt || '';
+    if(!prompt) return res.json({ error: 'No prompt provided' });
+    var result = await askClaude(
+      'You are a small engine repair business expansion analyst. Be specific, actionable, and data-driven. Format your response with clear sections.',
+      [{ role: 'user', content: prompt }]
+    );
+    res.json({ reply: result });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
 app.get('/seo', requireAuth('owner'), async function(req, res) {
   try {
     var D = SEO_CONTENT_DATA;
@@ -18458,69 +18471,66 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
 
     html += '</div>'; // container
 
-    // JavaScript
+// JavaScript — split into safe blocks
     html += '<script>';
-    html += 'function switchTab(id,el){document.querySelectorAll(".tab-panel").forEach(function(p){p.classList.remove("active");});document.querySelectorAll(".tab").forEach(function(t){t.classList.remove("active");});var panel=document.getElementById("tab-"+id);if(panel)panel.classList.add("active");if(el)el.classList.add("active");else{document.querySelectorAll(".tab").forEach(function(t){if(t.textContent.toLowerCase().replace(/\\s/g,"").indexOf(id)>=0||t.onclick&&t.onclick.toString().indexOf(id)>=0)t.classList.add("active");});}window.scrollTo(0,0);}';
-    html += 'function toggleExpand(el){var content=el.nextElementSibling;if(!content)return;content.style.display=content.style.display==="block"?"none":"block";var arrow=el.querySelector("span:last-child");if(arrow)arrow.textContent=content.style.display==="block"?"▴":"▾";}';
+    html += 'function switchTab(id,el){';
+    html += 'document.querySelectorAll(".tab-panel").forEach(function(p){p.classList.remove("active");});';
+    html += 'document.querySelectorAll(".tab").forEach(function(t){t.classList.remove("active");});';
+    html += 'var panel=document.getElementById("tab-"+id);';
+    html += 'if(panel)panel.classList.add("active");';
+    html += 'if(el)el.classList.add("active");';
+    html += 'window.scrollTo(0,0);';
+    html += '}';
+    html += 'function toggleExpand(el){var content=el.nextElementSibling;if(!content)return;content.style.display=content.style.display==="block"?"none":"block";var arrow=el.querySelector("span:last-child");if(arrow)arrow.textContent=content.style.display==="block"?"\u25b4":"\u25be";}';
     html += 'function filterGBP(){var q=document.getElementById("gbpSearch").value.toLowerCase();document.querySelectorAll(".gbp-city").forEach(function(c){c.style.display=c.getAttribute("data-city").indexOf(q)>=0?"":"none";});}';
     html += 'function filterNums(){var q=document.getElementById("numSearch").value.toLowerCase();document.querySelectorAll(".num-row").forEach(function(r){r.style.display=r.getAttribute("data-search").indexOf(q)>=0?"":"none";});}';
     html += 'function globalFilter(){var q=document.getElementById("globalSearch").value.toLowerCase();if(q.length<2){document.querySelectorAll(".tab-panel").forEach(function(p){p.querySelectorAll("tr,div.box,.gbp-city").forEach(function(el){el.style.display="";});});return;}document.querySelectorAll(".tab-panel").forEach(function(p){p.querySelectorAll("tr").forEach(function(r){if(r.parentElement.tagName==="THEAD")return;var t=r.textContent.toLowerCase();r.style.display=t.indexOf(q)>=0?"":"none";});});}';
     html += 'function filterCities(){var q=document.getElementById("citySearch").value.toLowerCase();document.querySelectorAll(".city-card").forEach(function(c){c.style.display=c.getAttribute("data-city").indexOf(q)>=0?"":"none";});}';
-    html += 'function copyChecklist(btn){var el=document.getElementById("weeklyChecklist");var r=document.createRange();r.selectNode(el);window.getSelection().removeAllRanges();window.getSelection().addRange(r);document.execCommand("copy");window.getSelection().removeAllRanges();btn.textContent="Copied!";}';
+    html += 'function copyChecklist(btn){var el=document.getElementById("weeklyChecklist");if(!el)return;var r=document.createRange();r.selectNode(el);window.getSelection().removeAllRanges();window.getSelection().addRange(r);document.execCommand("copy");window.getSelection().removeAllRanges();btn.textContent="Copied!";}';
+    html += '<\/script>';
 
-    // Universal WP API caller with smart rendering
+    // WP Live Site functions in separate script block
+    html += '<script>';
     html += 'function wpBtn(el){wpCall(el.getAttribute("data-wid"),el.getAttribute("data-wurl"));}';
-    html += 'function wpCall(id,url){var el=document.getElementById("wpResults");el.innerHTML="<div class=\\"box\\"><div style=\\"color:#55f7d8\\">⏳ Loading "+id.toUpperCase()+"...</div></div>";fetch(url).then(function(r){return r.json();}).then(function(d){el.innerHTML=renderWPData(id,d);}).catch(function(e){el.innerHTML="<div class=\\"box\\" style=\\"border-left:3px solid #ff4757\\"><div style=\\"color:#ff4757\\">Failed: "+e.message+"</div></div>";});}';
-
-    html += 'function renderWPData(id,d){if(d.error)return "<div class=\\"box\\" style=\\"border-left:3px solid #ff9f43\\"><div class=\\"box-title\\"><span class=\\"dot\\" style=\\"background:#ff9f43\\"></span>"+id.toUpperCase()+"</div><div style=\\"color:#ff9f43;padding:8px\\">"+d.error+(d.setup?"<br><br><span style=\\"color:#c0d8f0\\">"+d.setup+"</span>":"")+"</div></div>";';
-    html += 'var h="<div class=\\"box\\"><div class=\\"box-title\\"><span class=\\"dot\\" style=\\"background:#55f7d8\\"></span>"+id.toUpperCase()+(d.cached?" <span style=\\"color:#4a6a8a;font-size:0.8em\\">CACHED</span>":"")+"</div>";';
-
-    // Summary stats
-    html += 'if(d.summary){h+="<div style=\\"display:flex;flex-wrap:wrap;gap:8px;margin:8px 0\\">";Object.keys(d.summary).forEach(function(k){h+="<div style=\\"background:#0a1520;padding:6px 12px;text-align:center\\"><div style=\\"font-family:Orbitron;font-size:0.9em;color:#55f7d8\\">"+d.summary[k]+"</div><div style=\\"font-size:0.65em;color:#4a6a8a;letter-spacing:1px\\">"+k.replace(/([A-Z])/g,\\" $1\\").toUpperCase()+"</div></div>";});h+="</div>";}';
-
-    // Scores (PageSpeed)
-    html += 'if(d.scores){h+="<div style=\\"display:flex;gap:12px;margin:8px 0\\">";Object.keys(d.scores).forEach(function(k){var v=d.scores[k];if(v===null)return;var c=v>=90?\\"#00ff66\\":v>=50?\\"#ffd700\\":\\"#ff4757\\";h+="<div style=\\"text-align:center\\"><div style=\\"width:50px;height:50px;border-radius:50%;border:3px solid "+c+";display:flex;align-items:center;justify-content:center\\"><span style=\\"font-family:Orbitron;font-size:0.9em;color:"+c+"\\">"+v+"</span></div><div style=\\"font-size:0.65em;color:#4a6a8a;margin-top:2px\\">"+k.toUpperCase()+"</div></div>";});h+="</div>";}';
-
-    // Metrics (Core Web Vitals)
-    html += 'if(d.metrics){h+="<div style=\\"display:flex;flex-wrap:wrap;gap:6px;margin:8px 0\\">";Object.keys(d.metrics).forEach(function(k){if(!d.metrics[k])return;h+="<span style=\\"background:#0a1520;padding:4px 10px;font-size:0.82em\\"><span style=\\"color:#4a6a8a\\">"+k+":</span> <span style=\\"color:#55f7d8;font-weight:700\\">"+d.metrics[k]+"</span></span>";});h+="</div>";}';
-
-    // Opportunities (PageSpeed)
-    html += 'if(d.opportunities&&d.opportunities.length>0){h+="<div style=\\"margin:8px 0\\"><div style=\\"font-size:0.78em;color:#ffd700;font-weight:700;margin-bottom:4px\\">OPTIMIZATION OPPORTUNITIES:</div>";d.opportunities.forEach(function(o){h+="<div style=\\"padding:3px 0;border-bottom:1px solid #0a1520;font-size:0.78em;color:#c0d8f0\\">"+o.title+(o.savings?" <span style=\\"color:#00ff66\\">(-"+o.savings+"ms)</span>":"")+"</div>";});h+="</div>";}';
-
-    // SSL info
-    html += 'if(d.ssl){h+="<div style=\\"margin:8px 0\\"><div style=\\"font-size:0.78em;color:#ffd700;font-weight:700;margin-bottom:4px\\">SSL CERTIFICATE:</div>";var ssl=d.ssl;var sc=ssl.daysUntilExpiry>30?\\"#00ff66\\":ssl.daysUntilExpiry>7?\\"#ffd700\\":\\"#ff4757\\";h+="<div style=\\"font-size:0.82em;color:#c0d8f0\\">Issuer: <span style=\\"color:#55f7d8\\">"+ssl.issuer+"</span> · Valid until: <span style=\\"color:"+sc+"\\">"+ssl.validTo+" ("+ssl.daysUntilExpiry+" days)</span> · Protocol: "+ssl.protocol+"</div></div>";}';
-
-    // Security headers
-    html += 'if(d.security){h+="<div style=\\"margin:8px 0\\"><div style=\\"font-size:0.78em;color:#ffd700;font-weight:700;margin-bottom:4px\\">SECURITY HEADERS:</div>";Object.keys(d.security).forEach(function(k){var v=d.security[k];var c=v==="MISSING"?\\"#ff4757\\":\\"#00ff66\\";h+="<div style=\\"display:flex;gap:6px;padding:2px 0;font-size:0.78em\\"><span style=\\"color:#4a6a8a;width:200px\\">"+k+"</span><span style=\\"color:"+c+"\\">"+v+"</span></div>";});h+="</div>";}';
-
-    // Data table (universal)
-    html += 'if(d.data&&Array.isArray(d.data)&&d.data.length>0){var keys=Object.keys(d.data[0]).filter(function(k){return typeof d.data[0][k]!=="object"||d.data[0][k]===null;}).slice(0,8);h+="<div style=\\"overflow-x:auto\\"><table><thead><tr>";keys.forEach(function(k){h+="<th style=\\"font-size:0.7em\\">"+k.replace(/([A-Z])/g,\\" $1\\").toUpperCase()+"</th>";});h+="</tr></thead><tbody>";d.data.slice(0,60).forEach(function(row){h+="<tr>";keys.forEach(function(k){var v=row[k];if(v===null||v===undefined)v="—";if(typeof v==="boolean")v=v?"✓":"✗";var c=\\"#c0d8f0\\";if(typeof v==="number")c=v>100?\\"#00ff66\\":v>10?\\"#ffd700\\":\\"#4a6a8a\\";if(String(v).indexOf("MISSING")>=0||String(v).indexOf("OVERDUE")>=0)c=\\"#ff4757\\";if(String(v).indexOf("GOOD")>=0||String(v).indexOf("FRESH")>=0||v===true||v==="✓")c=\\"#00ff66\\";h+="<td style=\\"color:"+c+";font-size:0.78em;max-width:200px;overflow:hidden;white-space:nowrap\\">"+String(v).substring(0,60)+"</td>";});h+="</tr>";});if(d.data.length>60)h+="<tr><td colspan=\\""+keys.length+"\\" style=\\"color:#4a6a8a;font-size:0.78em\\">...and "+(d.data.length-60)+" more rows</td></tr>";h+="</tbody></table></div>";}';
-
-    // Special arrays (missing cities, orphans, broken links, etc)
-    html += 'if(d.missingCities){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff4757;font-size:0.78em;font-weight:700\\">MISSING CITY PAGES ("+d.missing+"):</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px;margin-top:4px\\">";d.missingCities.forEach(function(c){h+="<span class=\\"tag tag-red\\">"+c+"</span>";});h+="</div></div>";}';
-    html += 'if(d.foundCities){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#00ff66;font-size:0.78em;font-weight:700\\">FOUND ("+d.found+"):</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px;margin-top:4px\\">";d.foundCities.forEach(function(c){h+="<span class=\\"tag tag-green\\">"+c+"</span>";});h+="</div></div>";}';
-    html += 'if(d.orphanPages){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff9f43;font-size:0.78em;font-weight:700\\">ORPHAN PAGES ("+d.orphans+"):</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px;margin-top:4px\\">";d.orphanPages.forEach(function(c){h+="<span class=\\"tag tag-orange\\">"+c+"</span>";});h+="</div></div>";}';
-    html += 'if(d.brokenLinks){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff4757;font-size:0.78em;font-weight:700\\">BROKEN LINKS ("+d.broken+"):</div>";d.brokenLinks.forEach(function(l){h+="<div style=\\"padding:2px 0;font-size:0.75em;border-bottom:1px solid #0a1520\\"><span style=\\"color:#4a6a8a\\">"+l.source+"</span> → <span style=\\"color:#ff4757\\">"+l.link.substring(0,60)+"</span> <span style=\\"color:#ff475780\\">("+l.status+")</span></div>";});h+="</div>";}';
-    html += 'if(d.topGaps){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ffd700;font-size:0.78em;font-weight:700\\">TOP CONTENT GAPS ("+d.gaps+" keywords with no page):</div>";d.topGaps.slice(0,20).forEach(function(g){h+="<div style=\\"display:flex;gap:8px;padding:2px 0;font-size:0.78em;border-bottom:1px solid #0a1520\\"><span style=\\"color:#ffd700;width:40px\\">"+g.volume+"</span><span style=\\"color:#c0d8f0\\">"+g.keyword+"</span><span style=\\"color:#4a6a8a\\">"+g.city+"</span></div>";});h+="</div>";}';
-    html += 'if(d.topUnmatched){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff9f43;font-size:0.78em;font-weight:700\\">UNMAPPED KEYWORDS ("+d.unmatched+"):</div>";d.topUnmatched.slice(0,15).forEach(function(g){h+="<div style=\\"display:flex;gap:8px;padding:2px 0;font-size:0.78em\\"><span style=\\"color:#ffd700;width:40px\\">"+g.volume+"</span><span style=\\"color:#c0d8f0\\">"+g.keyword+"</span><span style=\\"color:#4a6a8a\\">"+g.city+"</span></div>";});h+="</div>";}';
-
-    // Robots.txt raw
-    html += 'if(d.raw){h+="<pre style=\\"background:#0a1520;padding:10px;font-size:0.75em;color:#55f7d8;max-height:200px;overflow-y:auto;white-space:pre-wrap\\">"+d.raw+"</pre>";}';
-
-    // Sitemap URL count
-    html += 'if(d.urls&&!d.data){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff9f43;font-size:0.78em;font-weight:700\\">SITEMAP URLs ("+d.count+"):</div>";d.urls.slice(0,40).forEach(function(u){h+="<div style=\\"padding:1px 0;font-size:0.72em\\"><a href=\\""+u.url+"\\" target=\\"_blank\\" style=\\"color:#00d4ff;text-decoration:none\\">"+u.url.replace(\\"https://wildwoodsmallenginerepair.com\\",\\"\\")+"</a>"+(u.lastmod?" <span style=\\"color:#4a6a8a\\">"+u.lastmod+"</span>":"")+"</div>";});if(d.count>40)h+="<div style=\\"color:#4a6a8a;font-size:0.72em\\">...and "+(d.count-40)+" more</div>";h+="</div>";}';
-
-    // Endpoints list
-    html += 'if(d.endpoints){h+="<table><thead><tr><th>ENDPOINT</th><th>DESCRIPTION</th><th>REQUIRES</th></tr></thead><tbody>";d.endpoints.forEach(function(e){h+="<tr><td style=\\"color:#00d4ff;font-size:0.75em\\">"+e.path+"</td><td style=\\"color:#c0d8f0;font-size:0.75em\\">"+e.desc+"</td><td style=\\"color:"+(e.auth==="none"?\\"#00ff66\\":\\"#ffd700\\")+";font-size:0.75em\\">"+e.auth+"</td></tr>";});h+="</tbody></table>";}';
-
-    // Cannibalised keywords
-    html += 'if(d.cannibalizedKeywords!==undefined){h+="<div style=\\"margin:8px 0;color:#ff4757;font-size:0.85em;font-weight:700\\">"+d.cannibalizedKeywords+" keywords competing across multiple pages</div>";}';
-
-    // Count
-    html += 'if(d.count!==undefined&&!d.data){h+="<div style=\\"color:#4a6a8a;font-size:0.82em;margin:4px 0\\">Total: "+d.count+"</div>";}';
-
-    html += 'h+="</div>";return h;}';
-
+    html += 'function wpCall(id,url){';
+    html += 'var el=document.getElementById("wpResults");if(!el)return;';
+    html += 'el.innerHTML="<div style=padding:12px;color:#55f7d8>Loading "+id+"...</div>";';
+    html += 'fetch(url).then(function(r){return r.json();}).then(function(d){el.innerHTML=renderWP(id,d);}).catch(function(e){el.innerHTML="<div style=padding:12px;color:#ff4757>Error: "+e.message+"</div>";});';
+    html += '}';
+    html += 'function renderWP(id,d){';
+    html += 'var h="<div style=padding:12px;border:1px_solid_#1a2a3a;background:#0a1520;margin:8px_0>";';
+    html += 'h+="<b style=color:#55f7d8>"+id.toUpperCase()+"</b>";';
+    html += 'if(d.cached)h+=" <small style=color:#4a6a8a>CACHED</small>";';
+    html += 'if(d.error){h+="<br><span style=color:#ff9f43>"+d.error+"</span>";if(d.setup)h+="<br><span style=color:#c0d8f0>"+d.setup+"</span>";h+="</div>";return h;}';
+    html += 'h+="<br><br>";';
+    html += 'if(d.summary){Object.keys(d.summary).forEach(function(k){h+="<span style=color:#4a6a8a>"+k+": </span><b style=color:#55f7d8>"+d.summary[k]+"</b> &nbsp; ";});h+="<br><br>";}';
+    html += 'if(d.scores){Object.keys(d.scores).forEach(function(k){var v=d.scores[k];if(v===null)return;var c=v>=90?"#00ff66":v>=50?"#ffd700":"#ff4757";h+="<b style=color:"+c+">"+k+":"+v+"</b> ";});h+="<br><br>";}';
+    html += 'if(d.metrics){Object.keys(d.metrics).forEach(function(k){if(!d.metrics[k])return;h+="<span style=color:#4a6a8a>"+k+":</span><b style=color:#55f7d8>"+d.metrics[k]+"</b> ";});h+="<br><br>";}';
+    html += 'if(d.ssl){h+="<b style=color:#ffd700>SSL:</b> "+d.ssl.issuer+" expires <span style=color:"+(d.ssl.daysUntilExpiry>30?"#00ff66":"#ff4757")+">"+d.ssl.validTo+" ("+d.ssl.daysUntilExpiry+"d)</span><br><br>";}';
+    html += 'if(d.security){h+="<b style=color:#ffd700>HEADERS:</b><br>";Object.keys(d.security).forEach(function(k){h+=k+": <span style=color:"+(d.security[k]==="MISSING"?"#ff4757":"#00ff66")+">"+d.security[k]+"</span><br>";});h+="<br>";}';
+    html += 'if(d.opportunities&&d.opportunities.length){h+="<b style=color:#ffd700>OPPORTUNITIES:</b><br>";d.opportunities.forEach(function(o){h+=o.title+(o.savings?" (-"+o.savings+"ms)":"")+"<br>";});h+="<br>";}';
+    html += 'if(d.missingCities){h+="<b style=color:#ff4757>MISSING ("+d.missing+"):</b> "+d.missingCities.join(", ")+"<br><br>";}';
+    html += 'if(d.foundCities){h+="<b style=color:#00ff66>FOUND ("+d.found+"):</b> "+d.foundCities.join(", ")+"<br><br>";}';
+    html += 'if(d.orphanPages){h+="<b style=color:#ff9f43>ORPHANS ("+d.orphans+"):</b> "+d.orphanPages.join(", ")+"<br><br>";}';
+    html += 'if(d.brokenLinks){h+="<b style=color:#ff4757>BROKEN ("+d.broken+"):</b><br>";d.brokenLinks.forEach(function(l){h+=l.source+" > "+l.link.substring(0,50)+" ("+l.status+")<br>";});h+="<br>";}';
+    html += 'if(d.topGaps){h+="<b style=color:#ffd700>CONTENT GAPS ("+d.gaps+"):</b><br>";d.topGaps.slice(0,20).forEach(function(g){h+="<span style=color:#ffd700>"+g.volume+"</span> "+g.keyword+" <span style=color:#4a6a8a>("+g.city+")</span><br>";});h+="<br>";}';
+    html += 'if(d.topUnmatched){h+="<b style=color:#ff9f43>UNMAPPED ("+d.unmatched+"):</b><br>";d.topUnmatched.slice(0,15).forEach(function(g){h+="<span style=color:#ffd700>"+g.volume+"</span> "+g.keyword+"<br>";});h+="<br>";}';
+    html += 'if(d.raw){h+="<pre style=background:#020810;padding:8px;color:#55f7d8;font-size:12px;overflow:auto;max-height:200px>"+d.raw+"</pre>";}';
+    html += 'if(d.urls&&!d.data){h+="<b style=color:#ff9f43>SITEMAP ("+d.count+"):</b><br>";d.urls.slice(0,40).forEach(function(u){h+=u.url.replace("https://wildwoodsmallenginerepair.com","")+"<br>";});h+="<br>";}';
+    html += 'if(d.endpoints){h+="<b style=color:#55f7d8>ENDPOINTS:</b><br>";d.endpoints.forEach(function(e){h+="<span style=color:#00d4ff>"+e.path+"</span> "+e.desc+"<br>";});h+="<br>";}';
+    html += 'if(d.cannibalizedKeywords!==undefined){h+="<b style=color:#ff4757>"+d.cannibalizedKeywords+" CANNIBALIZED</b><br><br>";}';
+    html += 'if(d.data&&Array.isArray(d.data)&&d.data.length>0){';
+    html += 'var keys=Object.keys(d.data[0]).filter(function(k){var v=d.data[0][k];return v===null||typeof v!=="object";}).slice(0,8);';
+    html += 'h+="<table style=width:100%;border-collapse:collapse><tr>";';
+    html += 'keys.forEach(function(k){h+="<th style=text-align:left;padding:3px;color:#4a6a8a;font-size:11px;border-bottom:1px_solid_#1a2a3a>"+k+"</th>";});';
+    html += 'h+="</tr>";';
+    html += 'd.data.slice(0,60).forEach(function(row){h+="<tr>";keys.forEach(function(k){var v=row[k];if(v==null)v="-";h+="<td style=padding:2px_3px;font-size:11px;color:#c0d8f0;border-bottom:1px_solid_#0a1520>"+String(v).substring(0,50)+"</td>";});h+="</tr>";});';
+    html += 'h+="</table>";';
+    html += 'if(d.data.length>60)h+="<span style=color:#4a6a8a>+"+(d.data.length-60)+" more</span>";';
+    html += '}';
+    html += 'if(d.count!==undefined&&!d.data&&!d.urls){h+="Total: "+d.count+"<br>";}';
+    html += 'h+="</div>";return h;';
+    html += '}';
     html += '</script></body></html>';
 
     res.send(html);
@@ -18901,8 +18911,8 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'selectedLocs.forEach(function(l,i){summary+=(i+1)+". "+l.city+", "+l.state+" — Vol:"+l.totalVol+"/mo, KD:"+Math.round(l.avgKd*100)+"%, Score:"+l.score+", Pop:"+l.pop+"\\n";});';
     html += 'summary+="\\n12-Month Forecast:\\n";months.forEach(function(m){summary+=m.label+": "+m.totalVol+" searches, ~"+m.totalLeads+" leads, ~$"+m.totalRev+" rev, top: "+m.dominant+"\\n";});';
     html += 'summary+="\\nAvg ticket: $"+AVG_TICKET+", Conv rate: "+(CONV_RATE*100)+"%";';
-    html += 'try{var r=await fetch("/conversation",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:"You are a small engine repair business expansion analyst. Analyze these markets and give: 1) Top 5 recommendations (which cities to prioritize and why), 2) Seasonal strategy (when to push which service in which market), 3) Risk assessment (KD challenges, competition), 4) Revenue projection summary, 5) Quick wins vs long-term plays. Be specific and actionable.\\n\\n"+summary})});';
-    html += 'var data=await r.json();el.innerHTML=data.reply||data.response||"Analysis complete";}';
+    html += 'try{var r=await fetch("/api/ai/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:"You are a small engine repair business expansion analyst. Analyze these markets and give: 1) Top 5 recommendations (which cities to prioritize and why), 2) Seasonal strategy (when to push which service in which market), 3) Risk assessment (KD challenges, competition), 4) Revenue projection summary, 5) Quick wins vs long-term plays. Be specific and actionable.\\n\\n"+summary})});';
+    html += 'var data=await r.json();el.innerHTML=data.reply||data.response||data.error||"Analysis complete";}';
     html += 'catch(err){el.innerHTML="Error: "+err.message;}}';
 
     // Render everything
