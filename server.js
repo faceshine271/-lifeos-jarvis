@@ -7,6 +7,8 @@ const { google } = require('googleapis');
 const twilio = require('twilio');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -15533,7 +15535,961 @@ app.get('/ai', requireAuth('owner'), async function(req, res) {
   }
 });
 
-// ====== FORECAST PAGE ======
+// ====== WORDPRESS LIVE SITE INTEGRATION ======
+var WP_SITE = 'https://wildwoodsmallenginerepair.com';
+var wpCache = { pages: null, posts: null, crawled: null, lastFetch: 0, lastCrawl: 0 };
+var WP_CACHE_TTL = 15 * 60 * 1000; // 15 min cache
+var WP_CRAWL_TTL = 60 * 60 * 1000; // 1 hour crawl cache
+
+function wpFetch(urlPath) {
+  return new Promise(function(resolve, reject) {
+    var url = WP_SITE + urlPath;
+    https.get(url, { headers: { 'User-Agent': 'WildwoodSEODashboard/1.0' } }, function(resp) {
+      var data = '';
+      resp.on('data', function(chunk) { data += chunk; });
+      resp.on('end', function() {
+        try { resolve(JSON.parse(data)); } catch(e) { resolve(data); }
+      });
+    }).on('error', function(e) { reject(e); });
+  });
+}
+
+function crawlPage(url) {
+  return new Promise(function(resolve, reject) {
+    var mod = url.startsWith('https') ? https : http;
+    mod.get(url, { headers: { 'User-Agent': 'WildwoodSEODashboard/1.0' }, timeout: 10000 }, function(resp) {
+      // Handle redirects
+      if(resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        return crawlPage(resp.headers.location).then(resolve).catch(reject);
+      }
+      var data = '';
+      resp.on('data', function(chunk) { data += chunk; });
+      resp.on('end', function() {
+        // Extract title and meta description from HTML
+        var titleMatch = data.match(/<title[^>]*>(.*?)<\/title>/i);
+        var descMatch = data.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i);
+        if(!descMatch) descMatch = data.match(/<meta\s+content=["'](.*?)["']\s+name=["']description["']/i);
+        var h1Match = data.match(/<h1[^>]*>(.*?)<\/h1>/i);
+        var canonicalMatch = data.match(/<link\s+rel=["']canonical["']\s+href=["'](.*?)["']/i);
+        var wordCount = data.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().split(' ').length;
+        resolve({
+          title: titleMatch ? titleMatch[1].trim().substring(0, 120) : '',
+          titleLen: titleMatch ? titleMatch[1].trim().length : 0,
+          description: descMatch ? descMatch[1].trim().substring(0, 200) : '',
+          descLen: descMatch ? descMatch[1].trim().length : 0,
+          h1: h1Match ? h1Match[1].replace(/<[^>]*>/g, '').trim().substring(0, 100) : '',
+          canonical: canonicalMatch ? canonicalMatch[1] : '',
+          wordCount: Math.min(wordCount, 20000),
+          statusCode: resp.statusCode
+        });
+      });
+    }).on('error', function(e) { resolve({ title:'', titleLen:0, description:'', descLen:0, h1:'', canonical:'', wordCount:0, statusCode:0, error: e.message }); })
+      .on('timeout', function() { resolve({ title:'TIMEOUT', titleLen:0, description:'', descLen:0, h1:'', canonical:'', wordCount:0, statusCode:0, error:'timeout' }); });
+  });
+}
+
+// ====== WORDPRESS DEEP INTEGRATION (10x DATA) ======
+
+// Enhanced cache
+var wpCache = {
+  pages: null, posts: null, media: null, categories: null, tags: null,
+  crawled: null, deepCrawl: null, internalLinks: null, imageAudit: null,
+  jetpackStats: null, jetpackTopPosts: null, jetpackSearchTerms: null, jetpackReferrers: null,
+  missingCities: null, kwPageMap: null, contentScores: null,
+  lastFetch: 0, lastCrawl: 0, lastDeep: 0, lastJetpack: 0
+};
+var WP_CACHE_TTL = 15 * 60 * 1000;
+var WP_CRAWL_TTL = 60 * 60 * 1000;
+
+// ── CORE WP REST API ──
+
+// Pages (full content)
+app.get('/api/wp/pages', requireAuth('owner'), async function(req, res) {
+  try {
+    var now = Date.now();
+    if(wpCache.pages && (now - wpCache.lastFetch) < WP_CACHE_TTL) return res.json({ cached: true, count: wpCache.pages.length, data: wpCache.pages });
+    var allPages = [], page = 1, hasMore = true;
+    while(hasMore && page <= 20) {
+      var batch = await wpFetch('/wp-json/wp/v2/pages?per_page=100&page=' + page + '&_fields=id,title,slug,link,date,modified,status,content,excerpt,parent,featured_media,template');
+      if(Array.isArray(batch) && batch.length > 0) {
+        allPages = allPages.concat(batch.map(function(p) {
+          var body = (p.content && p.content.rendered) || '';
+          var text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          return { id:p.id, title:(p.title&&p.title.rendered)||'', slug:p.slug, link:p.link, date:p.date, modified:p.modified, status:p.status, parent:p.parent, template:p.template||'', featuredMedia:p.featured_media, wordCount:text.split(' ').length, excerpt:((p.excerpt&&p.excerpt.rendered)||'').replace(/<[^>]*>/g,'').substring(0,200) };
+        }));
+        page++;
+        if(batch.length < 100) hasMore = false;
+      } else hasMore = false;
+    }
+    wpCache.pages = allPages;
+    wpCache.lastFetch = now;
+    res.json({ cached: false, count: allPages.length, data: allPages });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Posts (full content + categories)
+app.get('/api/wp/posts', requireAuth('owner'), async function(req, res) {
+  try {
+    var now = Date.now();
+    if(wpCache.posts && (now - wpCache.lastFetch) < WP_CACHE_TTL) return res.json({ cached: true, count: wpCache.posts.length, data: wpCache.posts });
+    var allPosts = [], page = 1, hasMore = true;
+    while(hasMore && page <= 10) {
+      var batch = await wpFetch('/wp-json/wp/v2/posts?per_page=100&page=' + page + '&_fields=id,title,slug,link,date,modified,status,categories,tags,content,excerpt,featured_media');
+      if(Array.isArray(batch) && batch.length > 0) {
+        allPosts = allPosts.concat(batch.map(function(p) {
+          var body = (p.content && p.content.rendered) || '';
+          var text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          return { id:p.id, title:(p.title&&p.title.rendered)||'', slug:p.slug, link:p.link, date:p.date, modified:p.modified, status:p.status, categories:p.categories||[], tags:p.tags||[], wordCount:text.split(' ').length, excerpt:((p.excerpt&&p.excerpt.rendered)||'').replace(/<[^>]*>/g,'').substring(0,200), featuredMedia:p.featured_media };
+        }));
+        page++;
+        if(batch.length < 100) hasMore = false;
+      } else hasMore = false;
+    }
+    wpCache.posts = allPosts;
+    res.json({ cached: false, count: allPosts.length, data: allPosts });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Media library (all images + alt text)
+app.get('/api/wp/media', requireAuth('owner'), async function(req, res) {
+  try {
+    var now = Date.now();
+    if(wpCache.media && (now - wpCache.lastFetch) < WP_CACHE_TTL) return res.json({ cached: true, count: wpCache.media.length, data: wpCache.media });
+    var allMedia = [], page = 1, hasMore = true;
+    while(hasMore && page <= 10) {
+      var batch = await wpFetch('/wp-json/wp/v2/media?per_page=100&page=' + page + '&_fields=id,title,alt_text,source_url,media_type,mime_type,date');
+      if(Array.isArray(batch) && batch.length > 0) {
+        allMedia = allMedia.concat(batch.map(function(m) {
+          return { id:m.id, title:(m.title&&m.title.rendered)||'', altText:m.alt_text||'', url:m.source_url||'', type:m.media_type||'', mime:m.mime_type||'', date:m.date, hasAlt:!!(m.alt_text && m.alt_text.trim()) };
+        }));
+        page++;
+        if(batch.length < 100) hasMore = false;
+      } else hasMore = false;
+    }
+    wpCache.media = allMedia;
+    var noAlt = allMedia.filter(function(m) { return m.type === 'image' && !m.hasAlt; });
+    res.json({ cached: false, count: allMedia.length, images: allMedia.filter(function(m){return m.type==='image';}).length, missingAlt: noAlt.length, data: allMedia });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Categories
+app.get('/api/wp/categories', requireAuth('owner'), async function(req, res) {
+  try {
+    var cats = await wpFetch('/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug,count,parent');
+    res.json({ count: cats.length, data: cats });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Tags
+app.get('/api/wp/tags', requireAuth('owner'), async function(req, res) {
+  try {
+    var tags = await wpFetch('/wp-json/wp/v2/tags?per_page=100&_fields=id,name,slug,count');
+    res.json({ count: tags.length, data: tags });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── DEEP CRAWL ──
+
+// Full SEO crawl: title, meta, h1-h4, OG, schema, canonical, response time, internal/external links, images, keyword density
+app.get('/api/wp/deep-crawl', requireAuth('owner'), async function(req, res) {
+  try {
+    var now = Date.now();
+    if(wpCache.deepCrawl && (now - wpCache.lastDeep) < WP_CRAWL_TTL) return res.json({ cached: true, count: wpCache.deepCrawl.length, data: wpCache.deepCrawl });
+    // Get pages first
+    if(!wpCache.pages) {
+      var allPages = [], pg = 1, more = true;
+      while(more && pg <= 20) {
+        var batch = await wpFetch('/wp-json/wp/v2/pages?per_page=100&page=' + pg + '&_fields=id,title,slug,link');
+        if(Array.isArray(batch) && batch.length > 0) { allPages = allPages.concat(batch); pg++; if(batch.length < 100) more = false; } else more = false;
+      }
+      wpCache.pages = allPages.map(function(p) { return { id:p.id, title:(p.title&&p.title.rendered)||'', slug:p.slug, link:p.link }; });
+    }
+    var pagesToCrawl = wpCache.pages.slice(0, 80);
+    var results = [];
+    for(var i = 0; i < pagesToCrawl.length; i++) {
+      var pg = pagesToCrawl[i];
+      var url = pg.link || (WP_SITE + '/' + pg.slug + '/');
+      try {
+        var startTime = Date.now();
+        var html = await new Promise(function(resolve, reject) {
+          var mod = url.startsWith('https') ? https : http;
+          mod.get(url, { headers: { 'User-Agent': 'WildwoodSEOCrawler/2.0' }, timeout: 15000 }, function(resp) {
+            if(resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+              return crawlPage(resp.headers.location).then(function(r) { resolve({html:'',redirect:resp.headers.location,statusCode:resp.statusCode,parsed:r}); });
+            }
+            var data = '';
+            resp.on('data', function(chunk) { data += chunk; });
+            resp.on('end', function() { resolve({html:data,statusCode:resp.statusCode}); });
+          }).on('error', function(e) { resolve({html:'',statusCode:0,error:e.message}); })
+            .on('timeout', function() { resolve({html:'',statusCode:0,error:'timeout'}); });
+        });
+        var responseTime = Date.now() - startTime;
+        var h = html.html || '';
+
+        // Parse everything
+        var titleMatch = h.match(/<title[^>]*>(.*?)<\/title>/i);
+        var descMatch = h.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i) || h.match(/<meta\s+content=["'](.*?)["']\s+name=["']description["']/i);
+        var canonMatch = h.match(/<link\s+rel=["']canonical["']\s+href=["'](.*?)["']/i);
+        var robotsMatch = h.match(/<meta\s+name=["']robots["']\s+content=["'](.*?)["']/i);
+
+        // Headings
+        var h1s = (h.match(/<h1[^>]*>(.*?)<\/h1>/gi) || []).map(function(x) { return x.replace(/<[^>]*>/g,'').trim(); });
+        var h2s = (h.match(/<h2[^>]*>(.*?)<\/h2>/gi) || []).map(function(x) { return x.replace(/<[^>]*>/g,'').trim(); });
+        var h3s = (h.match(/<h3[^>]*>(.*?)<\/h3>/gi) || []).map(function(x) { return x.replace(/<[^>]*>/g,'').trim(); });
+
+        // Open Graph
+        var ogTitle = (h.match(/<meta\s+property=["']og:title["']\s+content=["'](.*?)["']/i) || [])[1] || '';
+        var ogDesc = (h.match(/<meta\s+property=["']og:description["']\s+content=["'](.*?)["']/i) || [])[1] || '';
+        var ogImage = (h.match(/<meta\s+property=["']og:image["']\s+content=["'](.*?)["']/i) || [])[1] || '';
+
+        // Schema
+        var schemas = (h.match(/<script\s+type=["']application\/ld\+json["'][^>]*>(.*?)<\/script>/gi) || []);
+        var schemaTypes = [];
+        schemas.forEach(function(s) {
+          try {
+            var json = JSON.parse(s.replace(/<[^>]*>/g, ''));
+            if(json['@type']) schemaTypes.push(json['@type']);
+          } catch(e) {}
+        });
+
+        // Links
+        var internalLinks = [], externalLinks = [];
+        var linkMatches = h.match(/<a\s[^>]*href=["'](.*?)["'][^>]*>/gi) || [];
+        linkMatches.forEach(function(l) {
+          var href = (l.match(/href=["'](.*?)["']/i) || [])[1] || '';
+          if(!href || href.startsWith('#') || href.startsWith('javascript') || href.startsWith('mailto') || href.startsWith('tel')) return;
+          if(href.indexOf('wildwoodsmallenginerepair.com') >= 0 || href.startsWith('/')) {
+            internalLinks.push(href);
+          } else if(href.startsWith('http')) {
+            externalLinks.push(href);
+          }
+        });
+
+        // Images
+        var images = [];
+        var imgMatches = h.match(/<img\s[^>]*>/gi) || [];
+        imgMatches.forEach(function(img) {
+          var src = (img.match(/src=["'](.*?)["']/i) || [])[1] || '';
+          var alt = (img.match(/alt=["'](.*?)["']/i) || [])[1] || '';
+          if(src) images.push({ src: src.substring(0,200), alt: alt, hasAlt: !!(alt && alt.trim()) });
+        });
+        var missingAltCount = images.filter(function(img) { return !img.hasAlt; }).length;
+
+        // Text content for word count and keyword density
+        var textContent = h.replace(/<script[^>]*>.*?<\/script>/gi, '').replace(/<style[^>]*>.*?<\/style>/gi, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        var wordCount = textContent.split(' ').length;
+
+        results.push({
+          id: pg.id, slug: pg.slug, url: url,
+          statusCode: html.statusCode, responseTime: responseTime, redirect: html.redirect || null,
+          title: titleMatch ? titleMatch[1].trim().substring(0,150) : '', titleLen: titleMatch ? titleMatch[1].trim().length : 0,
+          description: descMatch ? descMatch[1].trim().substring(0,250) : '', descLen: descMatch ? descMatch[1].trim().length : 0,
+          canonical: canonMatch ? canonMatch[1] : '', robots: robotsMatch ? robotsMatch[1] : '',
+          h1: h1s, h2: h2s.slice(0,15), h3: h3s.slice(0,10),
+          ogTitle: ogTitle.substring(0,100), ogDesc: ogDesc.substring(0,200), ogImage: ogImage.substring(0,200),
+          schemas: schemaTypes,
+          internalLinks: [...new Set(internalLinks)].length, internalLinksList: [...new Set(internalLinks)].slice(0,20),
+          externalLinks: [...new Set(externalLinks)].length, externalLinksList: [...new Set(externalLinks)].slice(0,10),
+          images: images.length, missingAlt: missingAltCount,
+          wordCount: Math.min(wordCount, 20000)
+        });
+      } catch(e) {
+        results.push({ id:pg.id, slug:pg.slug, url:url, error:e.message, statusCode:0 });
+      }
+    }
+    wpCache.deepCrawl = results;
+    wpCache.lastDeep = now;
+
+    // Compute summary stats
+    var totalIssues = 0;
+    var summary = {
+      pages: results.length,
+      avgResponseTime: Math.round(results.reduce(function(s,r){return s+(r.responseTime||0);},0) / Math.max(results.length,1)),
+      missingTitles: results.filter(function(r){return !r.title;}).length,
+      longTitles: results.filter(function(r){return r.titleLen > 60;}).length,
+      missingDesc: results.filter(function(r){return !r.description;}).length,
+      longDesc: results.filter(function(r){return r.descLen > 160;}).length,
+      missingH1: results.filter(function(r){return !r.h1 || r.h1.length === 0;}).length,
+      multipleH1: results.filter(function(r){return r.h1 && r.h1.length > 1;}).length,
+      noSchema: results.filter(function(r){return !r.schemas || r.schemas.length === 0;}).length,
+      noOG: results.filter(function(r){return !r.ogTitle;}).length,
+      totalImages: results.reduce(function(s,r){return s+(r.images||0);},0),
+      totalMissingAlt: results.reduce(function(s,r){return s+(r.missingAlt||0);},0),
+      totalInternalLinks: results.reduce(function(s,r){return s+(r.internalLinks||0);},0),
+      totalExternalLinks: results.reduce(function(s,r){return s+(r.externalLinks||0);},0),
+      avgWordCount: Math.round(results.reduce(function(s,r){return s+(r.wordCount||0);},0) / Math.max(results.length,1)),
+      thinContent: results.filter(function(r){return r.wordCount < 300;}).length,
+      redirects: results.filter(function(r){return r.redirect;}).length,
+      errors: results.filter(function(r){return r.statusCode >= 400 || r.statusCode === 0;}).length
+    };
+
+    res.json({ cached: false, summary: summary, count: results.length, data: results });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Internal link graph
+app.get('/api/wp/link-graph', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first (/api/wp/deep-crawl)' });
+    var graph = {};
+    var allSlugs = wpCache.deepCrawl.map(function(p) { return p.slug; });
+    wpCache.deepCrawl.forEach(function(p) {
+      graph[p.slug] = { url: p.url, linksTo: [], linkedFrom: [], internalLinks: p.internalLinks, orphan: false };
+      (p.internalLinksList || []).forEach(function(link) {
+        var slug = link.replace('https://wildwoodsmallenginerepair.com/', '').replace('http://wildwoodsmallenginerepair.com/', '').replace(/\/$/, '').split('?')[0];
+        if(slug) graph[p.slug].linksTo.push(slug);
+      });
+    });
+    // Build linkedFrom
+    Object.keys(graph).forEach(function(slug) {
+      graph[slug].linksTo.forEach(function(target) {
+        if(graph[target]) graph[target].linkedFrom.push(slug);
+      });
+    });
+    // Find orphan pages
+    var orphans = [];
+    Object.keys(graph).forEach(function(slug) {
+      if(graph[slug].linkedFrom.length === 0 && slug !== '' && slug !== 'shop' && slug !== 'cart') {
+        graph[slug].orphan = true;
+        orphans.push(slug);
+      }
+    });
+    res.json({ pages: Object.keys(graph).length, orphans: orphans.length, orphanPages: orphans, graph: graph });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Image SEO audit
+app.get('/api/wp/image-audit', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first' });
+    var allImages = [];
+    wpCache.deepCrawl.forEach(function(p) {
+      // We'd need the full image list from the crawl, but we have counts
+      allImages.push({ page: p.slug, url: p.url, imageCount: p.images, missingAlt: p.missingAlt });
+    });
+    var totalImg = allImages.reduce(function(s,i){return s+i.imageCount;},0);
+    var totalMissing = allImages.reduce(function(s,i){return s+i.missingAlt;},0);
+    // Also get media library
+    if(!wpCache.media) {
+      var mediaLib = [], mp = 1, mm = true;
+      while(mm && mp <= 10) {
+        var batch = await wpFetch('/wp-json/wp/v2/media?per_page=100&page=' + mp + '&_fields=id,title,alt_text,source_url,media_type,date');
+        if(Array.isArray(batch) && batch.length > 0) { mediaLib = mediaLib.concat(batch); mp++; if(batch.length < 100) mm = false; } else mm = false;
+      }
+      wpCache.media = mediaLib.map(function(m) { return { id:m.id, title:(m.title&&m.title.rendered)||'', altText:m.alt_text||'', url:m.source_url||'', type:m.media_type||'', hasAlt:!!(m.alt_text&&m.alt_text.trim()) }; });
+    }
+    var libImages = wpCache.media.filter(function(m) { return m.type === 'image'; });
+    var libMissingAlt = libImages.filter(function(m) { return !m.hasAlt; });
+    res.json({
+      onPage: { totalImages: totalImg, missingAlt: totalMissing, pages: allImages },
+      mediaLibrary: { total: libImages.length, missingAlt: libMissingAlt.length, missingList: libMissingAlt.slice(0,50).map(function(m) { return { id:m.id, title:m.title, url:m.url }; }) }
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Keyword-to-page mapping
+app.get('/api/wp/keyword-map', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first' });
+    var D = SEO_CONTENT_DATA;
+    var kwMap = { matched: [], unmatched: [], pagesWithNoKW: [] };
+    // Get all target keywords from all sources
+    var allKWs = {};
+    Object.keys(D.keywordResearch || {}).forEach(function(city) {
+      (D.keywordResearch[city] || []).forEach(function(kw) {
+        if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = { keyword: kw.keyword, volume: kw.volume || 0, city: city, foundOn: [] };
+      });
+    });
+    Object.keys(D.flKeywords || {}).forEach(function(city) {
+      (D.flKeywords[city] || []).forEach(function(kw) {
+        if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = { keyword: kw.keyword, volume: kw.volume || 0, city: city, foundOn: [] };
+      });
+    });
+    (D.savedKeywords || []).forEach(function(kw) {
+      if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = { keyword: kw.keyword, volume: kw.avgMonthly || 0, city: 'National', foundOn: [] };
+    });
+
+    // Check each page for keyword presence in title, description, h1, h2
+    wpCache.deepCrawl.forEach(function(p) {
+      var pageText = [p.title || '', p.description || '', (p.h1||[]).join(' '), (p.h2||[]).join(' ')].join(' ').toLowerCase();
+      var matched = false;
+      Object.keys(allKWs).forEach(function(kwLower) {
+        if(pageText.indexOf(kwLower) >= 0) {
+          allKWs[kwLower].foundOn.push(p.slug);
+          matched = true;
+        }
+      });
+      if(!matched) kwMap.pagesWithNoKW.push(p.slug);
+    });
+
+    Object.values(allKWs).forEach(function(kw) {
+      if(kw.foundOn.length > 0) kwMap.matched.push(kw);
+      else kwMap.unmatched.push(kw);
+    });
+    kwMap.unmatched.sort(function(a,b) { return b.volume - a.volume; });
+    kwMap.matched.sort(function(a,b) { return b.volume - a.volume; });
+
+    res.json({
+      totalKeywords: Object.keys(allKWs).length,
+      matched: kwMap.matched.length,
+      unmatched: kwMap.unmatched.length,
+      pagesWithNoKeyword: kwMap.pagesWithNoKW.length,
+      topUnmatched: kwMap.unmatched.slice(0,30),
+      topMatched: kwMap.matched.slice(0,30),
+      orphanPages: kwMap.pagesWithNoKW
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Content freshness scoring
+app.get('/api/wp/content-scores', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.pages) return res.json({ error: 'Load pages first' });
+    var now = new Date();
+    var scores = wpCache.pages.map(function(p) {
+      var modified = p.modified ? new Date(p.modified) : new Date(p.date);
+      var daysSince = Math.floor((now - modified) / (1000*60*60*24));
+      var freshness = daysSince < 30 ? 'FRESH' : daysSince < 90 ? 'OK' : daysSince < 180 ? 'STALE' : 'OUTDATED';
+      var wordScore = (p.wordCount || 0) >= 1500 ? 'DEEP' : (p.wordCount || 0) >= 800 ? 'GOOD' : (p.wordCount || 0) >= 300 ? 'THIN' : 'EMPTY';
+      return { slug: p.slug, title: p.title, wordCount: p.wordCount || 0, modified: p.modified || p.date, daysSinceUpdate: daysSince, freshness: freshness, contentDepth: wordScore };
+    });
+    scores.sort(function(a,b) { return b.daysSinceUpdate - a.daysSinceUpdate; });
+    var summary = {
+      fresh: scores.filter(function(s){return s.freshness==='FRESH';}).length,
+      ok: scores.filter(function(s){return s.freshness==='OK';}).length,
+      stale: scores.filter(function(s){return s.freshness==='STALE';}).length,
+      outdated: scores.filter(function(s){return s.freshness==='OUTDATED';}).length,
+      deep: scores.filter(function(s){return s.contentDepth==='DEEP';}).length,
+      thin: scores.filter(function(s){return s.contentDepth==='THIN';}).length,
+      empty: scores.filter(function(s){return s.contentDepth==='EMPTY';}).length
+    };
+    res.json({ summary: summary, count: scores.length, data: scores });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// Missing city landing pages
+app.get('/api/wp/missing-cities', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.pages) {
+      var allPages = [], pg = 1, more = true;
+      while(more && pg <= 20) {
+        var batch = await wpFetch('/wp-json/wp/v2/pages?per_page=100&page=' + pg + '&_fields=id,title,slug,link');
+        if(Array.isArray(batch) && batch.length > 0) { allPages = allPages.concat(batch); pg++; if(batch.length < 100) more = false; } else more = false;
+      }
+      wpCache.pages = allPages.map(function(p) { return { id:p.id, title:(p.title&&p.title.rendered)||'', slug:p.slug, link:p.link }; });
+    }
+    var slugs = wpCache.pages.map(function(p) { return (p.slug||'').toLowerCase(); }).join(' ');
+    var allTitles = wpCache.pages.map(function(p) { return (p.title||'').toLowerCase(); }).join(' ');
+    var D = SEO_CONTENT_DATA;
+    var targetCities = [];
+    Object.keys(D.offPage || {}).forEach(function(c) { targetCities.push(c); });
+    ((D.flCities || {}).profiles || []).forEach(function(p) { if(p.city) targetCities.push(p.city + ', FL'); });
+    Object.keys(D.keywordResearch || {}).forEach(function(c) { targetCities.push(c); });
+    (D.gbpProfiles || []).forEach(function(p) { if(p.city) targetCities.push(p.city); });
+    // Add snow blower cities
+    (D.landingPages || []).forEach(function(p) { if(p.city) targetCities.push(p.city); });
+    Object.keys(D.snowBlowerKeywords || {}).forEach(function(c) { targetCities.push(c); });
+    targetCities = [...new Set(targetCities)];
+    var missing = [], found = [];
+    targetCities.forEach(function(city) {
+      var citySlug = city.toLowerCase().replace(/[^a-z0-9]/g,'');
+      var cityName = city.toLowerCase().split(',')[0].trim().replace(/\s+/g,'-');
+      var cityWords = city.toLowerCase().split(',')[0].trim();
+      var hasPage = slugs.indexOf(citySlug) >= 0 || slugs.indexOf(cityName) >= 0 || allTitles.indexOf(cityWords) >= 0;
+      if(hasPage) found.push(city); else missing.push(city);
+    });
+    res.json({ totalCities: targetCities.length, found: found.length, missing: missing.length, missingCities: missing, foundCities: found });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── JETPACK STATS (requires JETPACK_TOKEN) ──
+
+app.get('/api/wp/stats', requireAuth('owner'), async function(req, res) {
+  try {
+    var wpToken = process.env.JETPACK_TOKEN || 'ekc8plBT0()aZ1vd2epcpk3xa#tmNv(sqcG(MBYTJvSAFSQXaNB762c*FD!tP#KR';
+    var siteId = process.env.JETPACK_SITE_ID || 'wildwoodsmallenginerepair.com';
+    if(!wpToken) return res.json({ error: 'JETPACK_TOKEN not set in .env', setup: 'Add JETPACK_TOKEN=your_token and JETPACK_SITE_ID=your_site_id to .env. Get token from https://developer.wordpress.com/apps/' });
+    var data = await new Promise(function(resolve, reject) {
+      https.get('https://public-api.wordpress.com/rest/v1.1/sites/' + siteId + '/stats/summary?num=30', { headers: { 'Authorization': 'Bearer ' + wpToken } }, function(resp) {
+        var body = ''; resp.on('data', function(chunk) { body += chunk; }); resp.on('end', function() { try { resolve(JSON.parse(body)); } catch(e) { resolve({error:body}); } });
+      }).on('error', function(e) { reject(e); });
+    });
+    res.json(data);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.get('/api/wp/stats/top-posts', requireAuth('owner'), async function(req, res) {
+  try {
+    var wpToken = process.env.JETPACK_TOKEN || 'ekc8plBT0()aZ1vd2epcpk3xa#tmNv(sqcG(MBYTJvSAFSQXaNB762c*FD!tP#KR';
+    var siteId = process.env.JETPACK_SITE_ID || 'wildwoodsmallenginerepair.com';
+    if(!wpToken) return res.json({ error: 'JETPACK_TOKEN not set' });
+    var data = await new Promise(function(resolve, reject) {
+      https.get('https://public-api.wordpress.com/rest/v1.1/sites/' + siteId + '/stats/top-posts?num=30&period=month', { headers: { 'Authorization': 'Bearer ' + wpToken } }, function(resp) {
+        var body = ''; resp.on('data', function(chunk) { body += chunk; }); resp.on('end', function() { try { resolve(JSON.parse(body)); } catch(e) { resolve({error:body}); } });
+      }).on('error', function(e) { reject(e); });
+    });
+    res.json(data);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.get('/api/wp/stats/search-terms', requireAuth('owner'), async function(req, res) {
+  try {
+    var wpToken = process.env.JETPACK_TOKEN || 'ekc8plBT0()aZ1vd2epcpk3xa#tmNv(sqcG(MBYTJvSAFSQXaNB762c*FD!tP#KR';
+    var siteId = process.env.JETPACK_SITE_ID || 'wildwoodsmallenginerepair.com';
+    if(!wpToken) return res.json({ error: 'JETPACK_TOKEN not set' });
+    var data = await new Promise(function(resolve, reject) {
+      https.get('https://public-api.wordpress.com/rest/v1.1/sites/' + siteId + '/stats/search-terms?num=30', { headers: { 'Authorization': 'Bearer ' + wpToken } }, function(resp) {
+        var body = ''; resp.on('data', function(chunk) { body += chunk; }); resp.on('end', function() { try { resolve(JSON.parse(body)); } catch(e) { resolve({error:body}); } });
+      }).on('error', function(e) { reject(e); });
+    });
+    res.json(data);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.get('/api/wp/stats/referrers', requireAuth('owner'), async function(req, res) {
+  try {
+    var wpToken = process.env.JETPACK_TOKEN || 'ekc8plBT0()aZ1vd2epcpk3xa#tmNv(sqcG(MBYTJvSAFSQXaNB762c*FD!tP#KR';
+    var siteId = process.env.JETPACK_SITE_ID || 'wildwoodsmallenginerepair.com';
+    if(!wpToken) return res.json({ error: 'JETPACK_TOKEN not set' });
+    var data = await new Promise(function(resolve, reject) {
+      https.get('https://public-api.wordpress.com/rest/v1.1/sites/' + siteId + '/stats/referrers?num=30', { headers: { 'Authorization': 'Bearer ' + wpToken } }, function(resp) {
+        var body = ''; resp.on('data', function(chunk) { body += chunk; }); resp.on('end', function() { try { resolve(JSON.parse(body)); } catch(e) { resolve({error:body}); } });
+      }).on('error', function(e) { reject(e); });
+    });
+    res.json(data);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+app.get('/api/wp/stats/country-views', requireAuth('owner'), async function(req, res) {
+  try {
+    var wpToken = process.env.JETPACK_TOKEN || 'ekc8plBT0()aZ1vd2epcpk3xa#tmNv(sqcG(MBYTJvSAFSQXaNB762c*FD!tP#KR';
+    var siteId = process.env.JETPACK_SITE_ID || 'wildwoodsmallenginerepair.com';
+    if(!wpToken) return res.json({ error: 'JETPACK_TOKEN not set' });
+    var data = await new Promise(function(resolve, reject) {
+      https.get('https://public-api.wordpress.com/rest/v1.1/sites/' + siteId + '/stats/country-views?num=30', { headers: { 'Authorization': 'Bearer ' + wpToken } }, function(resp) {
+        var body = ''; resp.on('data', function(chunk) { body += chunk; }); resp.on('end', function() { try { resolve(JSON.parse(body)); } catch(e) { resolve({error:body}); } });
+      }).on('error', function(e) { reject(e); });
+    });
+    res.json(data);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════
+// 10x DATA EXPANSION — INFRASTRUCTURE & ANALYSIS
+// ══════════════════════════════════════════════
+
+// ── ROBOTS.TXT PARSER ──
+app.get('/api/wp/robots', requireAuth('owner'), async function(req, res) {
+  try {
+    var body = await new Promise(function(resolve, reject) {
+      https.get(WP_SITE + '/robots.txt', function(resp) {
+        var d = ''; resp.on('data', function(c){d+=c;}); resp.on('end', function(){resolve(d);});
+      }).on('error', reject);
+    });
+    var lines = body.split('\n').filter(function(l){return l.trim();});
+    var rules = { allows: [], disallows: [], sitemaps: [], crawlDelay: null, raw: body };
+    lines.forEach(function(l) {
+      var lower = l.toLowerCase().trim();
+      if(lower.startsWith('allow:')) rules.allows.push(l.split(':').slice(1).join(':').trim());
+      if(lower.startsWith('disallow:')) rules.disallows.push(l.split(':').slice(1).join(':').trim());
+      if(lower.startsWith('sitemap:')) rules.sitemaps.push(l.split(':').slice(1).join(':').trim());
+      if(lower.startsWith('crawl-delay:')) rules.crawlDelay = parseInt(l.split(':')[1]);
+    });
+    res.json(rules);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── SITEMAP PARSER (recursive) ──
+app.get('/api/wp/sitemap', requireAuth('owner'), async function(req, res) {
+  try {
+    var sitemapUrls = [];
+    async function parseSitemap(url) {
+      var body = await new Promise(function(resolve, reject) {
+        var mod = url.startsWith('https') ? https : http;
+        mod.get(url, { timeout: 15000 }, function(resp) {
+          var d = ''; resp.on('data', function(c){d+=c;}); resp.on('end', function(){resolve(d);});
+        }).on('error', function(e){resolve('');});
+      });
+      // Check if it's a sitemap index
+      var indexMatches = body.match(/<sitemap>[\s\S]*?<loc>(.*?)<\/loc>[\s\S]*?<\/sitemap>/gi) || [];
+      if(indexMatches.length > 0) {
+        for(var i = 0; i < indexMatches.length; i++) {
+          var loc = (indexMatches[i].match(/<loc>(.*?)<\/loc>/i) || [])[1];
+          if(loc) await parseSitemap(loc.trim());
+        }
+      }
+      // Parse URL entries
+      var urlMatches = body.match(/<url>[\s\S]*?<\/url>/gi) || [];
+      urlMatches.forEach(function(u) {
+        var loc = (u.match(/<loc>(.*?)<\/loc>/i) || [])[1] || '';
+        var lastmod = (u.match(/<lastmod>(.*?)<\/lastmod>/i) || [])[1] || '';
+        var priority = (u.match(/<priority>(.*?)<\/priority>/i) || [])[1] || '';
+        var changefreq = (u.match(/<changefreq>(.*?)<\/changefreq>/i) || [])[1] || '';
+        if(loc) sitemapUrls.push({ url: loc.trim(), lastmod: lastmod, priority: priority, changefreq: changefreq });
+      });
+    }
+    await parseSitemap(WP_SITE + '/sitemap.xml');
+    if(sitemapUrls.length === 0) await parseSitemap(WP_SITE + '/sitemap_index.xml');
+    if(sitemapUrls.length === 0) await parseSitemap(WP_SITE + '/wp-sitemap.xml');
+    res.json({ count: sitemapUrls.length, urls: sitemapUrls });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── SSL & SECURITY HEADERS ──
+app.get('/api/wp/security', requireAuth('owner'), async function(req, res) {
+  try {
+    var result = await new Promise(function(resolve, reject) {
+      var req2 = https.get(WP_SITE, { timeout: 10000 }, function(resp) {
+        var headers = resp.headers;
+        var socket = resp.socket || {};
+        var cert = socket.getPeerCertificate ? socket.getPeerCertificate() : {};
+        resolve({
+          statusCode: resp.statusCode,
+          ssl: {
+            valid: !!(cert && cert.subject),
+            issuer: cert.issuer ? (cert.issuer.O || cert.issuer.CN || '') : '',
+            subject: cert.subject ? (cert.subject.CN || '') : '',
+            validFrom: cert.valid_from || '',
+            validTo: cert.valid_to || '',
+            daysUntilExpiry: cert.valid_to ? Math.floor((new Date(cert.valid_to) - new Date()) / (1000*60*60*24)) : null,
+            protocol: socket.getProtocol ? socket.getProtocol() : ''
+          },
+          security: {
+            strictTransportSecurity: headers['strict-transport-security'] || 'MISSING',
+            contentSecurityPolicy: headers['content-security-policy'] ? 'SET' : 'MISSING',
+            xFrameOptions: headers['x-frame-options'] || 'MISSING',
+            xContentTypeOptions: headers['x-content-type-options'] || 'MISSING',
+            xXSSProtection: headers['x-xss-protection'] || 'MISSING',
+            referrerPolicy: headers['referrer-policy'] || 'MISSING',
+            permissionsPolicy: headers['permissions-policy'] ? 'SET' : 'MISSING'
+          },
+          server: {
+            server: headers['server'] || '',
+            poweredBy: headers['x-powered-by'] || '',
+            caching: headers['cache-control'] || '',
+            cdn: headers['x-cache'] || headers['cf-cache-status'] || headers['x-cdn'] || '',
+            contentEncoding: headers['content-encoding'] || ''
+          },
+          allHeaders: headers
+        });
+      });
+      req2.on('error', function(e) { resolve({ error: e.message }); });
+    });
+    res.json(result);
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── PAGE SPEED (per URL, uses response time + size) ──
+app.get('/api/wp/speed-test', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.pages) return res.json({ error: 'Load pages first' });
+    var urls = wpCache.pages.slice(0, 30).map(function(p) { return p.link || WP_SITE + '/' + p.slug + '/'; });
+    var results = [];
+    for(var i = 0; i < urls.length; i++) {
+      var url = urls[i];
+      var startTime = Date.now();
+      var result = await new Promise(function(resolve) {
+        var mod = url.startsWith('https') ? https : http;
+        var req2 = mod.get(url, { timeout: 15000 }, function(resp) {
+          var size = 0; var ttfb = Date.now() - startTime;
+          resp.on('data', function(chunk) { size += chunk.length; });
+          resp.on('end', function() {
+            resolve({
+              url: url, slug: wpCache.pages[i] ? wpCache.pages[i].slug : '',
+              statusCode: resp.statusCode,
+              ttfb: ttfb,
+              totalTime: Date.now() - startTime,
+              sizeBytes: size,
+              sizeKB: Math.round(size / 1024),
+              encoding: resp.headers['content-encoding'] || 'none',
+              cacheControl: resp.headers['cache-control'] || ''
+            });
+          });
+        });
+        req2.on('error', function(e) { resolve({ url:url, error:e.message, statusCode:0 }); });
+        req2.on('timeout', function() { resolve({ url:url, error:'timeout', statusCode:0 }); });
+      });
+      results.push(result);
+    }
+    var avgTTFB = Math.round(results.reduce(function(s,r){return s+(r.ttfb||0);},0) / Math.max(results.length,1));
+    var avgTotal = Math.round(results.reduce(function(s,r){return s+(r.totalTime||0);},0) / Math.max(results.length,1));
+    var avgSize = Math.round(results.reduce(function(s,r){return s+(r.sizeKB||0);},0) / Math.max(results.length,1));
+    var slow = results.filter(function(r){return r.totalTime > 3000;});
+    var heavy = results.filter(function(r){return r.sizeKB > 500;});
+    res.json({ count: results.length, avgTTFB: avgTTFB, avgTotalTime: avgTotal, avgSizeKB: avgSize, slowPages: slow.length, heavyPages: heavy.length, data: results });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── GOOGLE PAGESPEED INSIGHTS (free, no key required for basic) ──
+app.get('/api/wp/pagespeed', requireAuth('owner'), async function(req, res) {
+  try {
+    var url = req.query.url || WP_SITE;
+    var strategy = req.query.strategy || 'mobile';
+    var apiUrl = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=' + encodeURIComponent(url) + '&strategy=' + strategy;
+    var data = await new Promise(function(resolve, reject) {
+      https.get(apiUrl, { timeout: 60000 }, function(resp) {
+        var body = ''; resp.on('data', function(c){body+=c;}); resp.on('end', function(){ try{resolve(JSON.parse(body));}catch(e){resolve({error:body});} });
+      }).on('error', reject);
+    });
+    var lhr = data.lighthouseResult || {};
+    var cats = lhr.categories || {};
+    var audits = lhr.audits || {};
+    res.json({
+      url: url, strategy: strategy,
+      scores: {
+        performance: cats.performance ? Math.round(cats.performance.score * 100) : null,
+        accessibility: cats.accessibility ? Math.round(cats.accessibility.score * 100) : null,
+        bestPractices: cats['best-practices'] ? Math.round(cats['best-practices'].score * 100) : null,
+        seo: cats.seo ? Math.round(cats.seo.score * 100) : null
+      },
+      metrics: {
+        FCP: audits['first-contentful-paint'] ? audits['first-contentful-paint'].displayValue : null,
+        LCP: audits['largest-contentful-paint'] ? audits['largest-contentful-paint'].displayValue : null,
+        TBT: audits['total-blocking-time'] ? audits['total-blocking-time'].displayValue : null,
+        CLS: audits['cumulative-layout-shift'] ? audits['cumulative-layout-shift'].displayValue : null,
+        SI: audits['speed-index'] ? audits['speed-index'].displayValue : null,
+        TTI: audits['interactive'] ? audits['interactive'].displayValue : null
+      },
+      opportunities: Object.values(audits).filter(function(a) {
+        return a.score !== null && a.score < 0.9 && a.details && a.details.type === 'opportunity';
+      }).map(function(a) {
+        return { title: a.title, description: a.description, savings: a.details.overallSavingsMs || 0 };
+      }).sort(function(a,b){return b.savings - a.savings;}).slice(0,10)
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── BROKEN LINK CHECKER ──
+app.get('/api/wp/broken-links', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first' });
+    var allLinks = [];
+    wpCache.deepCrawl.forEach(function(p) {
+      (p.externalLinksList || []).forEach(function(link) {
+        allLinks.push({ source: p.slug, link: link, type: 'external' });
+      });
+      (p.internalLinksList || []).forEach(function(link) {
+        allLinks.push({ source: p.slug, link: link.startsWith('http') ? link : WP_SITE + link, type: 'internal' });
+      });
+    });
+    // Check up to 100 links
+    var toCheck = allLinks.slice(0, 100);
+    var broken = [], redirects = [], ok = 0;
+    for(var i = 0; i < toCheck.length; i++) {
+      var lnk = toCheck[i];
+      try {
+        var status = await new Promise(function(resolve) {
+          var mod = lnk.link.startsWith('https') ? https : http;
+          var r = mod.get(lnk.link, { timeout: 8000, headers: { 'User-Agent': 'WildwoodLinkChecker/1.0' } }, function(resp) {
+            resolve(resp.statusCode);
+          });
+          r.on('error', function() { resolve(0); });
+          r.on('timeout', function() { r.destroy(); resolve(0); });
+        });
+        if(status >= 400 || status === 0) broken.push({ source: lnk.source, link: lnk.link, status: status, type: lnk.type });
+        else if(status >= 300) redirects.push({ source: lnk.source, link: lnk.link, status: status, type: lnk.type });
+        else ok++;
+      } catch(e) { broken.push({ source: lnk.source, link: lnk.link, status: 0, type: lnk.type, error: e.message }); }
+    }
+    res.json({ checked: toCheck.length, ok: ok, broken: broken.length, redirects: redirects.length, brokenLinks: broken, redirectLinks: redirects });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── KEYWORD CANNIBALIZATION DETECTOR ──
+app.get('/api/wp/cannibalization', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first' });
+    var D = SEO_CONTENT_DATA;
+    // Build keyword → pages map
+    var kwPages = {};
+    var allKWs = {};
+    Object.keys(D.keywordResearch || {}).forEach(function(city) {
+      (D.keywordResearch[city] || []).forEach(function(kw) { if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = kw.volume || 0; });
+    });
+    Object.keys(D.flKeywords || {}).forEach(function(city) {
+      (D.flKeywords[city] || []).forEach(function(kw) { if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = kw.volume || 0; });
+    });
+    (D.savedKeywords || []).forEach(function(kw) { if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = kw.avgMonthly || 0; });
+
+    wpCache.deepCrawl.forEach(function(p) {
+      var pageText = [p.title||'', p.description||'', (p.h1||[]).join(' '), (p.h2||[]).join(' ')].join(' ').toLowerCase();
+      Object.keys(allKWs).forEach(function(kw) {
+        if(pageText.indexOf(kw) >= 0) {
+          if(!kwPages[kw]) kwPages[kw] = { keyword: kw, volume: allKWs[kw], pages: [] };
+          kwPages[kw].pages.push({ slug: p.slug, title: p.title, inTitle: (p.title||'').toLowerCase().indexOf(kw) >= 0, inH1: (p.h1||[]).join(' ').toLowerCase().indexOf(kw) >= 0 });
+        }
+      });
+    });
+
+    var cannibalized = Object.values(kwPages).filter(function(kw) { return kw.pages.length > 1; });
+    cannibalized.sort(function(a,b) { return b.volume - a.volume; });
+
+    res.json({
+      totalKeywordsChecked: Object.keys(allKWs).length,
+      cannibalizedKeywords: cannibalized.length,
+      data: cannibalized.slice(0, 50)
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── CONTENT GAP ANALYSIS ──
+app.get('/api/wp/content-gaps', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first' });
+    var D = SEO_CONTENT_DATA;
+    var allKWs = {};
+    Object.keys(D.keywordResearch || {}).forEach(function(city) {
+      (D.keywordResearch[city] || []).forEach(function(kw) { if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = { keyword: kw.keyword, volume: kw.volume||0, city: city }; });
+    });
+    Object.keys(D.flKeywords || {}).forEach(function(city) {
+      (D.flKeywords[city] || []).forEach(function(kw) { if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = { keyword: kw.keyword, volume: kw.volume||0, city: city }; });
+    });
+    Object.keys(D.snowBlowerKeywords || {}).forEach(function(city) {
+      (D.snowBlowerKeywords[city] || []).forEach(function(kw) { if(kw.keyword) allKWs[kw.keyword.toLowerCase()] = { keyword: kw.keyword, volume: kw.volume||0, city: city }; });
+    });
+
+    var allPageText = wpCache.deepCrawl.map(function(p) {
+      return [p.title||'', p.description||'', (p.h1||[]).join(' '), (p.h2||[]).join(' ')].join(' ').toLowerCase();
+    }).join(' ');
+
+    var gaps = [];
+    Object.keys(allKWs).forEach(function(kwLower) {
+      if(allPageText.indexOf(kwLower) < 0) gaps.push(allKWs[kwLower]);
+    });
+    gaps.sort(function(a,b) { return b.volume - a.volume; });
+
+    var totalOpportunity = gaps.reduce(function(s,g){return s+g.volume;},0);
+    res.json({
+      totalKeywords: Object.keys(allKWs).length,
+      covered: Object.keys(allKWs).length - gaps.length,
+      gaps: gaps.length,
+      totalMissedVolume: totalOpportunity,
+      topGaps: gaps.slice(0, 50)
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── DUPLICATE TITLE/DESC DETECTION ──
+app.get('/api/wp/duplicates', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first' });
+    var titleMap = {}, descMap = {};
+    wpCache.deepCrawl.forEach(function(p) {
+      var t = (p.title||'').trim().toLowerCase();
+      var d = (p.description||'').trim().toLowerCase();
+      if(t) { if(!titleMap[t]) titleMap[t] = []; titleMap[t].push(p.slug); }
+      if(d) { if(!descMap[d]) descMap[d] = []; descMap[d].push(p.slug); }
+    });
+    var dupTitles = Object.keys(titleMap).filter(function(t){return titleMap[t].length > 1;}).map(function(t){return {title:t, pages:titleMap[t]};});
+    var dupDescs = Object.keys(descMap).filter(function(d){return descMap[d].length > 1;}).map(function(d){return {description:d.substring(0,100), pages:descMap[d]};});
+    res.json({ duplicateTitles: dupTitles.length, duplicateDescriptions: dupDescs.length, titles: dupTitles, descriptions: dupDescs });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── HEADING HIERARCHY VALIDATOR ──
+app.get('/api/wp/heading-audit', requireAuth('owner'), async function(req, res) {
+  try {
+    if(!wpCache.deepCrawl) return res.json({ error: 'Run deep crawl first' });
+    var issues = [];
+    wpCache.deepCrawl.forEach(function(p) {
+      var pageIssues = [];
+      if(!p.h1 || p.h1.length === 0) pageIssues.push('Missing H1');
+      if(p.h1 && p.h1.length > 1) pageIssues.push('Multiple H1s (' + p.h1.length + ')');
+      if(p.h1 && p.h1[0] && p.title && p.h1[0].toLowerCase() === (p.title||'').toLowerCase()) pageIssues.push('H1 identical to title tag');
+      if((!p.h2 || p.h2.length === 0) && (p.wordCount||0) > 500) pageIssues.push('No H2s on long page (' + p.wordCount + ' words)');
+      if(pageIssues.length > 0) issues.push({ slug: p.slug, url: p.url, h1: p.h1, h2Count: (p.h2||[]).length, h3Count: (p.h3||[]).length, issues: pageIssues });
+    });
+    var summary = {
+      pagesChecked: wpCache.deepCrawl.length,
+      pagesWithIssues: issues.length,
+      missingH1: issues.filter(function(i){return i.issues.indexOf('Missing H1')>=0;}).length,
+      multipleH1: issues.filter(function(i){return i.issues.some(function(x){return x.startsWith('Multiple');});}).length,
+      noH2OnLongPages: issues.filter(function(i){return i.issues.some(function(x){return x.startsWith('No H2');});}).length
+    };
+    res.json({ summary: summary, issues: issues });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── COMPETITOR CRAWL ──
+app.get('/api/wp/competitor-crawl', requireAuth('owner'), async function(req, res) {
+  try {
+    var D = SEO_CONTENT_DATA;
+    var competitors = ((D.competitors || {}).sites || []).slice(0, 6);
+    if(competitors.length === 0) return res.json({ error: 'No competitors in data' });
+    var results = [];
+    for(var i = 0; i < competitors.length; i++) {
+      var comp = competitors[i];
+      var site = comp.url || comp.domain || '';
+      if(!site.startsWith('http')) site = 'https://' + site;
+      try {
+        var cr = await crawlPage(site);
+        // Try sitemap
+        var sitemapBody = '';
+        try {
+          sitemapBody = await new Promise(function(resolve) {
+            var mod = site.startsWith('https') ? https : http;
+            mod.get(site + '/sitemap.xml', { timeout: 8000 }, function(resp) {
+              var d = ''; resp.on('data', function(c){d+=c;}); resp.on('end', function(){resolve(d);});
+            }).on('error', function(){resolve('');});
+          });
+        } catch(e) {}
+        var sitemapCount = (sitemapBody.match(/<url>/gi) || []).length;
+        results.push({
+          name: comp.name || site,
+          url: site,
+          title: cr.title,
+          description: cr.description,
+          h1: cr.h1,
+          wordCount: cr.wordCount,
+          statusCode: cr.statusCode,
+          estimatedPages: sitemapCount || '?',
+          hasSchema: cr.schemas ? cr.schemas.length > 0 : false
+        });
+      } catch(e) {
+        results.push({ name: comp.name || site, url: site, error: e.message });
+      }
+    }
+    res.json({ count: results.length, data: results });
+  } catch(e) { res.json({ error: e.message }); }
+});
+
+// ── FULL SITE AUDIT (master endpoint — runs everything) ──
+app.get('/api/wp/full-audit', requireAuth('owner'), async function(req, res) {
+  try {
+    res.json({
+      message: 'Full audit is a composite of all endpoints. Call them individually for best performance:',
+      endpoints: [
+        { path: '/api/wp/pages', desc: 'All WP pages with content + word count', auth: 'none' },
+        { path: '/api/wp/posts', desc: 'All blog posts with categories + word count', auth: 'none' },
+        { path: '/api/wp/media', desc: 'Media library + alt text audit', auth: 'none' },
+        { path: '/api/wp/categories', desc: 'All categories', auth: 'none' },
+        { path: '/api/wp/tags', desc: 'All tags', auth: 'none' },
+        { path: '/api/wp/deep-crawl', desc: 'SEO crawl: titles, meta, H1-H3, OG, schema, links, images', auth: 'none' },
+        { path: '/api/wp/link-graph', desc: 'Internal link map + orphan page detection', auth: 'deep-crawl' },
+        { path: '/api/wp/image-audit', desc: 'Image alt text audit (on-page + media library)', auth: 'deep-crawl' },
+        { path: '/api/wp/keyword-map', desc: 'Keyword → page mapping + unmapped keywords', auth: 'deep-crawl' },
+        { path: '/api/wp/content-scores', desc: 'Freshness + content depth scoring', auth: 'pages' },
+        { path: '/api/wp/missing-cities', desc: 'Target cities without landing pages', auth: 'none' },
+        { path: '/api/wp/robots', desc: 'Robots.txt parsing', auth: 'none' },
+        { path: '/api/wp/sitemap', desc: 'Sitemap.xml recursive parsing', auth: 'none' },
+        { path: '/api/wp/security', desc: 'SSL + security headers + server info', auth: 'none' },
+        { path: '/api/wp/speed-test', desc: 'Page speed (TTFB + size) per URL', auth: 'pages' },
+        { path: '/api/wp/pagespeed?url=URL&strategy=mobile', desc: 'Google PageSpeed Insights (Core Web Vitals)', auth: 'none' },
+        { path: '/api/wp/broken-links', desc: 'Broken link detection (404 checker)', auth: 'deep-crawl' },
+        { path: '/api/wp/cannibalization', desc: 'Keyword cannibalization detection', auth: 'deep-crawl' },
+        { path: '/api/wp/content-gaps', desc: 'Keywords with no matching content', auth: 'deep-crawl' },
+        { path: '/api/wp/duplicates', desc: 'Duplicate title/description detection', auth: 'deep-crawl' },
+        { path: '/api/wp/heading-audit', desc: 'H1/H2/H3 hierarchy validation', auth: 'deep-crawl' },
+        { path: '/api/wp/competitor-crawl', desc: 'Crawl competitor homepages + sitemaps', auth: 'none' },
+        { path: '/api/wp/stats', desc: 'Jetpack 30-day summary', auth: 'JETPACK_TOKEN' },
+        { path: '/api/wp/stats/top-posts', desc: 'Jetpack top posts by views', auth: 'JETPACK_TOKEN' },
+        { path: '/api/wp/stats/search-terms', desc: 'Jetpack search terms', auth: 'JETPACK_TOKEN' },
+        { path: '/api/wp/stats/referrers', desc: 'Jetpack referrer sources', auth: 'JETPACK_TOKEN' },
+        { path: '/api/wp/stats/country-views', desc: 'Jetpack country/region views', auth: 'JETPACK_TOKEN' }
+      ]
+    });
+  } catch(e) { res.json({ error: e.message }); }
+});
 app.get('/seo', requireAuth('owner'), async function(req, res) {
   try {
     var D = SEO_CONTENT_DATA;
@@ -15582,6 +16538,7 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     // Search
     html += '.search{background:#0a1520;border:1px solid #1a2a3a;color:#c0d8f0;padding:10px 14px;font-family:Rajdhani;font-size:1em;width:100%;outline:none;margin-bottom:10px}';
     html += '.search:focus{border-color:#55f7d8}';
+    html += '.wp-btn{padding:6px 14px;cursor:pointer;font-family:Rajdhani;font-size:0.82em;transition:opacity 0.2s}.wp-btn:hover{opacity:0.8}';
     // Progress bar
     html += '.progress{height:6px;background:#0a1520;overflow:hidden;margin:3px 0}';
     html += '.progress-fill{height:100%;transition:width 0.3s}';
@@ -15650,7 +16607,7 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
         {id:'revenue', label:'Revenue Calculator'}, {id:'marketheat', label:'Market Heat'}
       ]},
       {name: '⚙️ TECHNICAL', color: '#ff6b9d', tabs: [
-        {id:'meta', label:'Meta & On-Page'}, {id:'titletags', label:'Title Tags'}, {id:'auditchk', label:'Audit'}
+        {id:'livesite', label:'Live Site'}, {id:'meta', label:'Meta & On-Page'}, {id:'titletags', label:'Title Tags'}, {id:'auditchk', label:'Audit'}
       ]},
       {name: '🗂️ OPS', color: '#4a6a8a', tabs: [
         {id:'ads', label:'Ads Power'}, {id:'addrs', label:'Addresses'}, {id:'tasks', label:'Tasks'},
@@ -16768,6 +17725,88 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     }
     html += '</div>';
 
+    // ========== LIVE SITE TAB ==========
+    html += '<div class="tab-panel" id="tab-livesite">';
+    html += '<div class="box" style="border:1px solid #ff6b9d30;background:linear-gradient(135deg,rgba(5,10,20,0.9),rgba(20,10,15,0.9))">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff6b9d"></span>🌐 LIVE SITE — wildwoodsmallenginerepair.com</div>';
+    html += '<div style="color:#c0d8f0;font-size:0.85em;line-height:1.7;padding:8px">';
+    html += '27 API endpoints pulling live data from your WordPress site. No spreadsheets needed — hit a button and get real-time SEO intelligence.';
+    html += '</div></div>';
+
+    // Button groups
+    html += '<div class="box" style="border-left:3px solid #55f7d8">';
+    html += '<div class="box-title"><span class="dot" style="background:#55f7d8"></span>📄 WORDPRESS CONTENT</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    html += '<button data-wid="pages" data-wurl="/api/wp/pages" onclick="wpBtn(this)" class="wp-btn" style="background:#55f7d820;color:#55f7d8;border:1px solid #55f7d830">PAGES</button>';
+    html += '<button data-wid="posts" data-wurl="/api/wp/posts" onclick="wpBtn(this)" class="wp-btn" style="background:#c084fc20;color:#c084fc;border:1px solid #c084fc30">POSTS</button>';
+    html += '<button data-wid="media" data-wurl="/api/wp/media" onclick="wpBtn(this)" class="wp-btn" style="background:#ffd70020;color:#ffd700;border:1px solid #ffd70030">MEDIA LIBRARY</button>';
+    html += '<button data-wid="cats" data-wurl="/api/wp/categories" onclick="wpBtn(this)" class="wp-btn" style="background:#00ff6620;color:#00ff66;border:1px solid #00ff6630">CATEGORIES</button>';
+    html += '<button data-wid="tags" data-wurl="/api/wp/tags" onclick="wpBtn(this)" class="wp-btn" style="background:#ff9f4320;color:#ff9f43;border:1px solid #ff9f4330">TAGS</button>';
+    html += '</div></div>';
+
+    html += '<div class="box" style="border-left:3px solid #ff4757">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff4757"></span>🔍 SEO CRAWL & ANALYSIS</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    html += '<button data-wid="deepcrawl" data-wurl="/api/wp/deep-crawl" onclick="wpBtn(this)" class="wp-btn" style="background:#ff475720;color:#ff4757;border:1px solid #ff475730">🕷️ DEEP CRAWL</button>';
+    html += '<button data-wid="linkgraph" data-wurl="/api/wp/link-graph" onclick="wpBtn(this)" class="wp-btn" style="background:#c084fc20;color:#c084fc;border:1px solid #c084fc30">🔗 LINK GRAPH</button>';
+    html += '<button data-wid="imageaudit" data-wurl="/api/wp/image-audit" onclick="wpBtn(this)" class="wp-btn" style="background:#ffd70020;color:#ffd700;border:1px solid #ffd70030">🖼️ IMAGE AUDIT</button>';
+    html += '<button data-wid="headings" data-wurl="/api/wp/heading-audit" onclick="wpBtn(this)" class="wp-btn" style="background:#00d4ff20;color:#00d4ff;border:1px solid #00d4ff30">📋 HEADING AUDIT</button>';
+    html += '<button data-wid="dupes" data-wurl="/api/wp/duplicates" onclick="wpBtn(this)" class="wp-btn" style="background:#ff6b9d20;color:#ff6b9d;border:1px solid #ff6b9d30">🔄 DUPLICATES</button>';
+    html += '<button data-wid="broken" data-wurl="/api/wp/broken-links" onclick="wpBtn(this)" class="wp-btn" style="background:#ff475720;color:#ff4757;border:1px solid #ff475730">💀 BROKEN LINKS</button>';
+    html += '</div></div>';
+
+    html += '<div class="box" style="border-left:3px solid #ffd700">';
+    html += '<div class="box-title"><span class="dot" style="background:#ffd700"></span>🔑 KEYWORD INTELLIGENCE</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    html += '<button data-wid="kwmap" data-wurl="/api/wp/keyword-map" onclick="wpBtn(this)" class="wp-btn" style="background:#ffd70020;color:#ffd700;border:1px solid #ffd70030">🗺️ KEYWORD MAP</button>';
+    html += '<button data-wid="cannibal" data-wurl="/api/wp/cannibalization" onclick="wpBtn(this)" class="wp-btn" style="background:#ff475720;color:#ff4757;border:1px solid #ff475730">⚔️ CANNIBALIZATION</button>';
+    html += '<button data-wid="gaps" data-wurl="/api/wp/content-gaps" onclick="wpBtn(this)" class="wp-btn" style="background:#00ff6620;color:#00ff66;border:1px solid #00ff6630">🕳️ CONTENT GAPS</button>';
+    html += '<button data-wid="missing" data-wurl="/api/wp/missing-cities" onclick="wpBtn(this)" class="wp-btn" style="background:#c084fc20;color:#c084fc;border:1px solid #c084fc30">🏙️ MISSING CITIES</button>';
+    html += '</div></div>';
+
+    html += '<div class="box" style="border-left:3px solid #00ff66">';
+    html += '<div class="box-title"><span class="dot" style="background:#00ff66"></span>⚡ SPEED & INFRASTRUCTURE</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    html += '<button data-wid="speed" data-wurl="/api/wp/speed-test" onclick="wpBtn(this)" class="wp-btn" style="background:#55f7d820;color:#55f7d8;border:1px solid #55f7d830">⏱️ SPEED TEST</button>';
+    html += '<button data-wid="pagespeed" data-wurl="/api/wp/pagespeed" onclick="wpBtn(this)" class="wp-btn" style="background:#00ff6620;color:#00ff66;border:1px solid #00ff6630">📊 PAGESPEED INSIGHTS</button>';
+    html += '<button data-wid="security" data-wurl="/api/wp/security" onclick="wpBtn(this)" class="wp-btn" style="background:#ffd70020;color:#ffd700;border:1px solid #ffd70030">🔒 SSL & SECURITY</button>';
+    html += '<button data-wid="robots" data-wurl="/api/wp/robots" onclick="wpBtn(this)" class="wp-btn" style="background:#4a6a8a20;color:#4a6a8a;border:1px solid #4a6a8a30">🤖 ROBOTS.TXT</button>';
+    html += '<button data-wid="sitemap" data-wurl="/api/wp/sitemap" onclick="wpBtn(this)" class="wp-btn" style="background:#ff9f4320;color:#ff9f43;border:1px solid #ff9f4330">🗺️ SITEMAP</button>';
+    html += '<button data-wid="compcrawl" data-wurl="/api/wp/competitor-crawl" onclick="wpBtn(this)" class="wp-btn" style="background:#ff6b9d20;color:#ff6b9d;border:1px solid #ff6b9d30">🎯 COMPETITOR CRAWL</button>';
+    html += '</div></div>';
+
+    html += '<div class="box" style="border-left:3px solid #c084fc">';
+    html += '<div class="box-title"><span class="dot" style="background:#c084fc"></span>📈 CONTENT HEALTH</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    html += '<button data-wid="freshness" data-wurl="/api/wp/content-scores" onclick="wpBtn(this)" class="wp-btn" style="background:#c084fc20;color:#c084fc;border:1px solid #c084fc30">📅 FRESHNESS SCORES</button>';
+    html += '<button data-wid="fullaudit" data-wurl="/api/wp/full-audit" onclick="wpBtn(this)" class="wp-btn" style="background:#55f7d820;color:#55f7d8;border:1px solid #55f7d830">📖 ALL ENDPOINTS</button>';
+    html += '</div></div>';
+
+    html += '<div class="box" style="border-left:3px solid #00d4ff">';
+    html += '<div class="box-title"><span class="dot" style="background:#00d4ff"></span>📊 JETPACK LIVE STATS</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.78em;margin-bottom:6px">Requires JETPACK_TOKEN in .env</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    html += '<button data-wid="jpstats" data-wurl="/api/wp/stats" onclick="wpBtn(this)" class="wp-btn" style="background:#00d4ff20;color:#00d4ff;border:1px solid #00d4ff30">📊 SUMMARY</button>';
+    html += '<button data-wid="jptop" data-wurl="/api/wp/stats/top-posts" onclick="wpBtn(this)" class="wp-btn" style="background:#00ff6620;color:#00ff66;border:1px solid #00ff6630">🔝 TOP POSTS</button>';
+    html += '<button data-wid="jpsearch" data-wurl="/api/wp/stats/search-terms" onclick="wpBtn(this)" class="wp-btn" style="background:#ffd70020;color:#ffd700;border:1px solid #ffd70030">🔍 SEARCH TERMS</button>';
+    html += '<button data-wid="jpref" data-wurl="/api/wp/stats/referrers" onclick="wpBtn(this)" class="wp-btn" style="background:#c084fc20;color:#c084fc;border:1px solid #c084fc30">🔗 REFERRERS</button>';
+    html += '<button data-wid="jpcountry" data-wurl="/api/wp/stats/country-views" onclick="wpBtn(this)" class="wp-btn" style="background:#ff9f4320;color:#ff9f43;border:1px solid #ff9f4330">🌍 COUNTRIES</button>';
+    html += '</div></div>';
+
+    // Universal results area
+    html += '<div id="wpResults" style="margin-top:8px"></div>';
+
+    // Setup info
+    html += '<div class="box" style="border-left:3px solid #00ff66">';
+    html += '<div class="box-title"><span class="dot" style="background:#00ff66"></span>SETUP</div>';
+    html += '<div style="color:#c0d8f0;font-size:0.82em;line-height:1.7;padding:8px">';
+    html += '<span style="color:#00ff66">✓ No auth needed:</span> Pages, Posts, Media, Categories, Tags, Deep Crawl, Link Graph, Image Audit, Headings, Duplicates, Broken Links, Keyword Map, Cannibalization, Content Gaps, Missing Cities, Speed Test, PageSpeed Insights, SSL, Robots.txt, Sitemap, Competitor Crawl, Freshness<br>';
+    html += '<span style="color:#ffd700">⚙ Needs .env token:</span> All Jetpack stats endpoints<br>';
+    html += '<code style="background:#0a1520;padding:4px 8px;color:#55f7d8;font-size:0.9em;display:block;margin:4px 0">JETPACK_TOKEN=your_token &nbsp; JETPACK_SITE_ID=wildwoodsmallenginerepair.com</code>';
+    html += '<span style="color:#ff9f43">⚡ Run order:</span> Load Pages first → then Deep Crawl → then Link Graph, Image Audit, Headings, Duplicates, Broken Links, Keyword Map, Cannibalization, Content Gaps (they depend on crawl data)';
+    html += '</div></div>';
+    html += '</div>';
+
     // ========== TAB 23: TITLE TAGS ==========
     html += '<div class="tab-panel" id="tab-titletags">';
     var tT = D.titleTags || [];
@@ -17428,6 +18467,60 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     html += 'function globalFilter(){var q=document.getElementById("globalSearch").value.toLowerCase();if(q.length<2){document.querySelectorAll(".tab-panel").forEach(function(p){p.querySelectorAll("tr,div.box,.gbp-city").forEach(function(el){el.style.display="";});});return;}document.querySelectorAll(".tab-panel").forEach(function(p){p.querySelectorAll("tr").forEach(function(r){if(r.parentElement.tagName==="THEAD")return;var t=r.textContent.toLowerCase();r.style.display=t.indexOf(q)>=0?"":"none";});});}';
     html += 'function filterCities(){var q=document.getElementById("citySearch").value.toLowerCase();document.querySelectorAll(".city-card").forEach(function(c){c.style.display=c.getAttribute("data-city").indexOf(q)>=0?"":"none";});}';
     html += 'function copyChecklist(btn){var el=document.getElementById("weeklyChecklist");var r=document.createRange();r.selectNode(el);window.getSelection().removeAllRanges();window.getSelection().addRange(r);document.execCommand("copy");window.getSelection().removeAllRanges();btn.textContent="Copied!";}';
+
+    // Universal WP API caller with smart rendering
+    html += 'function wpBtn(el){wpCall(el.getAttribute("data-wid"),el.getAttribute("data-wurl"));}';
+    html += 'function wpCall(id,url){var el=document.getElementById("wpResults");el.innerHTML="<div class=\\"box\\"><div style=\\"color:#55f7d8\\">⏳ Loading "+id.toUpperCase()+"...</div></div>";fetch(url).then(function(r){return r.json();}).then(function(d){el.innerHTML=renderWPData(id,d);}).catch(function(e){el.innerHTML="<div class=\\"box\\" style=\\"border-left:3px solid #ff4757\\"><div style=\\"color:#ff4757\\">Failed: "+e.message+"</div></div>";});}';
+
+    html += 'function renderWPData(id,d){if(d.error)return "<div class=\\"box\\" style=\\"border-left:3px solid #ff9f43\\"><div class=\\"box-title\\"><span class=\\"dot\\" style=\\"background:#ff9f43\\"></span>"+id.toUpperCase()+"</div><div style=\\"color:#ff9f43;padding:8px\\">"+d.error+(d.setup?"<br><br><span style=\\"color:#c0d8f0\\">"+d.setup+"</span>":"")+"</div></div>";';
+    html += 'var h="<div class=\\"box\\"><div class=\\"box-title\\"><span class=\\"dot\\" style=\\"background:#55f7d8\\"></span>"+id.toUpperCase()+(d.cached?" <span style=\\"color:#4a6a8a;font-size:0.8em\\">CACHED</span>":"")+"</div>";';
+
+    // Summary stats
+    html += 'if(d.summary){h+="<div style=\\"display:flex;flex-wrap:wrap;gap:8px;margin:8px 0\\">";Object.keys(d.summary).forEach(function(k){h+="<div style=\\"background:#0a1520;padding:6px 12px;text-align:center\\"><div style=\\"font-family:Orbitron;font-size:0.9em;color:#55f7d8\\">"+d.summary[k]+"</div><div style=\\"font-size:0.65em;color:#4a6a8a;letter-spacing:1px\\">"+k.replace(/([A-Z])/g,\\" $1\\").toUpperCase()+"</div></div>";});h+="</div>";}';
+
+    // Scores (PageSpeed)
+    html += 'if(d.scores){h+="<div style=\\"display:flex;gap:12px;margin:8px 0\\">";Object.keys(d.scores).forEach(function(k){var v=d.scores[k];if(v===null)return;var c=v>=90?\\"#00ff66\\":v>=50?\\"#ffd700\\":\\"#ff4757\\";h+="<div style=\\"text-align:center\\"><div style=\\"width:50px;height:50px;border-radius:50%;border:3px solid "+c+";display:flex;align-items:center;justify-content:center\\"><span style=\\"font-family:Orbitron;font-size:0.9em;color:"+c+"\\">"+v+"</span></div><div style=\\"font-size:0.65em;color:#4a6a8a;margin-top:2px\\">"+k.toUpperCase()+"</div></div>";});h+="</div>";}';
+
+    // Metrics (Core Web Vitals)
+    html += 'if(d.metrics){h+="<div style=\\"display:flex;flex-wrap:wrap;gap:6px;margin:8px 0\\">";Object.keys(d.metrics).forEach(function(k){if(!d.metrics[k])return;h+="<span style=\\"background:#0a1520;padding:4px 10px;font-size:0.82em\\"><span style=\\"color:#4a6a8a\\">"+k+":</span> <span style=\\"color:#55f7d8;font-weight:700\\">"+d.metrics[k]+"</span></span>";});h+="</div>";}';
+
+    // Opportunities (PageSpeed)
+    html += 'if(d.opportunities&&d.opportunities.length>0){h+="<div style=\\"margin:8px 0\\"><div style=\\"font-size:0.78em;color:#ffd700;font-weight:700;margin-bottom:4px\\">OPTIMIZATION OPPORTUNITIES:</div>";d.opportunities.forEach(function(o){h+="<div style=\\"padding:3px 0;border-bottom:1px solid #0a1520;font-size:0.78em;color:#c0d8f0\\">"+o.title+(o.savings?" <span style=\\"color:#00ff66\\">(-"+o.savings+"ms)</span>":"")+"</div>";});h+="</div>";}';
+
+    // SSL info
+    html += 'if(d.ssl){h+="<div style=\\"margin:8px 0\\"><div style=\\"font-size:0.78em;color:#ffd700;font-weight:700;margin-bottom:4px\\">SSL CERTIFICATE:</div>";var ssl=d.ssl;var sc=ssl.daysUntilExpiry>30?\\"#00ff66\\":ssl.daysUntilExpiry>7?\\"#ffd700\\":\\"#ff4757\\";h+="<div style=\\"font-size:0.82em;color:#c0d8f0\\">Issuer: <span style=\\"color:#55f7d8\\">"+ssl.issuer+"</span> · Valid until: <span style=\\"color:"+sc+"\\">"+ssl.validTo+" ("+ssl.daysUntilExpiry+" days)</span> · Protocol: "+ssl.protocol+"</div></div>";}';
+
+    // Security headers
+    html += 'if(d.security){h+="<div style=\\"margin:8px 0\\"><div style=\\"font-size:0.78em;color:#ffd700;font-weight:700;margin-bottom:4px\\">SECURITY HEADERS:</div>";Object.keys(d.security).forEach(function(k){var v=d.security[k];var c=v==="MISSING"?\\"#ff4757\\":\\"#00ff66\\";h+="<div style=\\"display:flex;gap:6px;padding:2px 0;font-size:0.78em\\"><span style=\\"color:#4a6a8a;width:200px\\">"+k+"</span><span style=\\"color:"+c+"\\">"+v+"</span></div>";});h+="</div>";}';
+
+    // Data table (universal)
+    html += 'if(d.data&&Array.isArray(d.data)&&d.data.length>0){var keys=Object.keys(d.data[0]).filter(function(k){return typeof d.data[0][k]!=="object"||d.data[0][k]===null;}).slice(0,8);h+="<div style=\\"overflow-x:auto\\"><table><thead><tr>";keys.forEach(function(k){h+="<th style=\\"font-size:0.7em\\">"+k.replace(/([A-Z])/g,\\" $1\\").toUpperCase()+"</th>";});h+="</tr></thead><tbody>";d.data.slice(0,60).forEach(function(row){h+="<tr>";keys.forEach(function(k){var v=row[k];if(v===null||v===undefined)v="—";if(typeof v==="boolean")v=v?"✓":"✗";var c=\\"#c0d8f0\\";if(typeof v==="number")c=v>100?\\"#00ff66\\":v>10?\\"#ffd700\\":\\"#4a6a8a\\";if(String(v).indexOf("MISSING")>=0||String(v).indexOf("OVERDUE")>=0)c=\\"#ff4757\\";if(String(v).indexOf("GOOD")>=0||String(v).indexOf("FRESH")>=0||v===true||v==="✓")c=\\"#00ff66\\";h+="<td style=\\"color:"+c+";font-size:0.78em;max-width:200px;overflow:hidden;white-space:nowrap\\">"+String(v).substring(0,60)+"</td>";});h+="</tr>";});if(d.data.length>60)h+="<tr><td colspan=\\""+keys.length+"\\" style=\\"color:#4a6a8a;font-size:0.78em\\">...and "+(d.data.length-60)+" more rows</td></tr>";h+="</tbody></table></div>";}';
+
+    // Special arrays (missing cities, orphans, broken links, etc)
+    html += 'if(d.missingCities){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff4757;font-size:0.78em;font-weight:700\\">MISSING CITY PAGES ("+d.missing+"):</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px;margin-top:4px\\">";d.missingCities.forEach(function(c){h+="<span class=\\"tag tag-red\\">"+c+"</span>";});h+="</div></div>";}';
+    html += 'if(d.foundCities){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#00ff66;font-size:0.78em;font-weight:700\\">FOUND ("+d.found+"):</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px;margin-top:4px\\">";d.foundCities.forEach(function(c){h+="<span class=\\"tag tag-green\\">"+c+"</span>";});h+="</div></div>";}';
+    html += 'if(d.orphanPages){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff9f43;font-size:0.78em;font-weight:700\\">ORPHAN PAGES ("+d.orphans+"):</div><div style=\\"display:flex;flex-wrap:wrap;gap:4px;margin-top:4px\\">";d.orphanPages.forEach(function(c){h+="<span class=\\"tag tag-orange\\">"+c+"</span>";});h+="</div></div>";}';
+    html += 'if(d.brokenLinks){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff4757;font-size:0.78em;font-weight:700\\">BROKEN LINKS ("+d.broken+"):</div>";d.brokenLinks.forEach(function(l){h+="<div style=\\"padding:2px 0;font-size:0.75em;border-bottom:1px solid #0a1520\\"><span style=\\"color:#4a6a8a\\">"+l.source+"</span> → <span style=\\"color:#ff4757\\">"+l.link.substring(0,60)+"</span> <span style=\\"color:#ff475780\\">("+l.status+")</span></div>";});h+="</div>";}';
+    html += 'if(d.topGaps){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ffd700;font-size:0.78em;font-weight:700\\">TOP CONTENT GAPS ("+d.gaps+" keywords with no page):</div>";d.topGaps.slice(0,20).forEach(function(g){h+="<div style=\\"display:flex;gap:8px;padding:2px 0;font-size:0.78em;border-bottom:1px solid #0a1520\\"><span style=\\"color:#ffd700;width:40px\\">"+g.volume+"</span><span style=\\"color:#c0d8f0\\">"+g.keyword+"</span><span style=\\"color:#4a6a8a\\">"+g.city+"</span></div>";});h+="</div>";}';
+    html += 'if(d.topUnmatched){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff9f43;font-size:0.78em;font-weight:700\\">UNMAPPED KEYWORDS ("+d.unmatched+"):</div>";d.topUnmatched.slice(0,15).forEach(function(g){h+="<div style=\\"display:flex;gap:8px;padding:2px 0;font-size:0.78em\\"><span style=\\"color:#ffd700;width:40px\\">"+g.volume+"</span><span style=\\"color:#c0d8f0\\">"+g.keyword+"</span><span style=\\"color:#4a6a8a\\">"+g.city+"</span></div>";});h+="</div>";}';
+
+    // Robots.txt raw
+    html += 'if(d.raw){h+="<pre style=\\"background:#0a1520;padding:10px;font-size:0.75em;color:#55f7d8;max-height:200px;overflow-y:auto;white-space:pre-wrap\\">"+d.raw+"</pre>";}';
+
+    // Sitemap URL count
+    html += 'if(d.urls&&!d.data){h+="<div style=\\"margin:8px 0\\"><div style=\\"color:#ff9f43;font-size:0.78em;font-weight:700\\">SITEMAP URLs ("+d.count+"):</div>";d.urls.slice(0,40).forEach(function(u){h+="<div style=\\"padding:1px 0;font-size:0.72em\\"><a href=\\""+u.url+"\\" target=\\"_blank\\" style=\\"color:#00d4ff;text-decoration:none\\">"+u.url.replace(\\"https://wildwoodsmallenginerepair.com\\",\\"\\")+"</a>"+(u.lastmod?" <span style=\\"color:#4a6a8a\\">"+u.lastmod+"</span>":"")+"</div>";});if(d.count>40)h+="<div style=\\"color:#4a6a8a;font-size:0.72em\\">...and "+(d.count-40)+" more</div>";h+="</div>";}';
+
+    // Endpoints list
+    html += 'if(d.endpoints){h+="<table><thead><tr><th>ENDPOINT</th><th>DESCRIPTION</th><th>REQUIRES</th></tr></thead><tbody>";d.endpoints.forEach(function(e){h+="<tr><td style=\\"color:#00d4ff;font-size:0.75em\\">"+e.path+"</td><td style=\\"color:#c0d8f0;font-size:0.75em\\">"+e.desc+"</td><td style=\\"color:"+(e.auth==="none"?\\"#00ff66\\":\\"#ffd700\\")+";font-size:0.75em\\">"+e.auth+"</td></tr>";});h+="</tbody></table>";}';
+
+    // Cannibalised keywords
+    html += 'if(d.cannibalizedKeywords!==undefined){h+="<div style=\\"margin:8px 0;color:#ff4757;font-size:0.85em;font-weight:700\\">"+d.cannibalizedKeywords+" keywords competing across multiple pages</div>";}';
+
+    // Count
+    html += 'if(d.count!==undefined&&!d.data){h+="<div style=\\"color:#4a6a8a;font-size:0.82em;margin:4px 0\\">Total: "+d.count+"</div>";}';
+
+    html += 'h+="</div>";return h;}';
+
     html += '</script></body></html>';
 
     res.send(html);
