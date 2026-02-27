@@ -3057,106 +3057,74 @@ async function buildBusinessContext() {
    Call Claude API
 =========================== */
 
-// ---- TOKEN ESTIMATION & CONTEXT TRUNCATION ----
-// ~4 chars per token is a safe estimate for English text
+// Estimate token count (~4 chars per token for English text)
 function estimateTokens(text) {
   if (!text) return 0;
-  return Math.ceil(text.length / 3.5);
+  return Math.ceil(text.length / 4);
 }
 
-function estimateMessagesTokens(messages) {
-  var total = 0;
+// Truncate context to fit within token budget
+function truncateForTokenLimit(systemPrompt, messages, maxTotalTokens) {
+  maxTotalTokens = maxTotalTokens || 180000; // Safe buffer under 200K limit
+  var responseBuffer = 2000; // Reserve for max_tokens + overhead
+  var budget = maxTotalTokens - responseBuffer;
+
+  var systemTokens = estimateTokens(systemPrompt);
+  var msgTokens = 0;
   for (var i = 0; i < messages.length; i++) {
-    total += estimateTokens(messages[i].content) + 4; // overhead per message
-  }
-  return total;
-}
-
-// Truncate system prompt to fit within budget, keeping the most important parts
-function truncateSystemPrompt(systemPrompt, maxTokens) {
-  var est = estimateTokens(systemPrompt);
-  if (est <= maxTokens) return systemPrompt;
-
-  console.log("System prompt too large: ~" + est + " tokens, truncating to ~" + maxTokens);
-
-  // Strategy: keep the first part (instructions + identity) and trim data sections
-  var maxChars = maxTokens * 3.5;
-
-  // Find the start of data sections to preserve instructions
-  var dataMarkers = [
-    'LIFE OS DATA', 'BUSINESS CRM DATA', 'BUSINESS DATA:',
-    'SEO AUDIT DATA', 'GOOGLE ADS DATA', 'SQUARE DATA',
-    'DISCORD TEAM MESSAGES', 'OPERATIONAL DATA & SOPs',
-    'DETAILED CRM METRICS', 'TECHNICIAN PERFORMANCE',
-    'MONTHLY CALL VOLUME', 'SEASONAL PATTERNS',
-    'TOP LOCATIONS:', 'FOLLOW-UP PORTAL DATA',
-    'TOOKAN DISPATCH DATA', 'FINANCIAL DATA',
-  ];
-
-  // Find earliest data section
-  var instructionEnd = systemPrompt.length;
-  for (var i = 0; i < dataMarkers.length; i++) {
-    var idx = systemPrompt.indexOf(dataMarkers[i]);
-    if (idx > 0 && idx < instructionEnd) instructionEnd = idx;
+    msgTokens += estimateTokens(messages[i].content) + 10; // +10 for role/formatting overhead
   }
 
-  var instructions = systemPrompt.substring(0, instructionEnd);
-  var dataSection = systemPrompt.substring(instructionEnd);
+  var totalTokens = systemTokens + msgTokens;
+  console.log('[askClaude] Estimated tokens — system: ' + systemTokens + ', messages: ' + msgTokens + ', total: ' + totalTokens + ', budget: ' + budget);
 
-  // Budget remaining chars for data
-  var dataMaxChars = maxChars - instructions.length - 200; // 200 char buffer
-  if (dataMaxChars < 1000) dataMaxChars = 1000;
-
-  if (dataSection.length > dataMaxChars) {
-    // Take first portion of data (most recent/important stuff tends to be first)
-    dataSection = dataSection.substring(0, dataMaxChars) + '\n\n[Context truncated to fit token limit]';
+  // If under budget, return as-is
+  if (totalTokens <= budget) {
+    return { systemPrompt: systemPrompt, messages: messages };
   }
 
-  var result = instructions + dataSection;
-  console.log("Truncated system prompt: ~" + estimateTokens(result) + " tokens (was ~" + est + ")");
-  return result;
-}
-
-// Trim messages to fit within token budget
-function trimMessages(messages, maxTokens) {
-  var total = estimateMessagesTokens(messages);
-  if (total <= maxTokens) return messages;
-
-  // Keep the most recent messages, always keeping at least the last user message
-  var trimmed = messages.slice();
-  while (trimmed.length > 1 && estimateMessagesTokens(trimmed) > maxTokens) {
-    trimmed.shift();
+  // Strategy 1: Trim conversation history first (keep last 6 messages)
+  if (messages.length > 6) {
+    messages = messages.slice(-6);
+    msgTokens = 0;
+    for (var j = 0; j < messages.length; j++) {
+      msgTokens += estimateTokens(messages[j].content) + 10;
+    }
+    totalTokens = systemTokens + msgTokens;
+    console.log('[askClaude] After message trim: ' + totalTokens + ' tokens');
+    if (totalTokens <= budget) {
+      return { systemPrompt: systemPrompt, messages: messages };
+    }
   }
-  // Ensure we start with a user message (API requirement)
-  while (trimmed.length > 1 && trimmed[0].role !== 'user') {
-    trimmed.shift();
+
+  // Strategy 2: Truncate the system prompt to fit
+  var systemBudget = budget - msgTokens;
+  if (systemBudget < 5000) systemBudget = 5000; // Minimum system prompt
+  var charLimit = systemBudget * 4; // Convert back to chars
+  if (systemPrompt.length > charLimit) {
+    console.log('[askClaude] Truncating system prompt from ' + systemPrompt.length + ' chars to ' + charLimit);
+    // Keep the beginning (core instructions) and truncate data sections
+    var rulesEnd = systemPrompt.indexOf('BUSINESS DATA:');
+    if (rulesEnd === -1) rulesEnd = systemPrompt.indexOf('LIFE OS DATA:');
+    if (rulesEnd === -1) rulesEnd = Math.min(3000, systemPrompt.length);
+    
+    if (rulesEnd < charLimit) {
+      // Keep rules + as much data as fits
+      systemPrompt = systemPrompt.substring(0, charLimit) + '\n\n[Context truncated to fit token limit]';
+    } else {
+      // Even rules are too long, hard truncate
+      systemPrompt = systemPrompt.substring(0, charLimit) + '\n\n[Context truncated to fit token limit]';
+    }
   }
-  console.log("Trimmed messages from " + messages.length + " to " + trimmed.length + " (~" + estimateMessagesTokens(trimmed) + " tokens)");
-  return trimmed;
+
+  console.log('[askClaude] Final estimated tokens: ' + (estimateTokens(systemPrompt) + msgTokens));
+  return { systemPrompt: systemPrompt, messages: messages };
 }
 
 async function askClaude(systemPrompt, messages) {
   try {
-    // ---- GUARD: Keep total under 190K tokens (200K limit with buffer) ----
-    var MAX_TOTAL_TOKENS = 180000;
-    var SYSTEM_MAX = 150000; // Max for system prompt alone
-    var MESSAGES_MAX = 30000; // Max for conversation history
-
-    // 1. Truncate system prompt if needed
-    var safeSystem = truncateSystemPrompt(systemPrompt, SYSTEM_MAX);
-
-    // 2. Trim messages if needed
-    var safeMessages = trimMessages(messages, MESSAGES_MAX);
-
-    // 3. Final check — if still too big, aggressively trim
-    var totalEst = estimateTokens(safeSystem) + estimateMessagesTokens(safeMessages) + 1024;
-    if (totalEst > MAX_TOTAL_TOKENS) {
-      console.log("Still over budget at ~" + totalEst + " tokens, aggressive trim");
-      var remaining = MAX_TOTAL_TOKENS - estimateMessagesTokens(safeMessages) - 2000;
-      safeSystem = truncateSystemPrompt(systemPrompt, Math.max(remaining, 20000));
-    }
-
-    console.log("askClaude: system ~" + estimateTokens(safeSystem) + " tokens, messages ~" + estimateMessagesTokens(safeMessages) + " tokens, total ~" + (estimateTokens(safeSystem) + estimateMessagesTokens(safeMessages)) + " tokens");
+    // Enforce token limits before calling API
+    var trimmed = truncateForTokenLimit(systemPrompt, messages);
 
     var response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -3168,8 +3136,8 @@ async function askClaude(systemPrompt, messages) {
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1024,
-        system: safeSystem,
-        messages: safeMessages,
+        system: trimmed.systemPrompt,
+        messages: trimmed.messages,
       }),
     });
     var data = await response.json();
@@ -3671,7 +3639,7 @@ app.post('/whatsapp', async function(req, res) {
 
           await twilioClient.messages.create({
             body: msg,
-            from: 'whatsapp:+15557504212',
+            from: 'whatsapp:+14155238886',
             to: from,
           });
         } catch (e) {
@@ -3679,7 +3647,7 @@ app.post('/whatsapp', async function(req, res) {
           try {
             await twilioClient.messages.create({
               body: "Couldn't access calendar. You may need to reconnect: https://lifeos-jarvis.onrender.com/gmail/auth",
-              from: 'whatsapp:+15557504212',
+              from: 'whatsapp:+14155238886',
               to: from,
             });
           } catch (e2) {}
@@ -3716,7 +3684,7 @@ app.post('/whatsapp', async function(req, res) {
 
           await twilioClient.messages.create({
             body: msg,
-            from: 'whatsapp:+15557504212',
+            from: 'whatsapp:+14155238886',
             to: from,
           });
         } catch (e) {
@@ -3774,7 +3742,7 @@ app.post('/whatsapp', async function(req, res) {
             if (accounts.length === 0) {
               await twilioClient.messages.create({
                 body: "No calendar connected. Visit https://lifeos-jarvis.onrender.com/gmail/auth",
-                from: 'whatsapp:+15557504212',
+                from: 'whatsapp:+14155238886',
                 to: from,
               });
               return;
@@ -3786,13 +3754,13 @@ app.post('/whatsapp', async function(req, res) {
             if (result.success) {
               await twilioClient.messages.create({
                 body: "Event created: \"" + ed.name + "\"\n" + ed.date + " at " + ed.time + (loc ? " @ " + loc : "") + "\n\nI'll call you 10 minutes before.",
-                from: 'whatsapp:+15557504212',
+                from: 'whatsapp:+14155238886',
                 to: from,
               });
             } else {
               await twilioClient.messages.create({
                 body: "Couldn't create event: " + result.error,
-                from: 'whatsapp:+15557504212',
+                from: 'whatsapp:+14155238886',
                 to: from,
               });
             }
@@ -3801,7 +3769,7 @@ app.post('/whatsapp', async function(req, res) {
             try {
               await twilioClient.messages.create({
                 body: "Error creating event: " + e.message,
-                from: 'whatsapp:+15557504212',
+                from: 'whatsapp:+14155238886',
                 to: from,
               });
             } catch (e2) {}
@@ -3877,7 +3845,7 @@ app.post('/whatsapp', async function(req, res) {
             try {
               await twilioClient.messages.create({
                 body: "Reminder: \"" + reminderText + "\" — You said you'd handle this. Have you? Text \"done: " + reminderText.substring(0, 20) + "\" when it's done.",
-                from: 'whatsapp:+15557504212',
+                from: 'whatsapp:+14155238886',
                 to: from,
               });
             } catch (e) { console.log("Reminder nudge error: " + e.message); }
@@ -3894,7 +3862,7 @@ app.post('/whatsapp', async function(req, res) {
               // Text warning first
               await twilioClient.messages.create({
                 body: "Last warning. \"" + reminderText + "\" is still not done. I'm calling you in 60 seconds.",
-                from: 'whatsapp:+15557504212',
+                from: 'whatsapp:+14155238886',
                 to: from,
               });
 
@@ -4337,7 +4305,7 @@ app.post('/whatsapp', async function(req, res) {
 
             await twilioClient.messages.create({
               body: "Dating insight: " + analysis,
-              from: 'whatsapp:+15557504212',
+              from: 'whatsapp:+14155238886',
               to: from,
             });
           } catch (e) { console.log("Dating log error: " + e.message); }
@@ -4520,7 +4488,7 @@ app.post('/whatsapp', async function(req, res) {
           // Send via Twilio
           await twilioClient.messages.create({
             body: resultMsg,
-            from: 'whatsapp:+15557504212',
+            from: 'whatsapp:+14155238886',
             to: from,
           });
         } catch (cleanErr) {
@@ -4528,7 +4496,7 @@ app.post('/whatsapp', async function(req, res) {
           try {
             await twilioClient.messages.create({
               body: "Error cleaning inbox: " + cleanErr.message,
-              from: 'whatsapp:+15557504212',
+              from: 'whatsapp:+14155238886',
               to: from,
             });
           } catch (e) {}
@@ -4569,7 +4537,7 @@ app.post('/whatsapp', async function(req, res) {
 
           await twilioClient.messages.create({
             body: "Let's go. 10 questions. Be honest with yourself.\n\n" + questions[0],
-            from: 'whatsapp:+15557504212',
+            from: 'whatsapp:+14155238886',
             to: from,
           });
         } catch (qErr) {
@@ -4577,7 +4545,7 @@ app.post('/whatsapp', async function(req, res) {
           try {
             await twilioClient.messages.create({
               body: "Error generating questions: " + qErr.message,
-              from: 'whatsapp:+15557504212',
+              from: 'whatsapp:+14155238886',
               to: from,
             });
           } catch (e) {}
@@ -4638,7 +4606,7 @@ app.post('/whatsapp', async function(req, res) {
 
             await twilioClient.messages.create({
               body: "That's all 10. Here's what I see:\n\n" + capturedDailyQ.summary,
-              from: 'whatsapp:+15557504212',
+              from: 'whatsapp:+14155238886',
               to: capturedFrom,
             });
           }
@@ -4709,11 +4677,10 @@ app.post('/whatsapp', async function(req, res) {
     var response = await askClaude(history.systemPrompt, history.messages);
     console.log("Jarvis WhatsApp: " + response);
 
-    // Keep only last 6 messages to avoid token limits
+    // Keep only last 10 messages to avoid token limits
     history.messages.push({ role: 'assistant', content: response });
-    if (history.messages.length > 10) {
-      history.messages = history.messages.slice(-6);
-      while (history.messages.length > 1 && history.messages[0].role !== 'user') history.messages.shift();
+    if (history.messages.length > 20) {
+      history.messages = history.messages.slice(-10);
     }
     whatsappHistory[from] = history;
 
@@ -5226,7 +5193,7 @@ function startCalendarWatcher() {
               try {
                 await twilioClient.messages.create({
                   body: "Heads up — \"" + item.summary + "\" starts in 10 minutes" + (item.location ? " at " + item.location : "") + ".",
-                  from: 'whatsapp:+15557504212',
+                  from: 'whatsapp:+14155238886',
                   to: '+18167392734',
                 });
               } catch (e) {}
@@ -9848,7 +9815,7 @@ app.post('/chat', async function(req, res) {
         if (global.activeReminders[reminderId] && !global.activeReminders[reminderId].done) {
           var hour = new Date().getHours();
           if (hour >= 7 && hour < 23) {
-            try { await twilioClient.messages.create({ body: "Reminder: \"" + reminderText + "\" — still pending.", from: 'whatsapp:+15557504212', to: '+18167392734' }); } catch (e) {}
+            try { await twilioClient.messages.create({ body: "Reminder: \"" + reminderText + "\" — still pending.", from: 'whatsapp:+14155238886', to: '+18167392734' }); } catch (e) {}
           }
         }
       }, fiveHours);
@@ -9857,7 +9824,7 @@ app.post('/chat', async function(req, res) {
           var hour = new Date().getHours();
           if (hour >= 7 && hour < 23) {
             try {
-              await twilioClient.messages.create({ body: "\"" + reminderText + "\" still not done. Calling you.", from: 'whatsapp:+15557504212', to: '+18167392734' });
+              await twilioClient.messages.create({ body: "\"" + reminderText + "\" still not done. Calling you.", from: 'whatsapp:+14155238886', to: '+18167392734' });
               setTimeout(async function() {
                 if (global.activeReminders[reminderId] && !global.activeReminders[reminderId].done) {
                   try { await twilioClient.calls.create({ to: MY_NUMBER, from: TWILIO_NUMBER, twiml: '<Response><Say voice="Polly.Matthew">Trace. You told me to remind you about: ' + reminderText.replace(/[<>&"']/g, '') + '. Handle it now.</Say></Response>' }); } catch (e) {}
@@ -9960,12 +9927,7 @@ app.post('/chat', async function(req, res) {
     history.messages.push({ role: 'user', content: userMessage });
     var response = await askClaude(history.systemPrompt, history.messages);
     history.messages.push({ role: 'assistant', content: response });
-    // Keep conversation tight — trim to last 6 messages (3 exchanges)
-    if (history.messages.length > 10) {
-      history.messages = history.messages.slice(-6);
-      // Ensure starts with user message
-      while (history.messages.length > 1 && history.messages[0].role !== 'user') history.messages.shift();
-    }
+    if (history.messages.length > 12) history.messages = history.messages.slice(-6);
     webChatHistory[sessionId] = history;
 
     res.json({ response: response });
@@ -10266,11 +10228,7 @@ app.post('/chat/athena', async function(req, res) {
     history.messages.push({ role: 'user', content: userMessage });
     var response = await askClaude(history.systemPrompt, history.messages);
     history.messages.push({ role: 'assistant', content: response });
-    // Keep conversation tight — trim to last 6 messages (3 exchanges)
-    if (history.messages.length > 10) {
-      history.messages = history.messages.slice(-6);
-      while (history.messages.length > 1 && history.messages[0].role !== 'user') history.messages.shift();
-    }
+    if (history.messages.length > 12) history.messages = history.messages.slice(-6);
     athenaChatHistory[sessionId] = history;
 
     res.json({ response: response });
@@ -10362,7 +10320,7 @@ app.get('/daily-questions', async function(req, res) {
 
     await twilioClient.messages.create({
       body: "Good morning Trace. Time to check in with yourself. 10 questions about your life, your beliefs, and where you're headed. Answer honestly — I'll tell you which beliefs need fixing and what to do about it.\n\n" + questions[0],
-      from: 'whatsapp:+15557504212',
+      from: 'whatsapp:+14155238886',
       to: '+18167392734',
     });
 
@@ -10702,7 +10660,7 @@ app.get('/nightly-checkin', async function(req, res) {
 
     await twilioClient.messages.create({
       body: "End of day check-in. Quick answers, no overthinking.\n\nHow many hours did you sleep last night?",
-      from: 'whatsapp:+15557504212',
+      from: 'whatsapp:+14155238886',
       to: '+18167392734',
     });
 
