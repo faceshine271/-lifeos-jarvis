@@ -3057,38 +3057,48 @@ async function buildBusinessContext() {
    Call Claude API
 =========================== */
 
-// Estimate token count (~4 chars per token for English text)
+// Estimate token count — using conservative 2.5 chars/token ratio
+// (structured data with JSON, numbers, short words tokenizes at ~2-3 chars/token)
 function estimateTokens(text) {
   if (!text) return 0;
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / 2.5);
 }
+
+// Hard character limit for system prompts (~150K tokens max = ~375K chars)
+var MAX_SYSTEM_CHARS = 350000;
 
 // Truncate context to fit within token budget
 function truncateForTokenLimit(systemPrompt, messages, maxTotalTokens) {
-  maxTotalTokens = maxTotalTokens || 180000; // Safe buffer under 200K limit
-  var responseBuffer = 2000; // Reserve for max_tokens + overhead
+  maxTotalTokens = maxTotalTokens || 170000; // Conservative buffer under 200K
+  var responseBuffer = 2000;
   var budget = maxTotalTokens - responseBuffer;
+
+  // Step 0: Hard-cap the system prompt immediately if it's absurdly large
+  if (systemPrompt.length > MAX_SYSTEM_CHARS) {
+    console.log('[askClaude] HARD CAP: system prompt ' + systemPrompt.length + ' chars -> ' + MAX_SYSTEM_CHARS);
+    systemPrompt = systemPrompt.substring(0, MAX_SYSTEM_CHARS) + '\n\n[Context truncated to fit token limit]';
+  }
 
   var systemTokens = estimateTokens(systemPrompt);
   var msgTokens = 0;
   for (var i = 0; i < messages.length; i++) {
-    msgTokens += estimateTokens(messages[i].content) + 10; // +10 for role/formatting overhead
+    msgTokens += estimateTokens(typeof messages[i].content === 'string' ? messages[i].content : JSON.stringify(messages[i].content)) + 10;
   }
 
   var totalTokens = systemTokens + msgTokens;
-  console.log('[askClaude] Estimated tokens — system: ' + systemTokens + ', messages: ' + msgTokens + ', total: ' + totalTokens + ', budget: ' + budget);
+  console.log('[askClaude] Estimated tokens — system: ' + systemTokens + ' (' + systemPrompt.length + ' chars), messages: ' + msgTokens + ', total: ' + totalTokens + ', budget: ' + budget);
 
   // If under budget, return as-is
   if (totalTokens <= budget) {
     return { systemPrompt: systemPrompt, messages: messages };
   }
 
-  // Strategy 1: Trim conversation history first (keep last 6 messages)
-  if (messages.length > 6) {
-    messages = messages.slice(-6);
+  // Strategy 1: Trim conversation history (keep last 4 messages)
+  if (messages.length > 4) {
+    messages = messages.slice(-4);
     msgTokens = 0;
     for (var j = 0; j < messages.length; j++) {
-      msgTokens += estimateTokens(messages[j].content) + 10;
+      msgTokens += estimateTokens(typeof messages[j].content === 'string' ? messages[j].content : JSON.stringify(messages[j].content)) + 10;
     }
     totalTokens = systemTokens + msgTokens;
     console.log('[askClaude] After message trim: ' + totalTokens + ' tokens');
@@ -3099,25 +3109,15 @@ function truncateForTokenLimit(systemPrompt, messages, maxTotalTokens) {
 
   // Strategy 2: Truncate the system prompt to fit
   var systemBudget = budget - msgTokens;
-  if (systemBudget < 5000) systemBudget = 5000; // Minimum system prompt
-  var charLimit = systemBudget * 4; // Convert back to chars
+  if (systemBudget < 5000) systemBudget = 5000;
+  var charLimit = Math.floor(systemBudget * 2.5); // Convert back to chars using same ratio
   if (systemPrompt.length > charLimit) {
     console.log('[askClaude] Truncating system prompt from ' + systemPrompt.length + ' chars to ' + charLimit);
-    // Keep the beginning (core instructions) and truncate data sections
-    var rulesEnd = systemPrompt.indexOf('BUSINESS DATA:');
-    if (rulesEnd === -1) rulesEnd = systemPrompt.indexOf('LIFE OS DATA:');
-    if (rulesEnd === -1) rulesEnd = Math.min(3000, systemPrompt.length);
-    
-    if (rulesEnd < charLimit) {
-      // Keep rules + as much data as fits
-      systemPrompt = systemPrompt.substring(0, charLimit) + '\n\n[Context truncated to fit token limit]';
-    } else {
-      // Even rules are too long, hard truncate
-      systemPrompt = systemPrompt.substring(0, charLimit) + '\n\n[Context truncated to fit token limit]';
-    }
+    systemPrompt = systemPrompt.substring(0, charLimit) + '\n\n[Context truncated to fit token limit]';
   }
 
-  console.log('[askClaude] Final estimated tokens: ' + (estimateTokens(systemPrompt) + msgTokens));
+  var finalEst = estimateTokens(systemPrompt) + msgTokens;
+  console.log('[askClaude] Final estimated tokens: ' + finalEst);
   return { systemPrompt: systemPrompt, messages: messages };
 }
 
