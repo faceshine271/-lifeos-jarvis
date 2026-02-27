@@ -3671,7 +3671,7 @@ app.post('/whatsapp', async function(req, res) {
 
           await twilioClient.messages.create({
             body: msg,
-            from: 'whatsapp:+14155238886',
+            from: 'whatsapp:+15557504212',
             to: from,
           });
         } catch (e) {
@@ -3679,7 +3679,7 @@ app.post('/whatsapp', async function(req, res) {
           try {
             await twilioClient.messages.create({
               body: "Couldn't access calendar. You may need to reconnect: https://lifeos-jarvis.onrender.com/gmail/auth",
-              from: 'whatsapp:+14155238886',
+              from: 'whatsapp:+15557504212',
               to: from,
             });
           } catch (e2) {}
@@ -3716,7 +3716,7 @@ app.post('/whatsapp', async function(req, res) {
 
           await twilioClient.messages.create({
             body: msg,
-            from: 'whatsapp:+14155238886',
+            from: 'whatsapp:+15557504212',
             to: from,
           });
         } catch (e) {
@@ -3774,7 +3774,7 @@ app.post('/whatsapp', async function(req, res) {
             if (accounts.length === 0) {
               await twilioClient.messages.create({
                 body: "No calendar connected. Visit https://lifeos-jarvis.onrender.com/gmail/auth",
-                from: 'whatsapp:+14155238886',
+                from: 'whatsapp:+15557504212',
                 to: from,
               });
               return;
@@ -3786,13 +3786,13 @@ app.post('/whatsapp', async function(req, res) {
             if (result.success) {
               await twilioClient.messages.create({
                 body: "Event created: \"" + ed.name + "\"\n" + ed.date + " at " + ed.time + (loc ? " @ " + loc : "") + "\n\nI'll call you 10 minutes before.",
-                from: 'whatsapp:+14155238886',
+                from: 'whatsapp:+15557504212',
                 to: from,
               });
             } else {
               await twilioClient.messages.create({
                 body: "Couldn't create event: " + result.error,
-                from: 'whatsapp:+14155238886',
+                from: 'whatsapp:+15557504212',
                 to: from,
               });
             }
@@ -3801,7 +3801,7 @@ app.post('/whatsapp', async function(req, res) {
             try {
               await twilioClient.messages.create({
                 body: "Error creating event: " + e.message,
-                from: 'whatsapp:+14155238886',
+                from: 'whatsapp:+15557504212',
                 to: from,
               });
             } catch (e2) {}
@@ -3877,7 +3877,7 @@ app.post('/whatsapp', async function(req, res) {
             try {
               await twilioClient.messages.create({
                 body: "Reminder: \"" + reminderText + "\" — You said you'd handle this. Have you? Text \"done: " + reminderText.substring(0, 20) + "\" when it's done.",
-                from: 'whatsapp:+14155238886',
+                from: 'whatsapp:+15557504212',
                 to: from,
               });
             } catch (e) { console.log("Reminder nudge error: " + e.message); }
@@ -3894,7 +3894,7 @@ app.post('/whatsapp', async function(req, res) {
               // Text warning first
               await twilioClient.messages.create({
                 body: "Last warning. \"" + reminderText + "\" is still not done. I'm calling you in 60 seconds.",
-                from: 'whatsapp:+14155238886',
+                from: 'whatsapp:+15557504212',
                 to: from,
               });
 
@@ -4337,7 +4337,7 @@ app.post('/whatsapp', async function(req, res) {
 
             await twilioClient.messages.create({
               body: "Dating insight: " + analysis,
-              from: 'whatsapp:+14155238886',
+              from: 'whatsapp:+15557504212',
               to: from,
             });
           } catch (e) { console.log("Dating log error: " + e.message); }
@@ -4520,7 +4520,7 @@ app.post('/whatsapp', async function(req, res) {
           // Send via Twilio
           await twilioClient.messages.create({
             body: resultMsg,
-            from: 'whatsapp:+14155238886',
+            from: 'whatsapp:+15557504212',
             to: from,
           });
         } catch (cleanErr) {
@@ -4528,7 +4528,7 @@ app.post('/whatsapp', async function(req, res) {
           try {
             await twilioClient.messages.create({
               body: "Error cleaning inbox: " + cleanErr.message,
-              from: 'whatsapp:+14155238886',
+              from: 'whatsapp:+15557504212',
               to: from,
             });
           } catch (e) {}
@@ -4569,7 +4569,7 @@ app.post('/whatsapp', async function(req, res) {
 
           await twilioClient.messages.create({
             body: "Let's go. 10 questions. Be honest with yourself.\n\n" + questions[0],
-            from: 'whatsapp:+14155238886',
+            from: 'whatsapp:+15557504212',
             to: from,
           });
         } catch (qErr) {
@@ -4577,7 +4577,7 @@ app.post('/whatsapp', async function(req, res) {
           try {
             await twilioClient.messages.create({
               body: "Error generating questions: " + qErr.message,
-              from: 'whatsapp:+14155238886',
+              from: 'whatsapp:+15557504212',
               to: from,
             });
           } catch (e) {}
@@ -4638,7 +4638,7 @@ app.post('/whatsapp', async function(req, res) {
 
             await twilioClient.messages.create({
               body: "That's all 10. Here's what I see:\n\n" + capturedDailyQ.summary,
-              from: 'whatsapp:+14155238886',
+              from: 'whatsapp:+15557504212',
               to: capturedFrom,
             });
           }
@@ -5226,7 +5226,7 @@ function startCalendarWatcher() {
               try {
                 await twilioClient.messages.create({
                   body: "Heads up — \"" + item.summary + "\" starts in 10 minutes" + (item.location ? " at " + item.location : "") + ".",
-                  from: 'whatsapp:+14155238886',
+                  from: 'whatsapp:+15557504212',
                   to: '+18167392734',
                 });
               } catch (e) {}
@@ -9848,7 +9848,7 @@ app.post('/chat', async function(req, res) {
         if (global.activeReminders[reminderId] && !global.activeReminders[reminderId].done) {
           var hour = new Date().getHours();
           if (hour >= 7 && hour < 23) {
-            try { await twilioClient.messages.create({ body: "Reminder: \"" + reminderText + "\" — still pending.", from: 'whatsapp:+14155238886', to: '+18167392734' }); } catch (e) {}
+            try { await twilioClient.messages.create({ body: "Reminder: \"" + reminderText + "\" — still pending.", from: 'whatsapp:+15557504212', to: '+18167392734' }); } catch (e) {}
           }
         }
       }, fiveHours);
@@ -9857,7 +9857,7 @@ app.post('/chat', async function(req, res) {
           var hour = new Date().getHours();
           if (hour >= 7 && hour < 23) {
             try {
-              await twilioClient.messages.create({ body: "\"" + reminderText + "\" still not done. Calling you.", from: 'whatsapp:+14155238886', to: '+18167392734' });
+              await twilioClient.messages.create({ body: "\"" + reminderText + "\" still not done. Calling you.", from: 'whatsapp:+15557504212', to: '+18167392734' });
               setTimeout(async function() {
                 if (global.activeReminders[reminderId] && !global.activeReminders[reminderId].done) {
                   try { await twilioClient.calls.create({ to: MY_NUMBER, from: TWILIO_NUMBER, twiml: '<Response><Say voice="Polly.Matthew">Trace. You told me to remind you about: ' + reminderText.replace(/[<>&"']/g, '') + '. Handle it now.</Say></Response>' }); } catch (e) {}
@@ -10362,7 +10362,7 @@ app.get('/daily-questions', async function(req, res) {
 
     await twilioClient.messages.create({
       body: "Good morning Trace. Time to check in with yourself. 10 questions about your life, your beliefs, and where you're headed. Answer honestly — I'll tell you which beliefs need fixing and what to do about it.\n\n" + questions[0],
-      from: 'whatsapp:+14155238886',
+      from: 'whatsapp:+15557504212',
       to: '+18167392734',
     });
 
@@ -10702,7 +10702,7 @@ app.get('/nightly-checkin', async function(req, res) {
 
     await twilioClient.messages.create({
       body: "End of day check-in. Quick answers, no overthinking.\n\nHow many hours did you sleep last night?",
-      from: 'whatsapp:+14155238886',
+      from: 'whatsapp:+15557504212',
       to: '+18167392734',
     });
 
