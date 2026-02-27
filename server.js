@@ -3156,203 +3156,166 @@ app.get('/login', function(req, res) {
   }
 
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
-  html += '<title>WILDWOOD — System Initialization</title>';
-  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">';
+  html += '<title>WILDWOOD — NEURAL INTERFACE</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">';
   html += '<style>';
   html += '*{margin:0;padding:0;box-sizing:border-box;}';
-  html += 'body{background:#0a0e1a;color:#00ff88;font-family:"Rajdhani",monospace;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
-  html += '.container{text-align:center;position:relative;z-index:2;max-width:600px;}';
-  html += '.grid-bg{position:fixed;inset:0;background:linear-gradient(0deg,#0a1428 1px,transparent 1px),linear-gradient(90deg,#0a1428 1px,transparent 1px);background-size:50px 50px;opacity:0.05;z-index:0;}';
-  html += '.scanline{position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,255,136,0.03) 0px,rgba(0,255,136,0.03) 1px,transparent 1px,transparent 2px);z-index:1;pointer-events:none;animation:scan 8s linear infinite;}';
+  html += 'body{background:#0a0e1a;color:#00d4ff;font-family:"Courier Prime",monospace;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
+  
+  html += '.bg{position:fixed;inset:0;z-index:0;background:#0a0e1a;}';
+  html += '.scanlines{position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,212,255,0.02) 0px,rgba(0,212,255,0.02) 2px,transparent 2px,transparent 4px);z-index:1;pointer-events:none;animation:scan 8s linear infinite;}';
   html += '@keyframes scan{0%{transform:translateY(0)}100%{transform:translateY(10px)}}';
+  html += '.vignette{position:fixed;inset:0;background:radial-gradient(ellipse at center,transparent 0%,rgba(0,0,0,0.8) 100%);z-index:1;pointer-events:none;}';
   
-  html += '.header{margin-bottom:50px;}';
-  html += '.title{font-family:"Orbitron",sans-serif;font-size:2.2em;font-weight:900;letter-spacing:8px;background:linear-gradient(135deg,#00ff88,#00ccff,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:10px;text-shadow:0 0 20px rgba(0,255,136,0.3);}';
-  html += '.subtitle{font-size:0.7em;letter-spacing:3px;color:#00ff88;opacity:0.7;margin-bottom:30px;}';
-  html += '.status-line{font-size:0.75em;color:#00ff88;opacity:0.5;margin-bottom:10px;font-family:"Rajdhani",monospace;}';
+  html += '.container{position:relative;z-index:2;text-align:center;max-width:500px;}';
   
-  html += '.face-container{width:280px;height:320px;margin:0 auto 40px;position:relative;}';
-  html += '.face{width:100%;height:100%;position:relative;background:radial-gradient(circle at 35% 35%,rgba(0,255,136,0.1),rgba(0,170,255,0.05));border:2px solid #00ff88;border-radius:20px;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
-  html += '.face::before{content:"";position:absolute;inset:0;background:linear-gradient(45deg,transparent 30%,rgba(0,255,136,0.1) 50%,transparent 70%);animation:shine 3s infinite;}';
-  html += '@keyframes shine{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}';
+  html += '.header{margin-bottom:40px;}';
+  html += '.system-label{font-size:0.65em;letter-spacing:3px;color:#00d4ff;opacity:0.6;margin-bottom:15px;animation:flicker 3s infinite;}';
+  html += '@keyframes flicker{0%,100%{opacity:0.6}50%{opacity:1}}';
+  html += '.title{font-family:"Orbitron",sans-serif;font-size:2em;font-weight:900;letter-spacing:6px;color:#00d4ff;margin-bottom:8px;text-shadow:0 0 20px rgba(0,212,255,0.5);}';
+  html += '.subtitle{font-size:0.75em;letter-spacing:2px;color:#00ff88;opacity:0.7;}';
   
-  html += 'svg{position:relative;z-index:2;filter:drop-shadow(0 0 10px rgba(0,255,136,0.3));}';
-  html += 'circle.eye{fill:none;stroke:#00ff88;stroke-width:2;}';
-  html += 'circle.pupil{fill:#00ff88;animation:pupilGlow 2s ease-in-out infinite;}';
-  html += '@keyframes pupilGlow{0%,100%{r:6;fill:#00ff88;filter:drop-shadow(0 0 8px rgba(0,255,136,0.8))}50%{r:8;fill:#00ccff;filter:drop-shadow(0 0 16px rgba(0,204,255,0.8))}}';
-  html += 'line.mouth{stroke:#00ff88;stroke-width:2.5;animation:mouth-move 2s ease-in-out infinite;}';
-  html += '@keyframes mouth-move{0%,100%{d:path("M100,150 Q140,160 180,150")}50%{d:path("M100,150 Q140,175 180,150")}}';
-  html += '.face-grid{position:absolute;inset:0;opacity:0.1;z-index:1;}';
-  html += '.face-grid line{stroke:#00ff88;stroke-width:1;}';
+  html += '.face-wrapper{position:relative;width:320px;height:420px;margin:0 auto 40px;perspective:1000px;}';
+  html += '.hoodie{position:absolute;top:-20px;left:50%;transform:translateX(-50%);width:340px;height:160px;z-index:1;}';
+  html += '.hood-left{position:absolute;top:0;left:10px;width:140px;height:150px;border:2px solid #00d4ff;border-radius:100% 40% 40% 100%;background:radial-gradient(circle at 30% 30%,rgba(0,212,255,0.2),rgba(0,0,0,0.5));filter:drop-shadow(0 0 20px rgba(0,212,255,0.4));opacity:0.9;}';
+  html += '.hood-right{position:absolute;top:0;right:10px;width:140px;height:150px;border:2px solid #00d4ff;border-radius:40% 100% 100% 40%;background:radial-gradient(circle at 70% 30%,rgba(0,212,255,0.2),rgba(0,0,0,0.5));filter:drop-shadow(0 0 20px rgba(0,212,255,0.4));opacity:0.9;}';
   
-  html += '.progress-container{margin:30px 0;position:relative;}';
-  html += '.progress-bar{width:100%;height:3px;background:#1a2d3a;border:1px solid #00ff8830;position:relative;overflow:hidden;border-radius:2px;}';
-  html += '.progress-fill{height:100%;background:linear-gradient(90deg,#00ff88,#00ccff);animation:loading 2.5s ease-in-out infinite;border-radius:2px;box-shadow:0 0 10px rgba(0,255,136,0.6);}';
-  html += '@keyframes loading{0%{width:0%}50%{width:85%}100%{width:100%}}';
-  html += '.progress-text{font-size:0.65em;letter-spacing:1px;color:#00ff88;opacity:0.7;margin-top:8px;margin-bottom:20px;}';
+  html += '.face{position:relative;width:280px;height:360px;margin:0 auto;background:radial-gradient(circle at 40% 35%,rgba(0,212,255,0.15),rgba(0,0,0,0.7));border:2px solid #00d4ff;border-radius:30%;overflow:hidden;filter:drop-shadow(0 0 40px rgba(0,212,255,0.5));z-index:2;}';
   
-  html += '.module-list{display:flex;flex-direction:column;gap:6px;margin-bottom:30px;text-align:left;}';
-  html += '.module{font-size:0.75em;padding:6px 10px;background:#00ff8805;border-left:2px solid #00ff8830;color:#00ff88;opacity:0.6;transition:all 0.3s;animation:moduleLoad 0.5s ease-out forwards;}';
-  html += '.module:nth-child(1){animation-delay:0.2s}.module:nth-child(2){animation-delay:0.4s}.module:nth-child(3){animation-delay:0.6s}.module:nth-child(4){animation-delay:0.8s}.module:nth-child(5){animation-delay:1s}';
-  html += '@keyframes moduleLoad{from{opacity:0;transform:translateX(-20px)}to{opacity:0.6;transform:translateX(0)}}';
-  html += '.module.active{opacity:1;border-left-color:#00ff88;background:#00ff8810;}';
+  html += '.face::before{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(180deg,transparent 0%,rgba(0,212,255,0.1) 50%,transparent 100%);animation:scan-face 3s ease-in-out infinite;pointer-events:none;}';
+  html += '@keyframes scan-face{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}';
   
-  html += '.mic-button{width:200px;height:200px;margin:0 auto;border-radius:50%;background:radial-gradient(circle at 40% 40%,#001a2e,#0a0e1a);border:2px solid #00ff88;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.4s;position:relative;box-shadow:0 0 20px rgba(0,255,136,0.2);font-size:3.5em;}';
-  html += '.mic-button:hover{border-color:#00ccff;box-shadow:0 0 40px rgba(0,204,255,0.4);transform:scale(1.05);}';
-  html += '.mic-button.listening{border-color:#00ff88;box-shadow:0 0 60px rgba(0,255,136,0.6);animation:pulse-ring 1.5s ease-out infinite;}';
-  html += '.mic-button.success{border-color:#10b981;background:radial-gradient(circle at 40% 40%,#0a3a2a,#0a0e1a);box-shadow:0 0 80px rgba(16,185,129,0.5);}';
-  html += '.mic-button.fail{border-color:#ef4444;background:radial-gradient(circle at 40% 40%,#3a0a0a,#0a0e1a);box-shadow:0 0 60px rgba(239,68,68,0.4);}';
-  html += '@keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(0,255,136,0.7)}70%{box-shadow:0 0 0 40px rgba(0,255,136,0)}100%{box-shadow:0 0 0 0 rgba(0,255,136,0)}}';
+  html += 'svg{position:relative;z-index:3;filter:drop-shadow(0 0 15px rgba(0,212,255,0.6));}';
   
-  html += '.status{font-family:"Orbitron",sans-serif;font-size:0.8em;letter-spacing:2px;color:#00ff88;margin-top:30px;min-height:25px;transition:all 0.3s;}';
-  html += '.status.active{color:#00ff88;opacity:1;}';
-  html += '.status.success{color:#10b981;}';
-  html += '.status.fail{color:#ef4444;}';
+  html += '.code-overlay{position:absolute;inset:0;overflow:hidden;z-index:2;opacity:0.4;}';
+  html += '.code-line{position:absolute;width:100%;font-size:0.55em;color:#00d4ff;font-family:"Courier Prime",monospace;line-height:1.2;overflow:hidden;animation:code-scroll 4s linear infinite;}';
+  html += '.code-line:nth-child(1){top:30%;animation-delay:0s}.code-line:nth-child(2){top:45%;animation-delay:0.5s}.code-line:nth-child(3){top:60%;animation-delay:1s}.code-line:nth-child(4){top:75%;animation-delay:1.5s}';
+  html += '@keyframes code-scroll{0%{transform:translateX(-100%);opacity:0}20%{opacity:1}80%{opacity:1}100%{transform:translateX(100%);opacity:0}}';
   
-  html += '.heard{font-size:0.85em;color:#00ccff;min-height:30px;margin-top:15px;font-style:italic;opacity:0.8;}';
-  html += '.denied{background:#ef444420;border:1px solid #ef444440;padding:15px;color:#ef4444;font-family:"Orbitron",sans-serif;font-size:0.7em;letter-spacing:2px;margin-bottom:30px;display:' + (denied ? 'block' : 'none') + ';border-radius:3px;}';
+  html += '.floating-code{position:absolute;font-size:0.7em;color:#00d4ff;font-family:"Courier Prime",monospace;opacity:0.4;animation:float-code 6s ease-in-out infinite;}';
+  html += '@keyframes float-code{0%,100%{transform:translateY(0) translateX(0);opacity:0.3}50%{transform:translateY(-30px) translateX(20px);opacity:0.7}}';
+  html += '.fc1{top:20px;left:-80px;animation-delay:0s}.fc2{top:100px;right:-100px;animation-delay:1s}.fc3{bottom:80px;left:-90px;animation-delay:2s}.fc4{bottom:20px;right:-110px;animation-delay:3s}';
   
-  html += '.footer{font-size:0.65em;color:#00ff8840;margin-top:40px;letter-spacing:1px;}';
+  html += '.status-box{background:rgba(0,212,255,0.05);border:1px solid #00d4ff;border-radius:3px;padding:15px;margin:25px 0;font-size:0.8em;line-height:1.6;}';
+  html += '.status-line{color:#00d4ff;margin:5px 0;}';
+  html += '.status-line.good{color:#00ff88}';
+  html += '.status-indicator{display:inline-block;width:6px;height:6px;background:#00d4ff;border-radius:50%;margin-right:8px;animation:blink 1s infinite;}';
+  html += '.status-indicator.active{background:#00ff88;animation:blink 0.5s infinite;}';
+  html += '@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}';
+  
+  html += '.mic-button{width:180px;height:180px;margin:0 auto 30px;border-radius:50%;background:radial-gradient(circle at 40% 40%,rgba(0,212,255,0.3),rgba(0,0,0,0.8));border:3px solid #00d4ff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.4s;position:relative;font-size:3.5em;z-index:3;}';
+  html += '.mic-button::before{content:"";position:absolute;inset:-10px;border:2px solid #00d4ff;border-radius:50%;opacity:0.3;animation:pulse-ring 2s ease-out infinite;}';
+  html += '.mic-button::after{content:"";position:absolute;inset:-20px;border:1px solid #00d4ff;border-radius:50%;opacity:0.15;animation:pulse-ring 3s ease-out infinite;}';
+  html += '.mic-button:hover{border-color:#00ff88;background:radial-gradient(circle at 40% 40%,rgba(0,255,136,0.3),rgba(0,0,0,0.8));box-shadow:0 0 40px rgba(0,255,136,0.4);}';
+  html += '.mic-button.listening{border-color:#00ff88;background:radial-gradient(circle at 40% 40%,rgba(0,255,136,0.4),rgba(0,0,0,0.8));box-shadow:0 0 80px rgba(0,255,136,0.6);animation:listening-glow 0.5s ease-in-out infinite;}';
+  html += '.mic-button.success{border-color:#10b981;background:radial-gradient(circle at 40% 40%,rgba(16,185,129,0.3),rgba(0,0,0,0.8));box-shadow:0 0 100px rgba(16,185,129,0.6);}';
+  html += '.mic-button.fail{border-color:#ff6b6b;background:radial-gradient(circle at 40% 40%,rgba(255,107,107,0.3),rgba(0,0,0,0.8));box-shadow:0 0 60px rgba(255,107,107,0.4);}';
+  html += '@keyframes pulse-ring{0%{transform:scale(1);opacity:0.4}70%{transform:scale(1.4);opacity:0}100%{transform:scale(1);opacity:0}}';
+  html += '@keyframes listening-glow{from{box-shadow:0 0 60px rgba(0,255,136,0.4)}to{box-shadow:0 0 100px rgba(0,255,136,0.8)}}';
+  
+  html += '.message{font-size:0.85em;color:#00d4ff;margin-top:20px;min-height:25px;transition:all 0.3s;letter-spacing:1px;}';
+  html += '.message.active{color:#00ff88}.message.success{color:#10b981}.message.error{color:#ff6b6b}';
+  
+  html += '.voice-input{font-size:0.8em;color:#00ccff;margin-top:15px;font-style:italic;opacity:0.7;min-height:20px;}';
+  html += '.denied{background:#ff6b6b20;border:1px solid #ff6b6b40;padding:12px;color:#ff6b6b;font-size:0.75em;letter-spacing:1px;margin-bottom:20px;border-radius:3px;display:' + (denied ? 'block' : 'none') + ';}';
+  
+  html += '.footer{font-size:0.65em;color:#00d4ff;opacity:0.4;margin-top:30px;letter-spacing:2px;}';
   html += '.footer-line{margin:5px 0;}';
   
   html += '</style></head><body>';
   
-  html += '<div class="grid-bg"></div>';
-  html += '<div class="scanline"></div>';
+  html += '<div class="bg"></div><div class="scanlines"></div><div class="vignette"></div>';
+  
+  html += '<div class="floating-code fc1">const voice = {</div>';
+  html += '<div class="floating-code fc2">verified: true</div>';
+  html += '<div class="floating-code fc3">auth_level: 7</div>';
+  html += '<div class="floating-code fc4">}</div>';
   
   html += '<div class="container">';
   html += '<div class="header">';
+  html += '<div class="system-label">► NEURAL INTERFACE v4.4</div>';
   html += '<div class="title">WILDWOOD</div>';
-  html += '<div class="subtitle">SYSTEM INITIALIZATION</div>';
-  html += '<div class="status-line">> INITIALIZING VOICE AUTHENTICATION PROTOCOL</div>';
+  html += '<div class="subtitle">VOICE AUTHENTICATION PROTOCOL</div>';
   html += '</div>';
   
-  html += '<div class="denied">⚠️ ACCESS DENIED — INSUFFICIENT CLEARANCE ⚠️</div>';
+  html += '<div class="denied">⚠️ ACCESS DENIED — NEURAL SIGNATURE MISMATCH</div>';
   
-  html += '<div class="face-container">';
+  html += '<div class="face-wrapper">';
+  html += '<div class="hoodie"><div class="hood-left"></div><div class="hood-right"></div></div>';
   html += '<div class="face">';
-  html += '<svg viewBox="0 0 280 300" width="260" height="300" xmlns="http://www.w3.org/2000/svg">';
-  html += '<defs><filter id="glow"><feGaussianBlur stdDeviation="2" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
   
-  // Face outline
-  html += '<rect x="20" y="30" width="240" height="240" rx="30" fill="none" stroke="#00ff88" stroke-width="2" opacity="0.3"/>';
-  
-  // Eyes
-  html += '<circle class="eye" cx="90" cy="100" r="25"/>';
-  html += '<circle class="eye" cx="190" cy="100" r="25"/>';
-  html += '<circle class="pupil" cx="90" cy="100" r="6" filter="url(#glow)"/>';
-  html += '<circle class="pupil" cx="190" cy="100" r="6" filter="url(#glow)"/>';
-  
-  // Eyebrows
-  html += '<line x1="70" y1="70" x2="110" y2="70" stroke="#00ff88" stroke-width="2" opacity="0.6"/>';
-  html += '<line x1="170" y1="70" x2="210" y2="70" stroke="#00ff88" stroke-width="2" opacity="0.6"/>';
-  
-  // Nose (simple line)
-  html += '<line x1="140" y1="100" x2="140" y2="160" stroke="#00ff88" stroke-width="1.5" opacity="0.4"/>';
-  
-  // Mouth
-  html += '<path d="M100,180 Q140,210 180,180" fill="none" stroke="#00ff88" stroke-width="2.5" stroke-linecap="round"/>';
-  
-  // Grid overlay
-  html += '<g class="face-grid" opacity="0.05">';
-  for(var i = 0; i <= 14; i++) {
-    html += '<line x1="' + (20 + i*17) + '" y1="30" x2="' + (20 + i*17) + '" y2="270" stroke="#00ff88"/>';
-  }
-  for(var j = 0; j <= 14; j++) {
-    html += '<line x1="20" y1="' + (30 + j*17) + '" x2="260" y2="' + (30 + j*17) + '" stroke="#00ff88"/>';
-  }
-  html += '</g>';
-  
+  html += '<svg viewBox="0 0 280 360" xmlns="http://www.w3.org/2000/svg" width="280" height="360">';
+  html += '<defs><filter id="neon-glow"><feGaussianBlur stdDeviation="3" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+  html += '<ellipse cx="140" cy="160" rx="95" ry="120" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.2"/>';
+  html += '<ellipse cx="90" cy="150" rx="30" ry="40" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.15"/>';
+  html += '<ellipse cx="190" cy="150" rx="30" ry="40" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.15"/>';
+  html += '<ellipse cx="100" cy="120" rx="22" ry="32" fill="none" stroke="#00d4ff" stroke-width="2" filter="url(#neon-glow)"/>';
+  html += '<ellipse cx="180" cy="120" rx="22" ry="32" fill="none" stroke="#00d4ff" stroke-width="2" filter="url(#neon-glow)"/>';
+  html += '<circle cx="100" cy="125" r="8" fill="#00d4ff" filter="url(#neon-glow)" opacity="0.9"/>';
+  html += '<circle cx="180" cy="125" r="8" fill="#00d4ff" filter="url(#neon-glow)" opacity="0.9"/>';
+  html += '<circle cx="98" cy="122" r="3" fill="#00ffff" opacity="0.8"/>';
+  html += '<circle cx="178" cy="122" r="3" fill="#00ffff" opacity="0.8"/>';
+  html += '<path d="M75 95 Q100 85 125 90" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round"/>';
+  html += '<path d="M155 90 Q180 85 205 95" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round"/>';
+  html += '<line x1="140" y1="125" x2="140" y2="165" stroke="#00d4ff" stroke-width="1.5" opacity="0.6"/>';
+  html += '<line x1="135" y1="165" x2="145" y2="165" stroke="#00d4ff" stroke-width="1" opacity="0.4"/>';
+  html += '<path d="M110 190 Q140 210 170 190" fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round" filter="url(#neon-glow)"/>';
+  html += '<path d="M110 190 Q140 200 170 190" fill="none" stroke="#00ffff" stroke-width="1" opacity="0.6"/>';
+  html += '<path d="M70 130 Q60 160 75 200" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.25"/>';
+  html += '<path d="M210 130 Q220 160 205 200" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.25"/>';
   html += '</svg>';
+  
+  html += '<div class="code-overlay">';
+  html += '<div class="code-line">> NEURAL.AUTH_CHECK(voice_sample)</div>';
+  html += '<div class="code-line">> if(match) { grant_access() }</div>';
+  html += '<div class="code-line">> CIPHER_VERIFICATION[status:active]</div>';
+  html += '<div class="code-line">> FACIAL_RECOGNITION[mode:passive]</div>';
+  html += '</div>';
+  
   html += '</div></div>';
   
-  html += '<div class="progress-container">';
-  html += '<div class="progress-bar"><div class="progress-fill"></div></div>';
-  html += '<div class="progress-text">VOICE ANALYSIS READY</div>';
-  html += '</div>';
-  
-  html += '<div class="module-list">';
-  html += '<div class="module">→ LOADING AUTHENTICATION MODULES...</div>';
-  html += '<div class="module">→ CIPHER INITIALIZED</div>';
-  html += '<div class="module">→ VOICE SIGNATURE DATABASE ACTIVE</div>';
-  html += '<div class="module">→ NEURAL PROCESSING UNIT ONLINE</div>';
-  html += '<div class="module">→ READY FOR VOICE INPUT</div>';
+  html += '<div class="status-box">';
+  html += '<div class="status-line"><span class="status-indicator active"></span>NEURAL INTERFACE ONLINE</div>';
+  html += '<div class="status-line"><span class="status-indicator"></span>VOICE DATABASE LOADED</div>';
+  html += '<div class="status-line"><span class="status-indicator"></span>CIPHER ACTIVE</div>';
+  html += '<div class="status-line good" style="margin-top:10px;opacity:0.7">>>> Ready for authentication</div>';
   html += '</div>';
   
   html += '<button class="mic-button" id="micBtn" onclick="startListening()">🎙️</button>';
-  
-  html += '<div class="status" id="status">TAP MICROPHONE TO AUTHENTICATE</div>';
-  html += '<div class="heard" id="heard"></div>';
+  html += '<div class="message" id="status">SPEAK YOUR VOICE PASSPHRASE</div>';
+  html += '<div class="voice-input" id="heard"></div>';
   
   html += '<div class="footer">';
-  html += '<div class="footer-line">⚙️ WILDWOOD VOICE AUTHENTICATION SYSTEM</div>';
-  html += '<div class="footer-line">v4.4 — SECURE VOICE PROTOCOL ACTIVE</div>';
-  html += '</div>';
+  html += '<div class="footer-line">⚙️ WILDWOOD NEURAL INTERFACE</div>';
+  html += '<div class="footer-line">v4.4 SECURE VOICE AUTHENTICATION</div>';
+  html += '</div></div>';
   
-  html += '</div>';
-  
-  // JavaScript
   html += '<script>';
-  
-  // Animate modules
-  html += 'setTimeout(function(){Array.from(document.querySelectorAll(".module")).forEach(function(m){m.classList.add("active");});},1500);';
-  
-  html += 'var isListening=false;';
-  html += 'var SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;';
-  
+  html += 'var isListening=false,SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;';
   html += 'function startListening(){';
   html += '  if(isListening)return;';
-  html += '  if(!SpeechRecognition){document.getElementById("status").textContent="⚠️ VOICE NOT SUPPORTED — USE CHROME";document.getElementById("status").className="status fail";return;}';
-  html += '  isListening=true;';
-  html += '  var btn=document.getElementById("micBtn");btn.className="mic-button listening";';
-  html += '  document.getElementById("micIcon").textContent="🔊";';
-  html += '  document.getElementById("status").textContent="🔴 LISTENING FOR VOICE SIGNATURE...";';
-  html += '  document.getElementById("status").className="status active";';
-  html += '  document.getElementById("heard").textContent="";';
-  html += '  var rec=new SpeechRecognition();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";';
-  html += '  rec.onresult=function(e){';
-  html += '    var t="";for(var i=0;i<e.results.length;i++){t+=e.results[i][0].transcript;}';
-  html += '    document.getElementById("heard").textContent="> " + t;';
-  html += '    if(e.results[0].isFinal){validatePhrase(t);}';
-  html += '  };';
-  html += '  rec.onerror=function(e){';
-  html += '    isListening=false;btn.className="mic-button fail";';
-  html += '    document.getElementById("status").textContent="❌ VOICE RECOGNITION FAILED — TAP TO RETRY";';
-  html += '    document.getElementById("status").className="status fail";';
-  html += '    setTimeout(function(){btn.className="mic-button";document.getElementById("status").textContent="TAP MICROPHONE TO AUTHENTICATE";document.getElementById("status").className="status";},3000);';
-  html += '  };';
-  html += '  rec.onend=function(){isListening=false;};';
-  html += '  rec.start();';
-  html += '}';
-  
+  html += '  if(!SpeechRecognition){document.getElementById("status").textContent="⚠️ VOICE NOT SUPPORTED";document.getElementById("status").className="message error";return;}';
+  html += '  isListening=true;var btn=document.getElementById("micBtn");btn.className="mic-button listening";';
+  html += '  document.getElementById("status").textContent="🔴 LISTENING FOR VOICE SIGNATURE...";document.getElementById("status").className="message active";';
+  html += '  document.getElementById("heard").textContent="";var rec=new SpeechRecognition();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";';
+  html += '  rec.onresult=function(e){var t="";for(var i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;';
+  html += '    document.getElementById("heard").textContent="> "+t;if(e.results[0].isFinal)validatePhrase(t);};';
+  html += '  rec.onerror=function(e){isListening=false;btn.className="mic-button fail";';
+  html += '    document.getElementById("status").textContent="❌ VOICE RECOGNITION FAILED";document.getElementById("status").className="message error";';
+  html += '    setTimeout(function(){btn.className="mic-button";document.getElementById("status").textContent="SPEAK YOUR VOICE PASSPHRASE";document.getElementById("status").className="message";},3000);};';
+  html += '  rec.onend=function(){isListening=false;};rec.start();}';
   html += 'async function validatePhrase(phrase){';
-  html += '  document.getElementById("status").textContent="🔄 VERIFYING VOICE SIGNATURE...";';
-  html += '  document.getElementById("status").className="status active";';
-  html += '  try{';
-  html += '    var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});';
-  html += '    var d=await r.json();';
-  html += '    if(d.success){';
-  html += '      document.getElementById("micBtn").className="mic-button success";';
-  html += '      document.getElementById("status").textContent="✅ ACCESS GRANTED — " + d.name.toUpperCase();';
-  html += '      document.getElementById("status").className="status success";';
-  html += '      document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
-  html += '      var redir="' + (redirect || '') + '";';
-  html += '      if(!redir){redir=d.access==="all"?"/dashboard":"/discord";}';
-  html += '      setTimeout(function(){window.location.href=redir;},1500);';
-  html += '    }else{';
-  html += '      document.getElementById("micBtn").className="mic-button fail";';
-  html += '      document.getElementById("status").textContent="❌ VOICE SIGNATURE NOT RECOGNIZED";';
-  html += '      document.getElementById("status").className="status fail";';
-  html += '      setTimeout(function(){document.getElementById("micBtn").className="mic-button";document.getElementById("status").textContent="TAP MICROPHONE TO AUTHENTICATE";document.getElementById("status").className="status";},3000);';
-  html += '    }';
-  html += '  }catch(e){';
-  html += '    document.getElementById("status").textContent="⚠️ CONNECTION ERROR";';
-  html += '    document.getElementById("status").className="status fail";';
-  html += '  }';
-  html += '}';
-  
-  html += '</script>';
-  html += '</body></html>';
+  html += '  document.getElementById("status").textContent="🔄 VERIFYING NEURAL SIGNATURE...";document.getElementById("status").className="message active";';
+  html += '  try{var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});';
+  html += '    var d=await r.json();if(d.success){document.getElementById("micBtn").className="mic-button success";';
+  html += '      document.getElementById("status").textContent="✅ NEURAL SIGNATURE VERIFIED — "+d.name.toUpperCase();';
+  html += '      document.getElementById("status").className="message success";document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
+  html += '      var redir="' + (redirect || '') + '";if(!redir)redir=d.access==="all"?"/dashboard":"/discord";';
+  html += '      setTimeout(function(){window.location.href=redir;},1500);}else{document.getElementById("micBtn").className="mic-button fail";';
+  html += '      document.getElementById("status").textContent="❌ NEURAL SIGNATURE MISMATCH";document.getElementById("status").className="message error";';
+  html += '      setTimeout(function(){document.getElementById("micBtn").className="mic-button";document.getElementById("status").textContent="SPEAK YOUR VOICE PASSPHRASE";document.getElementById("status").className="message";},3000);}}';
+  html += '  catch(e){document.getElementById("status").textContent="⚠️ CONNECTION ERROR";document.getElementById("status").className="message error";}}';
+  html += '</script></body></html>';
 
   res.send(html);
 });
