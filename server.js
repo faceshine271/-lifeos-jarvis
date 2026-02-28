@@ -1,4 +1,4 @@
-0; // LINE_GUARD — do not remove
+; // LINE_GUARD — do not remove
 // ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
@@ -3222,168 +3222,317 @@ app.get('/login', function(req, res) {
     return res.redirect(redirect || '/dashboard');
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // JARVIS LOGIN — ULTIMATE CINEMATIC VOICE AUTH (10x Edition)
+  // ═══════════════════════════════════════════════════════════════
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
-  html += '<title>WILDWOOD — NEURAL INTERFACE</title>';
-  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">';
+  html += '<title>WILDWOOD — JARVIS</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&family=Outfit:wght@200;300;400;500&display=swap" rel="stylesheet">';
   html += '<style>';
   html += '*{margin:0;padding:0;box-sizing:border-box;}';
-  html += 'body{background:#0a0e1a;color:#00d4ff;font-family:"Courier Prime",monospace;min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}';
-  
-  html += '.bg{position:fixed;inset:0;z-index:0;background:#0a0e1a;}';
-  html += '.scanlines{position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,212,255,0.02) 0px,rgba(0,212,255,0.02) 2px,transparent 2px,transparent 4px);z-index:1;pointer-events:none;animation:scan 8s linear infinite;}';
-  html += '@keyframes scan{0%{transform:translateY(0)}100%{transform:translateY(10px)}}';
-  html += '.vignette{position:fixed;inset:0;background:radial-gradient(ellipse at center,transparent 0%,rgba(0,0,0,0.8) 100%);z-index:1;pointer-events:none;}';
-  
-  html += '.container{position:relative;z-index:2;text-align:center;max-width:500px;}';
-  
-  html += '.header{margin-bottom:40px;}';
-  html += '.system-label{font-size:0.65em;letter-spacing:3px;color:#00d4ff;opacity:0.6;margin-bottom:15px;animation:flicker 3s infinite;}';
-  html += '@keyframes flicker{0%,100%{opacity:0.6}50%{opacity:1}}';
-  html += '.title{font-family:"Orbitron",sans-serif;font-size:2em;font-weight:900;letter-spacing:6px;color:#00d4ff;margin-bottom:8px;text-shadow:0 0 20px rgba(0,212,255,0.5);}';
-  html += '.subtitle{font-size:0.75em;letter-spacing:2px;color:#00ff88;opacity:0.7;}';
-  
-  html += '.face-wrapper{position:relative;width:320px;height:420px;margin:0 auto 40px;perspective:1000px;}';
-  html += '.hoodie{position:absolute;top:-20px;left:50%;transform:translateX(-50%);width:340px;height:160px;z-index:1;}';
-  html += '.hood-left{position:absolute;top:0;left:10px;width:140px;height:150px;border:2px solid #00d4ff;border-radius:100% 40% 40% 100%;background:radial-gradient(circle at 30% 30%,rgba(0,212,255,0.2),rgba(0,0,0,0.5));filter:drop-shadow(0 0 20px rgba(0,212,255,0.4));opacity:0.9;}';
-  html += '.hood-right{position:absolute;top:0;right:10px;width:140px;height:150px;border:2px solid #00d4ff;border-radius:40% 100% 100% 40%;background:radial-gradient(circle at 70% 30%,rgba(0,212,255,0.2),rgba(0,0,0,0.5));filter:drop-shadow(0 0 20px rgba(0,212,255,0.4));opacity:0.9;}';
-  
-  html += '.face{position:relative;width:280px;height:360px;margin:0 auto;background:radial-gradient(circle at 40% 35%,rgba(0,212,255,0.15),rgba(0,0,0,0.7));border:2px solid #00d4ff;border-radius:30%;overflow:hidden;filter:drop-shadow(0 0 40px rgba(0,212,255,0.5));z-index:2;}';
-  
-  html += '.face::before{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(180deg,transparent 0%,rgba(0,212,255,0.1) 50%,transparent 100%);animation:scan-face 3s ease-in-out infinite;pointer-events:none;}';
-  html += '@keyframes scan-face{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}';
-  
-  html += 'svg{position:relative;z-index:3;filter:drop-shadow(0 0 15px rgba(0,212,255,0.6));}';
-  
-  html += '.code-overlay{position:absolute;inset:0;overflow:hidden;z-index:2;opacity:0.4;}';
-  html += '.code-line{position:absolute;width:100%;font-size:0.55em;color:#00d4ff;font-family:"Courier Prime",monospace;line-height:1.2;overflow:hidden;animation:code-scroll 4s linear infinite;}';
-  html += '.code-line:nth-child(1){top:30%;animation-delay:0s}.code-line:nth-child(2){top:45%;animation-delay:0.5s}.code-line:nth-child(3){top:60%;animation-delay:1s}.code-line:nth-child(4){top:75%;animation-delay:1.5s}';
-  html += '@keyframes code-scroll{0%{transform:translateX(-100%);opacity:0}20%{opacity:1}80%{opacity:1}100%{transform:translateX(100%);opacity:0}}';
-  
-  html += '.floating-code{position:absolute;font-size:0.7em;color:#00d4ff;font-family:"Courier Prime",monospace;opacity:0.4;animation:float-code 6s ease-in-out infinite;}';
-  html += '@keyframes float-code{0%,100%{transform:translateY(0) translateX(0);opacity:0.3}50%{transform:translateY(-30px) translateX(20px);opacity:0.7}}';
-  html += '.fc1{top:20px;left:-80px;animation-delay:0s}.fc2{top:100px;right:-100px;animation-delay:1s}.fc3{bottom:80px;left:-90px;animation-delay:2s}.fc4{bottom:20px;right:-110px;animation-delay:3s}';
-  
-  html += '.status-box{background:rgba(0,212,255,0.05);border:1px solid #00d4ff;border-radius:3px;padding:15px;margin:25px 0;font-size:0.8em;line-height:1.6;}';
-  html += '.status-line{color:#00d4ff;margin:5px 0;}';
-  html += '.status-line.good{color:#00ff88}';
-  html += '.status-indicator{display:inline-block;width:6px;height:6px;background:#00d4ff;border-radius:50%;margin-right:8px;animation:blink 1s infinite;}';
-  html += '.status-indicator.active{background:#00ff88;animation:blink 0.5s infinite;}';
-  html += '@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}';
-  
-  html += '.mic-button{width:180px;height:180px;margin:0 auto 30px;border-radius:50%;background:radial-gradient(circle at 40% 40%,rgba(0,212,255,0.3),rgba(0,0,0,0.8));border:3px solid #00d4ff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.4s;position:relative;font-size:3.5em;z-index:3;}';
-  html += '.mic-button::before{content:"";position:absolute;inset:-10px;border:2px solid #00d4ff;border-radius:50%;opacity:0.3;animation:pulse-ring 2s ease-out infinite;}';
-  html += '.mic-button::after{content:"";position:absolute;inset:-20px;border:1px solid #00d4ff;border-radius:50%;opacity:0.15;animation:pulse-ring 3s ease-out infinite;}';
-  html += '.mic-button:hover{border-color:#00ff88;background:radial-gradient(circle at 40% 40%,rgba(0,255,136,0.3),rgba(0,0,0,0.8));box-shadow:0 0 40px rgba(0,255,136,0.4);}';
-  html += '.mic-button.listening{border-color:#00ff88;background:radial-gradient(circle at 40% 40%,rgba(0,255,136,0.4),rgba(0,0,0,0.8));box-shadow:0 0 80px rgba(0,255,136,0.6);animation:listening-glow 0.5s ease-in-out infinite;}';
-  html += '.mic-button.success{border-color:#10b981;background:radial-gradient(circle at 40% 40%,rgba(16,185,129,0.3),rgba(0,0,0,0.8));box-shadow:0 0 100px rgba(16,185,129,0.6);}';
-  html += '.mic-button.fail{border-color:#ff6b6b;background:radial-gradient(circle at 40% 40%,rgba(255,107,107,0.3),rgba(0,0,0,0.8));box-shadow:0 0 60px rgba(255,107,107,0.4);}';
-  html += '@keyframes pulse-ring{0%{transform:scale(1);opacity:0.4}70%{transform:scale(1.4);opacity:0}100%{transform:scale(1);opacity:0}}';
-  html += '@keyframes listening-glow{from{box-shadow:0 0 60px rgba(0,255,136,0.4)}to{box-shadow:0 0 100px rgba(0,255,136,0.8)}}';
-  
-  html += '.message{font-size:0.85em;color:#00d4ff;margin-top:20px;min-height:25px;transition:all 0.3s;letter-spacing:1px;}';
-  html += '.message.active{color:#00ff88}.message.success{color:#10b981}.message.error{color:#ff6b6b}';
-  
-  html += '.voice-input{font-size:0.8em;color:#00ccff;margin-top:15px;font-style:italic;opacity:0.7;min-height:20px;}';
-  html += '.denied{background:#ff6b6b20;border:1px solid #ff6b6b40;padding:12px;color:#ff6b6b;font-size:0.75em;letter-spacing:1px;margin-bottom:20px;border-radius:3px;display:' + (denied ? 'block' : 'none') + ';}';
-  
-  html += '.footer{font-size:0.65em;color:#00d4ff;opacity:0.4;margin-top:30px;letter-spacing:2px;}';
-  html += '.footer-line{margin:5px 0;}';
-  
-  html += '</style></head><body>';
-  
-  html += '<div class="bg"></div><div class="scanlines"></div><div class="vignette"></div>';
-  
-  html += '<div class="floating-code fc1">const voice = {</div>';
-  html += '<div class="floating-code fc2">verified: true</div>';
-  html += '<div class="floating-code fc3">auth_level: 7</div>';
-  html += '<div class="floating-code fc4">}</div>';
-  
-  html += '<div class="container">';
-  html += '<div class="header">';
-  html += '<div class="system-label">► NEURAL INTERFACE v4.4</div>';
-  html += '<div class="title">WILDWOOD</div>';
-  html += '<div class="subtitle">VOICE AUTHENTICATION PROTOCOL</div>';
-  html += '</div>';
-  
-  html += '<div class="denied">⚠️ ACCESS DENIED — NEURAL SIGNATURE MISMATCH</div>';
-  
-  html += '<div class="face-wrapper">';
-  html += '<div class="hoodie"><div class="hood-left"></div><div class="hood-right"></div></div>';
-  html += '<div class="face">';
-  
-  html += '<svg viewBox="0 0 280 360" xmlns="http://www.w3.org/2000/svg" width="280" height="360">';
-  html += '<defs><filter id="neon-glow"><feGaussianBlur stdDeviation="3" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
-  html += '<ellipse cx="140" cy="160" rx="95" ry="120" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.2"/>';
-  html += '<ellipse cx="90" cy="150" rx="30" ry="40" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.15"/>';
-  html += '<ellipse cx="190" cy="150" rx="30" ry="40" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.15"/>';
-  html += '<ellipse cx="100" cy="120" rx="22" ry="32" fill="none" stroke="#00d4ff" stroke-width="2" filter="url(#neon-glow)"/>';
-  html += '<ellipse cx="180" cy="120" rx="22" ry="32" fill="none" stroke="#00d4ff" stroke-width="2" filter="url(#neon-glow)"/>';
-  html += '<circle cx="100" cy="125" r="8" fill="#00d4ff" filter="url(#neon-glow)" opacity="0.9"/>';
-  html += '<circle cx="180" cy="125" r="8" fill="#00d4ff" filter="url(#neon-glow)" opacity="0.9"/>';
-  html += '<circle cx="98" cy="122" r="3" fill="#00ffff" opacity="0.8"/>';
-  html += '<circle cx="178" cy="122" r="3" fill="#00ffff" opacity="0.8"/>';
-  html += '<path d="M75 95 Q100 85 125 90" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round"/>';
-  html += '<path d="M155 90 Q180 85 205 95" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round"/>';
-  html += '<line x1="140" y1="125" x2="140" y2="165" stroke="#00d4ff" stroke-width="1.5" opacity="0.6"/>';
-  html += '<line x1="135" y1="165" x2="145" y2="165" stroke="#00d4ff" stroke-width="1" opacity="0.4"/>';
-  html += '<path d="M110 190 Q140 210 170 190" fill="none" stroke="#00d4ff" stroke-width="2.5" stroke-linecap="round" filter="url(#neon-glow)"/>';
-  html += '<path d="M110 190 Q140 200 170 190" fill="none" stroke="#00ffff" stroke-width="1" opacity="0.6"/>';
-  html += '<path d="M70 130 Q60 160 75 200" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.25"/>';
-  html += '<path d="M210 130 Q220 160 205 200" fill="none" stroke="#00d4ff" stroke-width="1" opacity="0.25"/>';
-  html += '</svg>';
-  
-  html += '<div class="code-overlay">';
-  html += '<div class="code-line">> NEURAL.AUTH_CHECK(voice_sample)</div>';
-  html += '<div class="code-line">> if(match) { grant_access() }</div>';
-  html += '<div class="code-line">> CIPHER_VERIFICATION[status:active]</div>';
-  html += '<div class="code-line">> FACIAL_RECOGNITION[mode:passive]</div>';
-  html += '</div>';
-  
-  html += '</div></div>';
-  
-  html += '<div class="status-box">';
-  html += '<div class="status-line"><span class="status-indicator active"></span>NEURAL INTERFACE ONLINE</div>';
-  html += '<div class="status-line"><span class="status-indicator"></span>VOICE DATABASE LOADED</div>';
-  html += '<div class="status-line"><span class="status-indicator"></span>CIPHER ACTIVE</div>';
-  html += '<div class="status-line good" style="margin-top:10px;opacity:0.7">>>> Ready for authentication</div>';
-  html += '</div>';
-  
-  html += '<button class="mic-button" id="micBtn" onclick="startListening()">🎙️</button>';
-  html += '<div class="message" id="status">SPEAK YOUR VOICE PASSPHRASE</div>';
-  html += '<div class="voice-input" id="heard"></div>';
-  
-  html += '<div class="footer">';
-  html += '<div class="footer-line">⚙️ WILDWOOD NEURAL INTERFACE</div>';
-  html += '<div class="footer-line">v4.4 SECURE VOICE AUTHENTICATION</div>';
-  html += '</div></div>';
-  
-  html += '<script>';
-  html += 'var isListening=false,SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;';
-  html += 'function startListening(){';
-  html += '  if(isListening)return;';
-  html += '  if(!SpeechRecognition){document.getElementById("status").textContent="⚠️ VOICE NOT SUPPORTED";document.getElementById("status").className="message error";return;}';
-  html += '  isListening=true;var btn=document.getElementById("micBtn");btn.className="mic-button listening";';
-  html += '  document.getElementById("status").textContent="🔴 LISTENING FOR VOICE SIGNATURE...";document.getElementById("status").className="message active";';
-  html += '  document.getElementById("heard").textContent="";var rec=new SpeechRecognition();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";';
-  html += '  rec.onresult=function(e){var t="";for(var i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;';
-  html += '    document.getElementById("heard").textContent="> "+t;if(e.results[0].isFinal)validatePhrase(t);};';
-  html += '  rec.onerror=function(e){isListening=false;btn.className="mic-button fail";';
-  html += '    document.getElementById("status").textContent="❌ VOICE RECOGNITION FAILED";document.getElementById("status").className="message error";';
-  html += '    setTimeout(function(){btn.className="mic-button";document.getElementById("status").textContent="SPEAK YOUR VOICE PASSPHRASE";document.getElementById("status").className="message";},3000);};';
-  html += '  rec.onend=function(){isListening=false;};rec.start();}';
-  html += 'async function validatePhrase(phrase){';
-  html += '  document.getElementById("status").textContent="🔄 VERIFYING NEURAL SIGNATURE...";document.getElementById("status").className="message active";';
-  html += '  try{var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});';
-  html += '    var d=await r.json();if(d.success){document.getElementById("micBtn").className="mic-button success";';
-  html += '      document.getElementById("status").textContent="✅ NEURAL SIGNATURE VERIFIED — "+d.name.toUpperCase();';
-  html += '      document.getElementById("status").className="message success";document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
-  html += '      var redir="' + (redirect || '') + '";if(!redir)redir=d.access==="all"?"/dashboard":"/discord";';
-  html += '      setTimeout(function(){window.location.href=redir;},1500);}else{document.getElementById("micBtn").className="mic-button fail";';
-  html += '      document.getElementById("status").textContent="❌ NEURAL SIGNATURE MISMATCH";document.getElementById("status").className="message error";';
-  html += '      setTimeout(function(){document.getElementById("micBtn").className="mic-button";document.getElementById("status").textContent="SPEAK YOUR VOICE PASSPHRASE";document.getElementById("status").className="message";},3000);}}';
-  html += '  catch(e){document.getElementById("status").textContent="⚠️ CONNECTION ERROR";document.getElementById("status").className="message error";}}';
-  html += '</script></body></html>';
+  html += ':root{--blue:#4da8ff;--blue-bright:#7ec4ff;--blue-dim:rgba(77,168,255,0.08);--blue-glow:rgba(77,168,255,0.25);--teal:#56d4c8;--teal-dim:rgba(86,212,200,0.08);--gold:#e8b44a;--red:#ef4444;--bg:#080b12;--card:rgba(12,16,26,0.7);--text:#b8c8dc;--text-bright:#e4ecf4;--text-dim:rgba(184,200,220,0.3);}';
+  html += 'html,body{background:var(--bg);color:var(--text);font-family:Outfit,sans-serif;min-height:100vh;overflow:hidden;}';
+  html += 'body{display:flex;align-items:center;justify-content:center;}';
 
+  // Canvas layers
+  html += 'canvas#bgCanvas{position:fixed;inset:0;z-index:0;width:100%;height:100%;}';
+  html += 'canvas#hexCanvas{position:fixed;inset:0;z-index:0;width:100%;height:100%;opacity:0.4;}';
+
+  // Ambient orbs
+  html += '.ambient-orb{position:fixed;border-radius:50%;filter:blur(120px);z-index:0;pointer-events:none;}';
+  html += '.orb-1{width:500px;height:500px;top:-15%;left:-10%;background:radial-gradient(circle,rgba(77,168,255,0.07) 0%,transparent 70%);animation:orb-float 30s ease-in-out infinite;}';
+  html += '.orb-2{width:400px;height:400px;bottom:-10%;right:-5%;background:radial-gradient(circle,rgba(86,212,200,0.05) 0%,transparent 70%);animation:orb-float 25s ease-in-out infinite reverse;}';
+  html += '.orb-3{width:300px;height:300px;top:40%;left:60%;background:radial-gradient(circle,rgba(232,180,74,0.03) 0%,transparent 70%);animation:orb-float 35s ease-in-out infinite 5s;}';
+  html += '@keyframes orb-float{0%,100%{transform:translate(0,0) scale(1)}25%{transform:translate(30px,-20px) scale(1.1)}50%{transform:translate(-20px,30px) scale(0.95)}75%{transform:translate(15px,15px) scale(1.05)}}';
+
+  // Overlays
+  html += '.scan-overlay{position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(77,168,255,0.008) 0px,rgba(77,168,255,0.008) 1px,transparent 1px,transparent 3px);z-index:1;pointer-events:none;}';
+  html += '.sweep-line{position:fixed;left:0;width:100%;height:1px;background:linear-gradient(90deg,transparent 10%,rgba(77,168,255,0.12) 50%,transparent 90%);z-index:1;pointer-events:none;animation:sweep 8s linear infinite;opacity:0.7;}';
+  html += '@keyframes sweep{0%{top:-1px}100%{top:100%}}';
+  html += '.noise{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:0.025;mix-blend-mode:overlay;background:url("data:image/svg+xml,%3Csvg viewBox=%270 0 512 512%27 xmlns=%27http://www.w3.org/2000/svg%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.65%27 numOctaves=%274%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/%3E%3C/svg%3E");}';
+
+  // Corner frames
+  html += '.frame{position:fixed;z-index:3;opacity:0;animation:fade-in 1s ease 2.5s forwards;}.frame svg{width:30px;height:30px;}.frame line{stroke:var(--blue);stroke-width:1;opacity:0.12;}';
+  html += '.frame-tl{top:25px;left:25px;}.frame-tr{top:25px;right:25px;}.frame-bl{bottom:25px;left:25px;}.frame-br{bottom:25px;right:25px;}';
+  html += '@keyframes fade-in{to{opacity:1}}';
+
+  // ═══ BOOT SEQUENCE ═══
+  html += '.boot-overlay{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;transition:opacity 0.8s ease,visibility 0.8s;}';
+  html += '.boot-overlay.done{opacity:0;visibility:hidden;pointer-events:none;}';
+  html += '.boot-text{font-family:Share Tech Mono,monospace;font-size:0.7em;color:var(--blue);letter-spacing:2px;opacity:0.7;text-align:left;width:320px;line-height:2;}';
+  html += '.boot-text .line{opacity:0;transform:translateX(-5px);animation:boot-line-in 0.3s ease forwards;}';
+  html += '@keyframes boot-line-in{to{opacity:0.7;transform:translateX(0)}}';
+  html += '.boot-cursor{display:inline-block;width:6px;height:12px;background:var(--blue);animation:blink 0.6s step-end infinite;margin-left:2px;vertical-align:middle;}';
+  html += '@keyframes blink{50%{opacity:0}}';
+
+  // Main container (hidden during boot)
+  html += '.main{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;width:100%;max-width:520px;padding:20px;opacity:0;visibility:hidden;}';
+  html += '.main.booted{visibility:visible;animation:fade-up 1.2s cubic-bezier(0.16,1,0.3,1) forwards;}';
+  html += '@keyframes fade-up{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}';
+
+  // Top bar with clock
+  html += '.top-bar{width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:55px;font-family:Share Tech Mono,monospace;font-size:0.6em;color:var(--text-dim);letter-spacing:1.5px;opacity:0;}.main.booted .top-bar{animation:fade-up 0.8s ease 0.3s forwards;}';
+  html += '.top-bar .live{display:flex;align-items:center;gap:6px;}';
+  html += '.live-dot{width:5px;height:5px;background:var(--teal);border-radius:50%;box-shadow:0 0 8px var(--teal);animation:live-pulse 2s ease-in-out infinite;}';
+  html += '@keyframes live-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}';
+  html += '.clock{font-variant-numeric:tabular-nums;}';
+
+  // Brand with glitch
+  html += '.brand{margin-bottom:20px;opacity:0;text-align:center;}.main.booted .brand{animation:fade-up 0.8s ease 0.1s forwards;}';
+  html += '.brand-name{font-family:Rajdhani,sans-serif;font-size:2.8em;font-weight:700;letter-spacing:16px;color:var(--text-bright);position:relative;}';
+  html += '.brand-name::after{content:"";position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);width:40px;height:1px;background:linear-gradient(90deg,transparent,var(--blue),transparent);}';
+  html += '.brand-tagline{font-family:Share Tech Mono,monospace;font-size:0.65em;letter-spacing:6px;color:var(--blue);margin-top:18px;opacity:0.6;}';
+  // Glitch effect on hover
+  html += '.brand-name:hover{animation:glitch 0.3s ease;}';
+  html += '@keyframes glitch{0%{text-shadow:2px 0 var(--blue),-2px 0 var(--red)}25%{text-shadow:-2px -1px var(--teal),2px 1px var(--red)}50%{text-shadow:1px 2px var(--blue),-1px -2px var(--gold)}75%{text-shadow:-1px 1px var(--red),1px -1px var(--teal)}100%{text-shadow:none}}';
+
+  // Denied banner
+  html += '.denied{background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:8px;padding:10px 20px;font-family:Share Tech Mono,monospace;font-size:0.65em;color:var(--red);letter-spacing:1.5px;margin-bottom:25px;backdrop-filter:blur(10px);animation:denied-flash 0.6s ease;}';
+  html += '@keyframes denied-flash{0%{border-color:rgba(239,68,68,0.6);box-shadow:0 0 30px rgba(239,68,68,0.15)}100%{border-color:rgba(239,68,68,0.15);box-shadow:none}}';
+
+  // Interface
+  html += '.interface{position:relative;width:300px;height:300px;margin:30px auto 45px;opacity:0;}.main.booted .interface{animation:fade-up 1s ease 0.2s forwards;}';
+  html += '.ring-svg{position:absolute;inset:-30px;width:calc(100% + 60px);height:calc(100% + 60px);}';
+  html += '.ring-track{fill:none;stroke:var(--blue);opacity:0.06;}';
+  html += '.ring-arc{fill:none;stroke-linecap:round;filter:drop-shadow(0 0 6px var(--blue-glow));transition:opacity 0.5s;}';
+  html += '.ring-arc.r1{stroke:var(--blue);stroke-width:2;opacity:0.35;animation:spin 20s linear infinite;transform-origin:center;}';
+  html += '.ring-arc.r2{stroke:var(--teal);stroke-width:1.5;opacity:0.2;animation:spin 28s linear infinite reverse;transform-origin:center;}';
+  html += '.ring-arc.r3{stroke:var(--blue-bright);stroke-width:1;opacity:0.15;animation:spin 35s linear infinite;transform-origin:center;}';
+  html += '@keyframes spin{to{transform:rotate(360deg)}}';
+
+  // Real audio visualizer canvas
+  html += 'canvas#audioViz{position:absolute;inset:0;width:100%;height:100%;z-index:5;pointer-events:none;}';
+
+  // Static visualizer bars (idle state)
+  html += '.visualizer{position:absolute;inset:0;border-radius:50%;}';
+  html += '.viz-bar{position:absolute;bottom:50%;left:50%;width:2px;height:0;background:var(--blue);transform-origin:bottom center;border-radius:2px;opacity:0;transition:height 0.15s ease,opacity 0.3s;}';
+  html += '.listening .viz-bar{opacity:0.3;animation:viz-pulse 0.8s ease-in-out infinite alternate;}';
+  html += '@keyframes viz-pulse{from{height:8px}to{height:35px}}';
+
+  // Center button
+  html += '.center-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:130px;height:130px;border-radius:50%;background:var(--card);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);border:1px solid rgba(77,168,255,0.1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.6s cubic-bezier(0.4,0,0.2,1);z-index:10;box-shadow:0 0 40px rgba(0,0,0,0.3),inset 0 0 40px rgba(77,168,255,0.03);}';
+  html += '.center-btn:hover{border-color:rgba(77,168,255,0.3);box-shadow:0 0 60px rgba(77,168,255,0.08),inset 0 0 40px rgba(77,168,255,0.05);transform:translate(-50%,-50%) scale(1.03);}';
+  html += '.center-btn.listening{border-color:rgba(86,212,200,0.4);box-shadow:0 0 80px rgba(86,212,200,0.1),inset 0 0 40px rgba(86,212,200,0.05);animation:btn-breathe 2s ease-in-out infinite;}';
+  html += '.center-btn.success{border-color:rgba(52,211,153,0.5);box-shadow:0 0 80px rgba(52,211,153,0.15);}';
+  html += '.center-btn.fail{border-color:rgba(239,68,68,0.4);box-shadow:0 0 60px rgba(239,68,68,0.1);}';
+  html += '@keyframes btn-breathe{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.02)}}';
+  html += '.center-btn.success::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(52,211,153,0.4);animation:success-ring 1.5s ease-out forwards;}';
+  html += '@keyframes success-ring{0%{transform:scale(1);opacity:0.6}100%{transform:scale(1.6);opacity:0}}';
+
+  // Mic icon
+  html += '.mic-icon-wrap{position:relative;width:28px;height:50px;}';
+  html += '.mic-head{width:28px;height:36px;border-radius:14px;border:2.5px solid var(--text);transition:border-color 0.4s;}';
+  html += '.center-btn:hover .mic-head{border-color:var(--blue)}.center-btn.listening .mic-head{border-color:var(--teal)}.center-btn.success .mic-head{border-color:#34d399}.center-btn.fail .mic-head{border-color:var(--red)}';
+  html += '.mic-stand{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:2.5px;height:12px;background:var(--text);transition:background 0.4s;}';
+  html += '.mic-stand::after{content:"";position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:16px;height:2.5px;border-radius:2px;background:inherit;}';
+  html += '.mic-arc{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:38px;height:22px;border:2.5px solid var(--text);border-top:none;border-radius:0 0 19px 19px;transition:border-color 0.4s;}';
+  html += '.center-btn:hover .mic-stand{background:var(--blue)}.center-btn:hover .mic-arc{border-color:var(--blue)}';
+  html += '.center-btn.listening .mic-stand{background:var(--teal)}.center-btn.listening .mic-arc{border-color:var(--teal)}';
+  html += '.center-btn.success .mic-stand{background:#34d399}.center-btn.success .mic-arc{border-color:#34d399}';
+  html += '.center-btn.fail .mic-stand{background:var(--red)}.center-btn.fail .mic-arc{border-color:var(--red)}';
+
+  // Ripple
+  html += '.ripple{position:absolute;border-radius:50%;border:1px solid var(--blue);opacity:0;pointer-events:none;animation:ripple-out 1.5s ease-out forwards;}';
+  html += '@keyframes ripple-out{0%{width:130px;height:130px;top:50%;left:50%;transform:translate(-50%,-50%);opacity:0.5}100%{width:350px;height:350px;top:50%;left:50%;transform:translate(-50%,-50%);opacity:0}}';
+
+  // Status
+  html += '.status-area{text-align:center;margin-bottom:10px;opacity:0;}.main.booted .status-area{animation:fade-up 0.8s ease 0.5s forwards;}';
+  html += '.status-text{font-family:Share Tech Mono,monospace;font-size:0.75em;letter-spacing:3px;color:var(--text-dim);min-height:22px;transition:all 0.4s;}';
+  html += '.status-text.active{color:var(--teal);text-shadow:0 0 15px rgba(86,212,200,0.3);}';
+  html += '.status-text.success{color:#34d399;text-shadow:0 0 15px rgba(52,211,153,0.3);}';
+  html += '.status-text.error{color:var(--red);text-shadow:0 0 15px rgba(239,68,68,0.2);}';
+  html += '.heard-text{font-family:Outfit,sans-serif;font-weight:300;font-size:1em;color:var(--blue-bright);opacity:0.7;min-height:28px;margin-top:8px;}';
+  html += '.verifying-dots{display:inline-flex;gap:4px;margin-left:8px;}.verifying-dots span{width:4px;height:4px;background:var(--teal);border-radius:50%;animation:dot-bounce 1.2s ease-in-out infinite;}.verifying-dots span:nth-child(2){animation-delay:0.15s;}.verifying-dots span:nth-child(3){animation-delay:0.3s;}';
+  html += '@keyframes dot-bounce{0%,80%,100%{opacity:0.3;transform:scale(0.8)}40%{opacity:1;transform:scale(1.2)}}';
+
+  // Keyboard fallback input
+  html += '.kb-fallback{margin-top:15px;opacity:0;}.main.booted .kb-fallback{animation:fade-up 0.8s ease 0.7s forwards;}';
+  html += '.kb-toggle{font-family:Share Tech Mono,monospace;font-size:0.55em;letter-spacing:2px;color:var(--text-dim);cursor:pointer;border:none;background:none;padding:4px 8px;transition:color 0.3s;}.kb-toggle:hover{color:var(--blue);}';
+  html += '.kb-input-wrap{display:none;margin-top:10px;position:relative;}';
+  html += '.kb-input-wrap.show{display:flex;animation:fade-up 0.4s ease forwards;}';
+  html += '.kb-input{background:rgba(77,168,255,0.04);border:1px solid rgba(77,168,255,0.12);border-radius:6px;padding:10px 45px 10px 14px;color:var(--text-bright);font-family:Share Tech Mono,monospace;font-size:0.8em;letter-spacing:1px;width:260px;outline:none;transition:border-color 0.3s;}';
+  html += '.kb-input:focus{border-color:rgba(77,168,255,0.35);}';
+  html += '.kb-input::placeholder{color:var(--text-dim);}';
+  html += '.kb-send{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--blue);cursor:pointer;padding:6px;font-size:1.1em;opacity:0.5;transition:opacity 0.3s;}.kb-send:hover{opacity:1;}';
+
+  // Metrics
+  html += '.metrics{display:flex;gap:40px;margin-top:35px;opacity:0;}.main.booted .metrics{animation:fade-up 0.8s ease 0.6s forwards;}';
+  html += '.metric{text-align:center;}';
+  html += '.metric-val{font-family:Rajdhani,sans-serif;font-weight:600;font-size:1.4em;color:var(--text-bright);line-height:1;font-variant-numeric:tabular-nums;}';
+  html += '.metric-val .unit{font-size:0.5em;font-weight:400;color:var(--blue);margin-left:2px;}';
+  html += '.metric-label{font-family:Share Tech Mono,monospace;font-size:0.5em;letter-spacing:2px;color:var(--text-dim);margin-top:4px;}';
+
+  // Bottom
+  html += '.bottom{margin-top:50px;font-family:Share Tech Mono,monospace;font-size:0.5em;color:var(--text-dim);letter-spacing:3px;opacity:0;}.main.booted .bottom{animation:fade-up 0.8s ease 0.8s forwards;}';
+
+  // Success overlay
+  html += '.success-overlay{position:fixed;inset:0;z-index:100;background:var(--bg);display:none;align-items:center;justify-content:center;flex-direction:column;}';
+  html += '.success-overlay.show{display:flex;animation:success-fade 0.6s ease forwards;}';
+  html += '@keyframes success-fade{from{opacity:0}to{opacity:1}}';
+  html += '.success-icon{width:60px;height:60px;border:2px solid #34d399;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:30px;opacity:0;animation:success-icon-in 0.6s ease 0.2s forwards;}';
+  html += '@keyframes success-icon-in{from{opacity:0;transform:scale(0.5)}to{opacity:1;transform:scale(1)}}';
+  html += '.success-icon svg{width:28px;height:28px;}';
+  html += '.success-name{font-family:Rajdhani,sans-serif;font-size:3em;font-weight:700;letter-spacing:12px;color:var(--text-bright);opacity:0;animation:fade-up 0.8s ease 0.4s forwards;}';
+  html += '.success-role{font-family:Share Tech Mono,monospace;font-size:0.7em;letter-spacing:5px;color:var(--teal);margin-top:10px;opacity:0;animation:fade-up 0.8s ease 0.6s forwards;}';
+  html += '.success-bar{width:200px;height:2px;background:rgba(77,168,255,0.1);margin-top:30px;border-radius:1px;overflow:hidden;opacity:0;animation:fade-up 0.5s ease 0.8s forwards;}';
+  html += '.success-bar-fill{width:0;height:100%;background:linear-gradient(90deg,var(--blue),var(--teal));border-radius:1px;animation:fill-bar 1.2s ease 1s forwards;}';
+  html += '@keyframes fill-bar{to{width:100%}}';
+
+  // Responsive
+  html += '@media(max-width:768px){.brand-name{font-size:2em;letter-spacing:10px}.interface{width:240px;height:240px}.center-btn{width:100px;height:100px}.mic-icon-wrap{width:22px;height:40px}.mic-head{width:22px;height:28px;border-radius:11px}.metrics{gap:25px}.ring-svg{inset:-20px;width:calc(100% + 40px);height:calc(100% + 40px)}.boot-text{width:260px;font-size:0.6em;}}';
+  html += '@media(max-width:400px){.brand-name{font-size:1.6em;letter-spacing:8px}.metrics{gap:15px}.metric-val{font-size:1.1em}}';
+
+  html += '</style></head><body>';
+
+  // Background layers
+  html += '<canvas id="bgCanvas"></canvas>';
+  html += '<canvas id="hexCanvas"></canvas>';
+  html += '<div class="ambient-orb orb-1"></div><div class="ambient-orb orb-2"></div><div class="ambient-orb orb-3"></div>';
+  html += '<div class="scan-overlay"></div><div class="sweep-line"></div><div class="noise"></div>';
+
+  // Corner frames
+  html += '<div class="frame frame-tl"><svg viewBox="0 0 30 30"><line x1="0" y1="0" x2="30" y2="0"/><line x1="0" y1="0" x2="0" y2="30"/></svg></div>';
+  html += '<div class="frame frame-tr"><svg viewBox="0 0 30 30"><line x1="0" y1="0" x2="30" y2="0"/><line x1="30" y1="0" x2="30" y2="30"/></svg></div>';
+  html += '<div class="frame frame-bl"><svg viewBox="0 0 30 30"><line x1="0" y1="30" x2="30" y2="30"/><line x1="0" y1="0" x2="0" y2="30"/></svg></div>';
+  html += '<div class="frame frame-br"><svg viewBox="0 0 30 30"><line x1="0" y1="30" x2="30" y2="30"/><line x1="30" y1="0" x2="30" y2="30"/></svg></div>';
+
+  // ═══ BOOT SEQUENCE OVERLAY ═══
+  html += '<div class="boot-overlay" id="bootOverlay"><div class="boot-text" id="bootText"></div></div>';
+
+  // Main content
+  html += '<div class="main" id="mainUI">';
+  html += '<div class="top-bar"><span class="live"><span class="live-dot"></span> ONLINE</span><span class="clock" id="clock">00:00:00</span><span>ATHENA v4.6</span></div>';
+  html += '<div class="brand"><div class="brand-name">WILDWOOD</div><div class="brand-tagline">JARVIS INTERFACE</div></div>';
+
+  if (denied) html += '<div class="denied">SIGNATURE MISMATCH — TRY AGAIN</div>';
+
+  // Interface ring system
+  html += '<div class="interface" id="interface">';
+  html += '<svg class="ring-svg" viewBox="0 0 360 360">';
+  html += '<circle class="ring-track" cx="180" cy="180" r="170" stroke-width="1"/>';
+  html += '<circle class="ring-track" cx="180" cy="180" r="148" stroke-width="1"/>';
+  html += '<circle class="ring-track" cx="180" cy="180" r="126" stroke-width="1"/>';
+  html += '<circle class="ring-arc r1" cx="180" cy="180" r="170" stroke-dasharray="180 888" stroke-width="2"/>';
+  html += '<circle class="ring-arc r1" cx="180" cy="180" r="170" stroke-dasharray="60 888" stroke-width="1.5" style="animation-delay:-8s;opacity:0.2"/>';
+  html += '<circle class="ring-arc r2" cx="180" cy="180" r="148" stroke-dasharray="120 810" stroke-width="1.5"/>';
+  html += '<circle class="ring-arc r2" cx="180" cy="180" r="148" stroke-dasharray="40 810" stroke-width="1" style="animation-delay:-12s;opacity:0.12"/>';
+  html += '<circle class="ring-arc r3" cx="180" cy="180" r="126" stroke-dasharray="90 700" stroke-width="1"/>';
+  html += '<g style="transform-origin:center;animation:spin 90s linear infinite;">';
+  html += '<line x1="180" y1="4" x2="180" y2="12" stroke="var(--blue)" stroke-width="0.5" opacity="0.2"/>';
+  html += '<line x1="180" y1="348" x2="180" y2="356" stroke="var(--blue)" stroke-width="0.5" opacity="0.2"/>';
+  html += '<line x1="4" y1="180" x2="12" y2="180" stroke="var(--blue)" stroke-width="0.5" opacity="0.2"/>';
+  html += '<line x1="348" y1="180" x2="356" y2="180" stroke="var(--blue)" stroke-width="0.5" opacity="0.2"/>';
+  html += '</g>';
+  html += '<circle cx="180" cy="6" r="2" fill="var(--blue)" opacity="0.3" style="transform-origin:180px 180px;animation:spin 20s linear infinite;"/>';
+  html += '<circle cx="180" cy="28" r="1.5" fill="var(--teal)" opacity="0.25" style="transform-origin:180px 180px;animation:spin 28s linear infinite reverse;"/>';
+  html += '<circle cx="6" cy="180" r="1" fill="var(--gold)" opacity="0.2" style="transform-origin:180px 180px;animation:spin 35s linear infinite;"/>';
+  html += '</svg>';
+
+  // Audio visualizer canvas + static bars + mic button
+  html += '<canvas id="audioViz" width="300" height="300"></canvas>';
+  html += '<div class="visualizer" id="visualizer"></div>';
+  html += '<div class="center-btn" id="micBtn" onclick="startListening()">';
+  html += '<div class="mic-icon-wrap"><div class="mic-head"></div><div class="mic-arc"></div><div class="mic-stand"></div></div>';
+  html += '</div></div>';
+
+  // Status
+  html += '<div class="status-area"><div class="status-text" id="status">VOICE AUTHENTICATION</div>';
+  html += '<div class="heard-text" id="heard"></div></div>';
+
+  // Keyboard fallback
+  html += '<div class="kb-fallback"><button class="kb-toggle" onclick="toggleKB()">OR TYPE PASSPHRASE</button>';
+  html += '<div class="kb-input-wrap" id="kbWrap"><input class="kb-input" id="kbInput" type="password" placeholder="Enter passphrase..." autocomplete="off"/>';
+  html += '<button class="kb-send" onclick="submitKB()">&#9654;</button></div></div>';
+
+  // Metrics
+  html += '<div class="metrics">';
+  html += '<div class="metric"><div class="metric-val" id="latencyVal">12<span class="unit">ms</span></div><div class="metric-label">LATENCY</div></div>';
+  html += '<div class="metric"><div class="metric-val">AES<span class="unit">256</span></div><div class="metric-label">ENCRYPTION</div></div>';
+  html += '<div class="metric"><div class="metric-val" id="signalVal">98<span class="unit">%</span></div><div class="metric-label">SIGNAL</div></div>';
+  html += '</div>';
+  html += '<div class="bottom">WILDWOOD SYSTEMS — SECURE ACCESS PROTOCOL</div>';
+  html += '</div>';
+
+  // Success overlay
+  html += '<div class="success-overlay" id="successOverlay">';
+  html += '<div class="success-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>';
+  html += '<div class="success-name" id="successName"></div>';
+  html += '<div class="success-role" id="successRole">ACCESS GRANTED</div>';
+  html += '<div class="success-bar"><div class="success-bar-fill"></div></div>';
+  html += '</div>';
+
+  // ═══════════════════ JAVASCRIPT ═══════════════════
+  html += '<script>';
+
+  // ── Particle canvas ──
+  html += '(function(){var c=document.getElementById("bgCanvas"),x=c.getContext("2d"),P=[],mouse={x:-1e3,y:-1e3},N=80,CD=150,MD=200,attractMode=false;';
+  html += 'function resize(){c.width=innerWidth;c.height=innerHeight}';
+  html += 'function init(){P=[];for(var i=0;i<N;i++)P.push({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-0.5)*0.3,vy:(Math.random()-0.5)*0.3,r:Math.random()*1.5+0.5,o:Math.random()*0.3+0.05,origO:0});P.forEach(function(p){p.origO=p.o})}';
+  html += 'window._setAttract=function(v){attractMode=v};';
+  html += 'function draw(){x.clearRect(0,0,c.width,c.height);var cx=c.width/2,cy=c.height/2;for(var i=0;i<P.length;i++){var p=P[i];p.x+=p.vx;p.y+=p.vy;if(p.x<0)p.x=c.width;if(p.x>c.width)p.x=0;if(p.y<0)p.y=c.height;if(p.y>c.height)p.y=0;';
+  html += 'if(attractMode){var dx=cx-p.x,dy=cy-p.y,d=Math.sqrt(dx*dx+dy*dy);if(d>5){p.vx+=dx/d*0.04;p.vy+=dy/d*0.04}p.o=Math.min(p.origO*2,0.6)}else{var dx=mouse.x-p.x,dy=mouse.y-p.y,d=Math.sqrt(dx*dx+dy*dy);if(d<MD){var f=(MD-d)/MD*0.02;p.vx-=dx*f;p.vy-=dy*f}p.o+=(p.origO-p.o)*0.05}';
+  html += 'p.vx*=0.99;p.vy*=0.99;x.beginPath();x.arc(p.x,p.y,p.r,0,Math.PI*2);x.fillStyle="rgba(77,168,255,"+p.o+")";x.fill()}';
+  html += 'for(var i=0;i<P.length;i++)for(var j=i+1;j<P.length;j++){var dx=P[i].x-P[j].x,dy=P[i].y-P[j].y,d=Math.sqrt(dx*dx+dy*dy);if(d<CD){var a=(1-d/CD)*(attractMode?0.12:0.06);x.beginPath();x.moveTo(P[i].x,P[i].y);x.lineTo(P[j].x,P[j].y);x.strokeStyle="rgba(77,168,255,"+a+")";x.lineWidth=0.5;x.stroke()}}requestAnimationFrame(draw)}';
+  html += 'addEventListener("resize",function(){resize();init()});document.addEventListener("mousemove",function(e){mouse.x=e.clientX;mouse.y=e.clientY});document.addEventListener("mouseleave",function(){mouse.x=-1e3;mouse.y=-1e3});resize();init();draw()})();';
+
+  // ── Hex grid canvas ──
+  html += '(function(){var c=document.getElementById("hexCanvas"),x=c.getContext("2d");function resize(){c.width=innerWidth;c.height=innerHeight;drawHex()}';
+  html += 'function drawHex(){x.clearRect(0,0,c.width,c.height);x.strokeStyle="rgba(77,168,255,0.03)";x.lineWidth=0.5;var s=40,h=s*Math.sqrt(3);for(var row=-1;row<c.height/h+1;row++)for(var col=-1;col<c.width/(s*1.5)+1;col++){var cx=col*s*1.5,cy=row*h+(col%2?h/2:0);x.beginPath();for(var i=0;i<6;i++){var a=Math.PI/180*(60*i-30),px=cx+s*0.4*Math.cos(a),py=cy+s*0.4*Math.sin(a);i===0?x.moveTo(px,py):x.lineTo(px,py)}x.closePath();x.stroke()}}';
+  html += 'addEventListener("resize",resize);resize()})();';
+
+  // ── Real audio visualizer ──
+  html += 'var audioCtx,analyser,dataArray,micStream;';
+  html += 'function initAudioViz(stream){audioCtx=new(window.AudioContext||window.webkitAudioContext)();analyser=audioCtx.createAnalyser();analyser.fftSize=256;var src=audioCtx.createMediaStreamSource(stream);src.connect(analyser);dataArray=new Uint8Array(analyser.frequencyBinCount);micStream=stream;drawAudioViz()}';
+  html += 'function drawAudioViz(){if(!analyser)return;requestAnimationFrame(drawAudioViz);analyser.getByteFrequencyData(dataArray);var cv=document.getElementById("audioViz"),cx=cv.getContext("2d"),w=cv.width,h=cv.height,cX=w/2,cY=h/2;cx.clearRect(0,0,w,h);';
+  html += 'var bars=64,r=55;for(var i=0;i<bars;i++){var a=(i/bars)*Math.PI*2-Math.PI/2,v=dataArray[i%dataArray.length]/255,len=v*40+2;cx.beginPath();cx.moveTo(cX+Math.cos(a)*r,cY+Math.sin(a)*r);cx.lineTo(cX+Math.cos(a)*(r+len),cY+Math.sin(a)*(r+len));cx.strokeStyle="rgba(86,212,200,"+(0.1+v*0.5)+")";cx.lineWidth=2;cx.lineCap="round";cx.stroke()}}';
+  html += 'function stopAudioViz(){if(micStream){micStream.getTracks().forEach(function(t){t.stop()});micStream=null}if(audioCtx){audioCtx.close();audioCtx=null;analyser=null}var cv=document.getElementById("audioViz");if(cv){var cx=cv.getContext("2d");cx.clearRect(0,0,cv.width,cv.height)}}';
+
+  // ── Visualizer bars (static idle) ──
+  html += '(function(){var v=document.getElementById("visualizer"),B=48;for(var i=0;i<B;i++){var b=document.createElement("div");b.className="viz-bar";var a=(i/B)*360,r=a*Math.PI/180,R=80;b.style.transform="translate(-50%,0) rotate("+(a+180)+"deg)";b.style.left=(50+(Math.cos(r)*R/150)*50)+"%";b.style.bottom=(50+(Math.sin(r)*R/150)*50)+"%";b.style.animationDelay=(i*0.04)+"s";b.style.animationDuration=(0.6+Math.random()*0.8)+"s";v.appendChild(b)}})();';
+
+  // ── Clock ──
+  html += 'function updateClock(){var n=new Date(),h=String(n.getHours()).padStart(2,"0"),m=String(n.getMinutes()).padStart(2,"0"),s=String(n.getSeconds()).padStart(2,"0");var el=document.getElementById("clock");if(el)el.textContent=h+":"+m+":"+s}setInterval(updateClock,1000);updateClock();';
+
+  // ── Metrics ──
+  html += 'setInterval(function(){var l=document.getElementById("latencyVal");if(l)l.innerHTML=(10+Math.floor(Math.random()*8))+"<span class=\\"unit\\">ms</span>";var s=document.getElementById("signalVal");if(s)s.innerHTML=(96+Math.floor(Math.random()*4))+"<span class=\\"unit\\">%</span>"},3000);';
+
+  // ── Boot sequence ──
+  html += 'var bootLines=["[SYS] Initializing JARVIS neural core...","[NET] Secure tunnel established — AES-256","[AUTH] Voice biometric engine loaded","[AI] ATHENA cognitive layer online","[SYS] All systems nominal","","READY"];';
+  html += '(function(){var el=document.getElementById("bootText"),i=0;function addLine(){if(i>=bootLines.length){setTimeout(function(){document.getElementById("bootOverlay").classList.add("done");document.getElementById("mainUI").classList.add("booted")},400);return}';
+  html += 'var line=document.createElement("div");line.className="line";line.style.animationDelay="0s";if(bootLines[i]===""){line.innerHTML="&nbsp;"}else if(bootLines[i]==="READY"){line.innerHTML=bootLines[i]+"<span class=\\"boot-cursor\\"></span>";line.style.color="#34d399"}else{line.textContent=bootLines[i]}';
+  html += 'el.appendChild(line);i++;setTimeout(addLine,250+Math.random()*200)}setTimeout(addLine,300)})();';
+
+  // ── Keyboard fallback ──
+  html += 'function toggleKB(){var w=document.getElementById("kbWrap");w.classList.toggle("show");if(w.classList.contains("show"))document.getElementById("kbInput").focus()}';
+  html += 'function submitKB(){var v=document.getElementById("kbInput").value.trim();if(v)validatePhrase(v)}';
+  html += 'document.addEventListener("keydown",function(e){if(e.key==="Enter"&&document.getElementById("kbWrap").classList.contains("show"))submitKB()});';
+
+  // ── Voice auth ──
+  html += 'var isListening=false,SR=window.SpeechRecognition||window.webkitSpeechRecognition;';
+  html += 'function addRipple(){var i=document.getElementById("interface"),r=document.createElement("div");r.className="ripple";i.appendChild(r);setTimeout(function(){r.remove()},1500)}';
+
+  html += 'function startListening(){if(isListening)return;addRipple();if(!SR){document.getElementById("status").textContent="BROWSER NOT SUPPORTED";document.getElementById("status").className="status-text error";return}';
+  html += 'isListening=true;window._setAttract(true);document.getElementById("micBtn").className="center-btn listening";document.getElementById("interface").classList.add("listening");document.getElementById("status").textContent="LISTENING";document.getElementById("status").className="status-text active";document.getElementById("heard").textContent="";';
+  // Start real audio viz
+  html += 'navigator.mediaDevices.getUserMedia({audio:true}).then(function(s){initAudioViz(s)}).catch(function(){});';
+  html += 'var rec=new SR();rec.continuous=false;rec.interimResults=true;rec.lang="en-US";';
+  html += 'rec.onresult=function(e){var t="";for(var i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;document.getElementById("heard").textContent=t;if(e.results[0].isFinal)validatePhrase(t)};';
+  html += 'rec.onerror=function(){resetUI("fail","RECOGNITION FAILED")};';
+  html += 'rec.onend=function(){isListening=false};rec.start()}';
+
+  html += 'function resetUI(s,m){isListening=false;window._setAttract(false);stopAudioViz();document.getElementById("micBtn").className="center-btn "+s;document.getElementById("interface").classList.remove("listening");document.getElementById("status").textContent=m;document.getElementById("status").className="status-text "+(s==="fail"?"error":s);';
+  html += 'setTimeout(function(){document.getElementById("micBtn").className="center-btn";document.getElementById("status").textContent="VOICE AUTHENTICATION";document.getElementById("status").className="status-text";document.getElementById("heard").textContent=""},3000)}';
+
+  html += 'async function validatePhrase(phrase){window._setAttract(false);stopAudioViz();document.getElementById("status").innerHTML="VERIFYING<span class=\\"verifying-dots\\"><span></span><span></span><span></span></span>";document.getElementById("status").className="status-text active";document.getElementById("interface").classList.remove("listening");document.getElementById("micBtn").className="center-btn";';
+  html += 'try{var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});var d=await r.json();';
+  html += 'if(d.success){document.getElementById("micBtn").className="center-btn success";document.getElementById("status").textContent="VERIFIED";document.getElementById("status").className="status-text success";';
+  html += 'document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
+  html += 'setTimeout(function(){var ov=document.getElementById("successOverlay");document.getElementById("successName").textContent=d.name.toUpperCase();document.getElementById("successRole").textContent=d.access==="all"?"FULL ACCESS GRANTED":"LIMITED ACCESS GRANTED";ov.classList.add("show");';
+  html += 'var redir="' + (redirect || '') + '";if(!redir)redir=d.access==="all"?"/dashboard":"/discord";';
+  html += 'setTimeout(function(){window.location.href=redir},2200)},800);';
+  html += '}else{resetUI("fail","SIGNATURE MISMATCH")}}catch(e){resetUI("fail","CONNECTION ERROR")}}';
+
+  html += '</script></body></html>';
   res.send(html);
 });
 
@@ -16855,6 +17004,25 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
     // TAB: ATHENA COMMAND CENTER
     // ════════════════════════════════════════════
     html += '<div class="tab-panel" id="tab-athena">';
+    // Athena Voice Chat Button on Dashboard
+    html += '<div style="text-align:center;margin:20px 0 30px;">';
+    html += '<div onclick="toggleDashAthenaVoice()" id="dash-athena-voice-btn" style="cursor:pointer;display:inline-block;padding:16px 40px;border:1px solid #a855f740;background:rgba(168,85,247,0.08);color:#a855f7;font-family:Orbitron,sans-serif;font-size:0.8em;letter-spacing:4px;transition:all 0.3s;"><span style="margin-right:8px;">🎙</span>TALK TO ATHENA</div>';
+    html += '</div>';
+    html += '<div id="dash-athena-voice-panel" style="display:none;max-width:800px;margin:0 auto 30px;padding:0 20px;">';
+    html += '<div style="background:rgba(10,12,25,0.9);border:1px solid #a855f730;padding:30px;position:relative;overflow:hidden;">';
+    html += '<div style="text-align:center;margin-bottom:20px;"><div id="dash-athena-status" style="font-family:Orbitron,sans-serif;font-size:0.7em;letter-spacing:4px;color:#4a6a8a;">CLICK MIC TO SPEAK</div></div>';
+    html += '<div style="text-align:center;margin-bottom:20px;"><div id="dash-athena-mic" onclick="toggleDashAthenaListening()" style="width:80px;height:80px;border-radius:50%;border:2px solid #a855f740;background:rgba(168,85,247,0.05);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.3s;"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg></div></div>';
+    html += '<div style="display:flex;gap:10px;margin-bottom:20px;"><input id="dash-athena-input" type="text" placeholder="Or type your question..." style="flex:1;padding:12px 16px;background:rgba(10,20,35,0.8);border:1px solid #a855f730;color:#c0d8f0;font-family:Rajdhani,sans-serif;font-size:1em;outline:none;" onkeypress="if(event.key===&apos;Enter&apos;)sendDashAthenaText()"><button onclick="sendDashAthenaText()" style="padding:12px 20px;background:rgba(168,85,247,0.15);border:1px solid #a855f750;color:#a855f7;font-family:Orbitron,sans-serif;font-size:0.7em;letter-spacing:3px;cursor:pointer;">SEND</button></div>';
+    html += '<div id="dash-athena-log" style="max-height:400px;overflow-y:auto;font-size:0.95em;"></div>';
+    html += '</div></div>';
+    html += '<script>';
+    html += 'var dashAthenaOpen=false,dashAthenaListening=false,dashAthenaRecog=null,dashAthenaSession="da"+Date.now();';
+    html += 'function toggleDashAthenaVoice(){dashAthenaOpen=!dashAthenaOpen;document.getElementById("dash-athena-voice-panel").style.display=dashAthenaOpen?"block":"none";var b=document.getElementById("dash-athena-voice-btn");b.style.borderColor=dashAthenaOpen?"#ff4757":"#a855f740";b.style.color=dashAthenaOpen?"#ff4757":"#a855f7";if(!dashAthenaOpen&&dashAthenaListening){dashAthenaListening=false;if(dashAthenaRecog)try{dashAthenaRecog.stop();}catch(e){}}}';
+    html += 'function toggleDashAthenaListening(){if(dashAthenaListening){dashAthenaListening=false;if(dashAthenaRecog)try{dashAthenaRecog.stop();}catch(e){}document.getElementById("dash-athena-mic").style.borderColor="#a855f740";document.getElementById("dash-athena-mic").style.boxShadow="none";document.getElementById("dash-athena-status").textContent="CLICK MIC TO SPEAK";return;}if(!("webkitSpeechRecognition" in window)&&!("SpeechRecognition" in window)){alert("Speech not supported");return;}var SR=window.SpeechRecognition||window.webkitSpeechRecognition;dashAthenaRecog=new SR();dashAthenaRecog.continuous=false;dashAthenaRecog.interimResults=false;dashAthenaRecog.onstart=function(){dashAthenaListening=true;document.getElementById("dash-athena-mic").style.borderColor="#a855f7";document.getElementById("dash-athena-mic").style.boxShadow="0 0 40px rgba(168,85,247,0.3)";document.getElementById("dash-athena-status").textContent="LISTENING...";document.getElementById("dash-athena-status").style.color="#a855f7";};dashAthenaRecog.onresult=function(e){var t=e.results[0][0].transcript;dashAthenaListening=false;document.getElementById("dash-athena-mic").style.borderColor="#a855f740";document.getElementById("dash-athena-mic").style.boxShadow="none";processDashAthena(t);};dashAthenaRecog.onerror=function(e){dashAthenaListening=false;document.getElementById("dash-athena-mic").style.borderColor="#a855f740";document.getElementById("dash-athena-status").textContent="ERROR: "+e.error;document.getElementById("dash-athena-status").style.color="#ff4757";};dashAthenaRecog.onend=function(){dashAthenaListening=false;};dashAthenaRecog.start();}';
+    html += 'function sendDashAthenaText(){var i=document.getElementById("dash-athena-input");if(i.value.trim()){processDashAthena(i.value.trim());i.value="";}}';
+    html += 'function processDashAthena(msg){var log=document.getElementById("dash-athena-log");log.innerHTML+="<div style=\"margin:12px 0\"><div style=\"color:#c084fc;font-family:Orbitron,sans-serif;font-size:0.65em;letter-spacing:3px;margin-bottom:4px\">YOU</div><div style=\"color:#c0d8f0\">"+msg+"</div></div>";document.getElementById("dash-athena-status").textContent="ATHENA PROCESSING...";document.getElementById("dash-athena-status").style.color="#c084fc";fetch("/chat/athena",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:msg,sessionId:dashAthenaSession})}).then(function(r){return r.json();}).then(function(d){var resp=d.response||d.error||"No response";log.innerHTML+="<div style=\"margin:12px 0\"><div style=\"color:#a855f7;font-family:Orbitron,sans-serif;font-size:0.65em;letter-spacing:3px;margin-bottom:4px\">ATHENA</div><div style=\"color:#e0e8f0\">"+resp+"</div></div>";log.scrollTop=log.scrollHeight;document.getElementById("dash-athena-status").textContent="CLICK MIC TO SPEAK";document.getElementById("dash-athena-status").style.color="#4a6a8a";}).catch(function(e){log.innerHTML+="<div style=\"color:#ff4757;margin:8px 0\">Error: "+e.message+"</div>";document.getElementById("dash-athena-status").textContent="ERROR";document.getElementById("dash-athena-status").style.color="#ff4757";});}';
+    html += '<\/script>';
+
     html += '<div class="box" style="border:1px solid #c084fc30;background:linear-gradient(135deg,rgba(5,10,20,0.9),rgba(15,10,30,0.9))">';
     html += '<div class="box-title"><span class="dot" style="background:#c084fc"></span>ATHENA — SEO TASK GENERATOR</div>';
     html += '<div style="color:#c0d8f0;font-size:0.85em;line-height:1.7;padding:8px">';
@@ -20054,7 +20222,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += 'var curLocation="all";var locDropOpen=false;';
   html += 'function toggleLocDrop(){locDropOpen=!locDropOpen;document.getElementById("locDropMenu").style.display=locDropOpen?"block":"none";}';
   html += 'document.addEventListener("click",function(e){if(locDropOpen&&!document.getElementById("locDropWrap").contains(e.target)){locDropOpen=false;document.getElementById("locDropMenu").style.display="none";}});';
-  html += 'function populateLocations(){if(!D||!D.allLocations)return;var box=document.getElementById("locCheckboxes");box.innerHTML="";D.allLocations.forEach(function(l){var label=l.city?(l.city+", "+l.state+" — "+(l.name||"")):(l.name||l.id);var div=document.createElement("label");div.style.cssText="display:flex;align-items:center;padding:6px 14px;cursor:pointer;border-bottom:1px solid #0a1a2a08;color:#a0b8d0;font-size:0.9em;";div.onmouseover=function(){this.style.background="rgba(16,185,129,0.05)";};div.onmouseout=function(){this.style.background="none";};div.innerHTML="<input type=\\"checkbox\\" class=\\"loc-cb\\" value=\\""+l.id+"\\" checked onchange=\\"onLocChange()\\" style=\\"margin-right:10px;accent-color:#10b981;\\"> "+label;box.appendChild(div);});updateLocLabel();}';
+  html += 'function populateLocations(){if(!D||!D.allLocations)return;var box=document.getElementById("locCheckboxes");box.innerHTML="";D.allLocations.forEach(function(l){var label=l.name||l.id;if(l.city&&l.name&&!l.name.toLowerCase().includes(l.city.toLowerCase())){label=l.name+" ("+l.city+", "+l.state+")";}var _unused=0;var div=document.createElement("label");div.style.cssText="display:flex;align-items:center;padding:6px 14px;cursor:pointer;border-bottom:1px solid #0a1a2a08;color:#a0b8d0;font-size:0.9em;";div.onmouseover=function(){this.style.background="rgba(16,185,129,0.05)";};div.onmouseout=function(){this.style.background="none";};div.innerHTML="<input type=\\"checkbox\\" class=\\"loc-cb\\" value=\\""+l.id+"\\" checked onchange=\\"onLocChange()\\" style=\\"margin-right:10px;accent-color:#10b981;\\"> "+label;box.appendChild(div);});updateLocLabel();}';
   html += 'function toggleAllLocs(){var checked=document.getElementById("locAll").checked;document.querySelectorAll(".loc-cb").forEach(function(cb){cb.checked=checked;});onLocChange();}';
   html += 'function onLocChange(){var cbs=document.querySelectorAll(".loc-cb");var checked=[];var total=0;cbs.forEach(function(cb){total++;if(cb.checked)checked.push(cb.value);});document.getElementById("locAll").checked=checked.length===total;updateLocLabel();var locParam=checked.length===total||checked.length===0?"all":checked.join(",");if(curLocation===locParam)return;curLocation=locParam;document.getElementById("refreshBtn").textContent="⟳ LOADING...";loadAll("/square/api/snapshot?location="+encodeURIComponent(curLocation));}';
   html += 'function updateLocLabel(){var cbs=document.querySelectorAll(".loc-cb");var checked=0;var total=0;var lastName="";cbs.forEach(function(cb){total++;if(cb.checked){checked++;lastName=cb.parentElement.textContent.trim();}});var label=document.getElementById("locDropLabel");if(checked===total||checked===0){label.textContent="📍 ALL LOCATIONS ("+total+")";}else if(checked===1){label.textContent="📍 "+lastName;}else{label.textContent="📍 "+checked+" LOCATIONS SELECTED";}}';
