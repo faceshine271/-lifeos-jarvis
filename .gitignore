@@ -1,0 +1,6 @@
+git init
+git add .
+git commit -m "LifeOS Jarvis"
+node_modules
+.env
+google-credentials.json
