@@ -1,4 +1,4 @@
-; // LINE_GUARD — do not remove
+0; // LINE_GUARD — do not remove
 // ATHENA v4.4 — Feb 24 2026 — Market Intelligence + CPC + Market Share + Attack List
 require('dotenv').config();
 const express = require('express');
@@ -5946,7 +5946,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     html += '<div class="status-bar">';
     html += '<div class="status-item"><div class="status-dot green"></div>SYSTEMS ONLINE</div>';
@@ -8611,7 +8611,7 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
@@ -11146,7 +11146,7 @@ app.get('/tookan', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     // Status overview cards
@@ -11602,7 +11602,7 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" class="active">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div style="font-family:Orbitron;font-size:1.1em;letter-spacing:6px;color:#00d4ff;margin-bottom:5px;">CALL VOLUME — TECHNICAL ANALYSIS</div>';
@@ -12424,7 +12424,7 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics" class="active">ANALYTICS</a>';
     html += '<a href="/ads">GOOGLE ADS</a>';
-    html += '<a href="/followup">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/followup">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div class="title">PREDICTIVE ANALYTICS ENGINE</div>';
@@ -19600,6 +19600,421 @@ app.get('/audit', requireAuth('owner'), async function(req, res) {
   res.send(html);
 });
 
+// ═══════════════════════════════════════════════════════════════
+// TASK ASSIGNING DESK — /tasks route + API endpoints
+// ═══════════════════════════════════════════════════════════════
+var TASK_SPREADSHEET_ID = '1ZshCanMloF8uUlH39s2ZxvpCuvxjJQAONaSnN7590WA';
+var TASK_EMPLOYEE_SHEET = 'Receptionist Data';
+var TASK_BRAND_NAME = 'Wildwood Small Engine Repair';
+var TASK_REPLY_EMAIL = 'tuzaib48@gmail.com';
+
+// Helper: title case
+function taskTitleCase(name) {
+  return String(name || '').trim().toLowerCase().split(/\s+/).filter(Boolean)
+    .map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+}
+
+// API: Get employees from Receptionist Data sheet
+app.get('/tasks/api/employees', requireAuth('owner'), async function(req, res) {
+  try {
+    var result = await sheets.spreadsheets.values.get({
+      spreadsheetId: TASK_SPREADSHEET_ID,
+      range: "'" + TASK_EMPLOYEE_SHEET + "'!A2:B200"
+    });
+    var rows = result.data.values || [];
+    var employees = rows.map(function(r) {
+      return { name: taskTitleCase(r[0]), email: (r[1] || '').toString().trim() };
+    }).filter(function(e) { return e.name && e.email; });
+    employees.sort(function(a, b) { return a.name.localeCompare(b.name); });
+    res.json(employees);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Submit tasks — logs to monthly sheet + sends emails via Gmail
+app.post('/tasks/api/submit', requireAuth('owner'), express.json(), async function(req, res) {
+  try {
+    var rows = req.body.rows;
+    if (!rows || !Array.isArray(rows) || !rows.length) throw new Error('No tasks provided.');
+
+    var cleaned = [];
+    rows.forEach(function(r) {
+      var date = (r.date || '').toString().trim();
+      var description = (r.description || '').toString().trim();
+      var name = taskTitleCase((r.name || '').toString().trim());
+      var email = (r.email || '').toString().trim();
+      var priority = (r.priority || 'Normal').toString().trim();
+      if (date && description && name && email) {
+        cleaned.push({ date: date, description: description, name: name, email: email, priority: priority });
+      }
+    });
+    if (!cleaned.length) throw new Error('No complete tasks found.');
+
+    // Ensure monthly sheet exists
+    var now = new Date();
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var monthSheetName = months[now.getMonth()] + ' ' + now.getFullYear();
+
+    // Check if sheet exists
+    var meta = await sheets.spreadsheets.get({ spreadsheetId: TASK_SPREADSHEET_ID, fields: 'sheets.properties.title' });
+    var sheetNames = meta.data.sheets.map(function(s) { return s.properties.title; });
+    if (sheetNames.indexOf(monthSheetName) === -1) {
+      // Create the monthly sheet
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: TASK_SPREADSHEET_ID,
+        requestBody: { requests: [{ addSheet: { properties: { title: monthSheetName } } }] }
+      });
+      // Add headers
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: TASK_SPREADSHEET_ID,
+        range: "'" + monthSheetName + "'!A1:F1",
+        valueInputOption: 'RAW',
+        requestBody: { values: [['Date', 'Description', 'Employee Name', 'Employee Email', 'Priority', 'Created At']] }
+      });
+    }
+
+    // Append task rows
+    var createdAt = now.toISOString().slice(0, 19).replace('T', ' ');
+    var valuesToAppend = cleaned.map(function(t) {
+      return [t.date, t.description, t.name, t.email, t.priority, createdAt];
+    });
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: TASK_SPREADSHEET_ID,
+      range: "'" + monthSheetName + "'!A:F",
+      valueInputOption: 'RAW',
+      requestBody: { values: valuesToAppend }
+    });
+
+    // Group tasks by email for combined emails
+    var grouped = {};
+    cleaned.forEach(function(t) {
+      var key = t.email.toLowerCase();
+      if (!grouped[key]) grouped[key] = { name: t.name, email: t.email, tasks: [] };
+      grouped[key].tasks.push(t);
+    });
+
+    // Send emails via Gmail API
+    var emailCount = 0;
+    var gmailTokenFile = '/tmp/gmail-tokens.json';
+    var tokens = null;
+    try {
+      tokens = JSON.parse(require('fs').readFileSync(gmailTokenFile, 'utf8'));
+    } catch(e) {}
+
+    if (tokens && tokens.access_token) {
+      // Refresh token if needed
+      if (tokens.expiry_date && Date.now() > tokens.expiry_date - 60000) {
+        try {
+          var oauthClient = new (require('googleapis').google.auth.OAuth2)(
+            process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET,
+            (process.env.BASE_URL || 'http://localhost:3000') + '/auth/google/callback'
+          );
+          oauthClient.setCredentials(tokens);
+          var newTokens = await oauthClient.getAccessToken();
+          if (newTokens && newTokens.token) tokens.access_token = newTokens.token;
+        } catch(e) { console.log('Token refresh failed:', e.message); }
+      }
+
+      var keys = Object.keys(grouped);
+      for (var gi = 0; gi < keys.length; gi++) {
+        var group = grouped[keys[gi]];
+        try {
+          var today = new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit', year: 'numeric' }).format(now);
+          var cardsHtml = group.tasks.map(function(t, i) {
+            var pColor = t.priority === 'Urgent' ? '#ef4444' : (t.priority === 'Priority' ? '#f59e0b' : '#10b981');
+            var badgeBg = t.priority === 'Urgent' ? '#fef2f2' : (t.priority === 'Priority' ? '#fffbeb' : '#ecfdf5');
+            var badgeText = t.priority === 'Urgent' ? '#b91c1c' : (t.priority === 'Priority' ? '#b45309' : '#047857');
+            return '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:20px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.02);">' +
+              '<div style="background:' + pColor + ';height:6px;width:100%;"></div>' +
+              '<div style="padding:20px;">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+              '<span style="font-size:11px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">Task #' + (i+1) + '</span>' +
+              '<span style="background:' + badgeBg + ';color:' + badgeText + ';padding:4px 10px;border-radius:99px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">' + t.priority + '</span>' +
+              '</div>' +
+              '<div style="margin-bottom:16px;">' +
+              '<span style="display:block;font-size:12px;color:#64748b;margin-bottom:4px;font-weight:600;">DESCRIPTION</span>' +
+              '<div style="font-size:15px;color:#1e293b;line-height:1.6;font-weight:500;">' + t.description.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>' +
+              '</div>' +
+              '<div style="border-top:1px solid #f1f5f9;padding-top:12px;margin-top:12px;">' +
+              '<span style="font-size:12px;color:#64748b;font-weight:600;">DUE DATE: </span>' +
+              '<span style="font-size:13px;color:#0f172a;font-weight:600;margin-left:4px;">' + t.date + '</span>' +
+              '</div></div></div>';
+          }).join('');
+
+          var htmlBody = '<!DOCTYPE html><html><head></head><body style="margin:0;padding:0;background:#f8fafc;font-family:Arial,sans-serif;">' +
+            '<div style="max-width:600px;margin:0 auto;padding:40px 10px;">' +
+            '<div style="text-align:center;margin-bottom:30px;">' +
+            '<h2 style="color:#0f172a;margin:0;font-size:22px;font-weight:800;">Wildwood Repair</h2>' +
+            '<div style="color:#64748b;font-size:13px;margin-top:4px;">Task Notification System</div></div>' +
+            '<div style="margin-bottom:30px;">' +
+            '<div style="background:#1e293b;color:#fff;padding:24px;border-radius:16px 16px 0 0;text-align:center;">' +
+            '<h1 style="margin:0;font-size:24px;font-weight:700;">' + group.tasks.length + ' New Task' + (group.tasks.length > 1 ? 's' : '') + ' Assigned</h1>' +
+            '<p style="margin:8px 0 0;opacity:0.8;font-size:14px;">' + today + '</p></div>' +
+            '<div style="background:#fff;padding:24px;border-radius:0 0 16px 16px;box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">' +
+            '<p style="margin-top:0;margin-bottom:24px;color:#475569;font-size:15px;line-height:1.6;">Hello <strong>' + group.name + '</strong>,<br>You have new tasks pending. Please review the details below.</p>' +
+            cardsHtml +
+            '<div style="text-align:center;margin-top:32px;"><a href="mailto:' + TASK_REPLY_EMAIL + '" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;font-size:14px;">Reply to Management</a></div>' +
+            '</div></div>' +
+            '<div style="text-align:center;color:#94a3b8;font-size:12px;">&copy; ' + now.getFullYear() + ' ' + TASK_BRAND_NAME + '.<br>Automated Notification System.</div>' +
+            '</div></body></html>';
+
+          var rawEmail = 'From: ' + TASK_BRAND_NAME + ' <me>\r\n' +
+            'To: ' + group.email + '\r\n' +
+            'Reply-To: ' + TASK_REPLY_EMAIL + '\r\n' +
+            'Subject: New Tasks for ' + group.name + '\r\n' +
+            'MIME-Version: 1.0\r\n' +
+            'Content-Type: text/html; charset=UTF-8\r\n\r\n' +
+            htmlBody;
+          var encoded = Buffer.from(rawEmail).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+          var sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + tokens.access_token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw: encoded })
+          });
+          if (sendRes.ok) emailCount++;
+          else console.log('Task email send failed:', await sendRes.text());
+        } catch (emailErr) {
+          console.log('Task email error for ' + group.email + ':', emailErr.message);
+        }
+      }
+    }
+
+    res.json({ ok: true, savedTasks: cleaned.length, emailedEmployees: emailCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /tasks — Task Assigning Desk UI
+app.get('/tasks', requireAuth('owner'), async function(req, res) {
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+  html += '<title>Task Assigning Desk</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">';
+  html += '<style>';
+  html += ':root{--bg:#070b14;--panel:#0f172a;--panel2:#0b1220;--border:#1f2937;--text:#e5e7eb;--muted:#94a3b8;--accent:#60a5fa;--danger:#ef4444;--success:#10b981;--warning:#f59e0b;--shadow:0 10px 30px rgba(0,0,0,.35);--radius:16px;}';
+  html += '*{box-sizing:border-box;margin:0;padding:0;}';
+  html += 'body{background:radial-gradient(1200px 600px at 20% 0%,#0b1220 0%,var(--bg) 50%,#050814 100%);color:var(--text);font-family:Outfit,system-ui,sans-serif;min-height:100vh;}';
+  html += '::-webkit-scrollbar{width:8px;height:8px;}::-webkit-scrollbar-track{background:#0b1220;}::-webkit-scrollbar-thumb{background:#1f2937;border-radius:4px;}::-webkit-scrollbar-thumb:hover{background:#374151;}';
+
+  // Nav bar
+  html += '.topnav{display:flex;align-items:center;gap:8px;padding:12px 20px;background:rgba(11,18,32,0.9);border-bottom:1px solid var(--border);overflow-x:auto;flex-wrap:nowrap;backdrop-filter:blur(12px);position:sticky;top:0;z-index:100;}';
+  html += '.topnav a{font-size:11px;font-weight:600;letter-spacing:2px;padding:8px 16px;color:var(--muted);border:1px solid transparent;border-radius:8px;text-decoration:none;white-space:nowrap;transition:all 0.2s;}';
+  html += '.topnav a:hover{color:var(--text);border-color:var(--border);background:rgba(255,255,255,0.03);}';
+  html += '.topnav a.active{color:var(--accent);border-color:rgba(96,165,250,0.3);background:rgba(96,165,250,0.08);}';
+
+  // Layout
+  html += '.wrap{max-width:1200px;margin:34px auto;padding:0 18px 70px;}';
+  html += '.header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:18px;flex-wrap:wrap;}';
+  html += '.title{font-size:22px;font-weight:800;letter-spacing:.2px;}';
+  html += '.subtitle{margin-top:6px;color:var(--muted);font-size:13px;}';
+  html += '.pill{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.03);color:var(--muted);font-size:12px;font-weight:500;}';
+
+  // Card
+  html += '.card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);}';
+  html += '.toolbar{display:flex;gap:10px;padding:14px;border-bottom:1px solid var(--border);align-items:center;justify-content:space-between;flex-wrap:wrap;}';
+  html += '.leftTools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}';
+
+  // Buttons
+  html += '.btn{border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer;transition:all .15s;user-select:none;font-family:inherit;font-size:13px;}';
+  html += '.btn:hover{background:rgba(255,255,255,.06);border-color:#2b3646;}';
+  html += '.btn:active{transform:translateY(1px);}';
+  html += '.btnPrimary{background:linear-gradient(180deg,rgba(96,165,250,.22),rgba(96,165,250,.08));border-color:rgba(96,165,250,.35);color:#93c5fd;}';
+  html += '.btnPrimary:hover{background:linear-gradient(180deg,rgba(96,165,250,.3),rgba(96,165,250,.12));}';
+  html += '.btnDanger{background:linear-gradient(180deg,rgba(239,68,68,.20),rgba(239,68,68,.08));border-color:rgba(239,68,68,.35);color:#fca5a5;}';
+
+  // Table
+  html += '.tableWrap{width:100%;overflow-x:auto;min-height:400px;padding-bottom:100px;}';
+  html += 'table{width:100%;border-collapse:collapse;min-width:1000px;}';
+  html += 'thead th{text-align:left;font-size:11px;color:var(--muted);letter-spacing:.5px;padding:12px 14px;border-bottom:1px solid #1b2230;position:sticky;top:0;background:rgba(15,23,42,.98);z-index:10;font-weight:600;text-transform:uppercase;}';
+  html += 'thead th:nth-child(2){min-width:280px;}thead th:nth-child(3){min-width:200px;}thead th:nth-child(4){min-width:220px;}';
+  html += 'tbody td{padding:10px 14px;border-bottom:1px solid #121826;vertical-align:top;}';
+  html += 'tbody tr{transition:background 0.15s;}tbody tr:hover{background:rgba(96,165,250,0.02);}';
+
+  // Inputs
+  html += 'input,textarea,select{width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:12px;padding:10px 12px;color:var(--text);outline:none;font-size:13px;font-family:inherit;transition:border-color 0.2s;}';
+  html += 'input:focus,textarea:focus,select:focus{border-color:rgba(96,165,250,0.4);background:rgba(0,0,0,0.2);}';
+  html += 'textarea{height:42px;min-height:42px;resize:vertical;line-height:1.5;overflow:hidden;}';
+  html += 'textarea:focus{min-height:60px;}';
+  html += 'select{appearance:none;background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%2394a3b8%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3e%3cpolyline points=%276 9 12 15 18 9%27%3e%3c/polyline%3e%3c/svg%3e");background-repeat:no-repeat;background-position:right 10px center;background-size:16px;cursor:pointer;}';
+  html += 'select option{background:#0b1220;color:#e5e7eb;}';
+  html += 'input[readonly]{opacity:.85;cursor:not-allowed;}';
+
+  // Row actions
+  html += '.rowActions{display:flex;gap:6px;justify-content:flex-end;}';
+  html += '.iconBtn{border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--muted);border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;font-size:14px;}';
+  html += '.iconBtn:hover{background:rgba(255,255,255,.1);color:#fff;}';
+  html += '.btnSendRow{color:var(--accent);border-color:rgba(96,165,250,.2);}.btnSendRow:hover{background:rgba(96,165,250,.15);box-shadow:0 0 10px rgba(96,165,250,.1);}';
+
+  // Status
+  html += '.status{margin:12px 14px;font-size:13px;color:var(--muted);white-space:pre-line;min-height:20px;}';
+
+  // FAB
+  html += '.addRowFloating{position:fixed;right:22px;bottom:18px;z-index:999;display:flex;align-items:center;gap:10px;}';
+  html += '.fab{width:54px;height:54px;border-radius:16px;border:1px solid rgba(96,165,250,.35);background:linear-gradient(180deg,rgba(96,165,250,.26),rgba(96,165,250,.10));color:#eaf2ff;font-size:22px;font-weight:900;cursor:pointer;box-shadow:0 12px 28px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;transition:all 0.2s;font-family:inherit;}';
+  html += '.fab:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(0,0,0,.4);}';
+  html += '.fabLabel{background:rgba(15,23,42,.9);border:1px solid var(--border);padding:10px 12px;border-radius:14px;color:var(--muted);font-size:12px;}';
+
+  // Dropdown
+  html += '.dd{position:relative;}.ddInput{padding-right:38px;cursor:pointer;}';
+  html += '.ddCaret{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--muted);font-weight:900;font-size:12px;}';
+  html += '.ddMenu{position:absolute;left:0;min-width:100%;width:max-content;max-width:350px;top:calc(100% + 6px);background:#070b14;border:1px solid #253044;border-radius:14px;box-shadow:0 18px 40px rgba(0,0,0,.75);overflow:hidden;display:none;z-index:1000;}';
+  html += '.ddMenu.open{display:block;}';
+  html += '.ddSearch{width:100%;border:0;border-bottom:1px solid #182033;border-radius:0;background:rgba(255,255,255,.03);padding:12px;outline:none;}';
+  html += '.ddList{max-height:240px;overflow-y:auto;}';
+  html += '.ddItem{padding:12px 14px;cursor:pointer;color:#e5e7eb;border-bottom:1px solid #0f172a;font-size:13px;transition:background 0.1s;}.ddItem:hover{background:rgba(96,165,250,.10);}';
+  html += '.ddItem small{display:block;color:var(--muted);margin-top:4px;font-size:12px;}.ddEmpty{padding:12px;color:var(--muted);font-size:13px;}';
+
+  // Loading overlay
+  html += '.loadingOverlay{position:fixed;inset:0;background:rgba(7,11,20,0.8);z-index:2000;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;backdrop-filter:blur(4px);}';
+  html += '.loadingOverlay.show{display:flex;}';
+  html += '.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;}';
+  html += '@keyframes spin{to{transform:rotate(360deg)}}';
+  html += '.loadingText{color:var(--muted);font-size:13px;letter-spacing:1px;}';
+
+  html += '</style></head><body>';
+
+  // Nav
+  html += '<div class="topnav">';
+  html += '<a href="/dashboard">JARVIS</a>';
+  html += '<a href="/business">ATHENA</a>';
+  html += '<a href="/analytics">ANALYTICS</a>';
+  html += '<a href="/square">SQUARE</a>';
+  html += '<a href="/forecast">FORECAST</a>';
+  html += '<a href="/tasks" class="active">TASKS</a>';
+  html += '<a href="/discord">DISCORD</a>';
+  html += '<a href="/followup">FOLLOW UP</a>';
+  html += '<a href="/seo">SEO</a>';
+  html += '<a href="/audit">AUDIT</a>';
+  html += '</div>';
+
+  html += '<div class="wrap">';
+  html += '<div class="header"><div><h1 class="title">Task Assigning Desk</h1><div class="subtitle">Create tasks, assign employees, and send combined email notifications.</div></div>';
+  html += '<div class="pill" id="todayPill">Today: —</div></div>';
+
+  html += '<div class="card">';
+  html += '<div class="toolbar"><div class="leftTools">';
+  html += '<button class="btn btnPrimary" id="sendBtn" onclick="sendAllTasks()">✉ Send All Tasks</button>';
+  html += '<button class="btn btnDanger" id="clearBtn" onclick="resetTable()">✕ Clear All</button>';
+  html += '</div><div class="pill" id="employeeCount">Employees: loading...</div></div>';
+
+  html += '<div class="tableWrap"><table><thead><tr>';
+  html += '<th style="width:140px">Date</th><th>Task Description</th><th style="width:240px">Employee Name</th>';
+  html += '<th style="width:290px">Employee Email</th><th style="width:160px">Priority</th><th style="width:130px;text-align:right">Actions</th>';
+  html += '</tr></thead><tbody id="rowsBody"></tbody></table></div>';
+  html += '<div class="status" id="statusBox"></div>';
+  html += '</div></div>';
+
+  // FAB
+  html += '<div class="addRowFloating"><div class="fabLabel">Add Row</div><button class="fab" onclick="addRow()">+</button></div>';
+
+  // Loading overlay
+  html += '<div class="loadingOverlay" id="loadingOverlay"><div class="spinner"></div><div class="loadingText" id="loadingText">Sending tasks...</div></div>';
+
+  // JavaScript
+  html += '<script>';
+  html += 'var employees=[],rowsBody=document.getElementById("rowsBody"),statusBox=document.getElementById("statusBox");';
+  html += 'var todayISO=new Date().toISOString().slice(0,10);';
+  html += 'document.getElementById("todayPill").textContent="Today: "+todayISO;';
+
+  // Close dropdowns on outside click
+  html += 'document.addEventListener("click",function(e){document.querySelectorAll(".ddMenu.open").forEach(function(m){if(!m.closest(".dd").contains(e.target))m.classList.remove("open")})});';
+
+  // Load employees
+  html += 'fetch("/tasks/api/employees",{credentials:"include"}).then(function(r){return r.json()}).then(function(data){';
+  html += '  if(data.error){setStatus("Error: "+data.error,true);return}';
+  html += '  employees=data;document.getElementById("employeeCount").textContent="Employees: "+employees.length;';
+  html += '  resetTable();';
+  html += '}).catch(function(err){setStatus("Failed to load employees: "+err,true)});';
+
+  // Status
+  html += 'function setStatus(msg,isError){statusBox.style.color=isError?"#fca5a5":"#94a3b8";statusBox.textContent=msg||""}';
+
+  // Escape HTML
+  html += 'function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}';
+
+  // Reset
+  html += 'function resetTable(){rowsBody.innerHTML="";addRow();setStatus("")}';
+
+  // Create dropdown
+  html += 'function createDD(placeholder,getLabel,getSub,onPick){';
+  html += '  var wrap=document.createElement("div");wrap.className="dd";';
+  html += '  var inp=document.createElement("input");inp.className="ddInput";inp.type="text";inp.placeholder=placeholder;inp.readOnly=true;inp.dataset.value="";';
+  html += '  var caret=document.createElement("div");caret.className="ddCaret";caret.textContent="▾";';
+  html += '  var menu=document.createElement("div");menu.className="ddMenu";';
+  html += '  var search=document.createElement("input");search.className="ddSearch";search.type="text";search.placeholder="Search…";';
+  html += '  var list=document.createElement("div");list.className="ddList";';
+  html += '  menu.appendChild(search);menu.appendChild(list);wrap.appendChild(inp);wrap.appendChild(caret);wrap.appendChild(menu);';
+  html += '  function render(ft){list.innerHTML="";ft=(ft||"").trim().toLowerCase();';
+  html += '    var filtered=employees.filter(function(e){return !ft||getLabel(e).toLowerCase().indexOf(ft)>=0||getSub(e).toLowerCase().indexOf(ft)>=0});';
+  html += '    if(!filtered.length){list.innerHTML="<div class=ddEmpty>No results</div>";return}';
+  html += '    filtered.forEach(function(e){var d=document.createElement("div");d.className="ddItem";d.innerHTML=esc(getLabel(e))+(getSub(e)?"<small>"+esc(getSub(e))+"</small>":"");';
+  html += '      d.addEventListener("click",function(){inp.value=getLabel(e);inp.dataset.value=getLabel(e);menu.classList.remove("open");onPick(e)});list.appendChild(d)})}';
+  html += '  inp.addEventListener("click",function(){document.querySelectorAll(".ddMenu.open").forEach(function(m){if(m!==menu)m.classList.remove("open")});menu.classList.toggle("open");if(menu.classList.contains("open")){search.value="";render("");setTimeout(function(){search.focus()},10)}});';
+  html += '  search.addEventListener("input",function(){render(search.value)});';
+  html += '  wrap.setByLabel=function(l){inp.value=l||"";inp.dataset.value=l||""};wrap.getValue=function(){return inp.dataset.value||""};wrap.clear=function(){wrap.setByLabel("")};';
+  html += '  return wrap}';
+
+  // Add row
+  html += 'function addRow(pre){pre=pre||{};var tr=document.createElement("tr");';
+  // Date
+  html += '  var td1=document.createElement("td");var di=document.createElement("input");di.type="date";di.value=pre.date||todayISO;di.readOnly=true;td1.appendChild(di);';
+  // Description
+  html += '  var td2=document.createElement("td");var ta=document.createElement("textarea");ta.placeholder="Task details...";ta.value=pre.description||"";td2.appendChild(ta);';
+  // Name dropdown
+  html += '  var td3=document.createElement("td");var ddN=createDD("Select employee…",function(e){return e.name},function(e){return e.email},function(e){ddE.setByLabel(e.email)});td3.appendChild(ddN);';
+  // Email dropdown
+  html += '  var td4=document.createElement("td");var ddE=createDD("Select email…",function(e){return e.email},function(e){return e.name},function(e){ddN.setByLabel(e.name)});td4.appendChild(ddE);';
+  html += '  if(pre.name)ddN.setByLabel(pre.name);if(pre.email)ddE.setByLabel(pre.email);';
+  // Priority
+  html += '  var td5=document.createElement("td");var sel=document.createElement("select");["Normal","Priority","Urgent"].forEach(function(o){var opt=document.createElement("option");opt.value=o;opt.textContent=o;sel.appendChild(opt)});sel.value=pre.priority||"Normal";td5.appendChild(sel);';
+  // Actions
+  html += '  var td6=document.createElement("td");td6.style.textAlign="right";var acts=document.createElement("div");acts.className="rowActions";';
+  html += '  var sb=document.createElement("button");sb.className="iconBtn btnSendRow";sb.title="Send this task";sb.innerHTML="✉";sb.onclick=function(){sendSingleRow(tr)};';
+  html += '  var db=document.createElement("button");db.className="iconBtn";db.title="Delete";db.innerHTML="✕";db.onclick=function(){tr.remove();if(!rowsBody.querySelector("tr"))addRow()};';
+  html += '  acts.appendChild(sb);acts.appendChild(db);td6.appendChild(acts);';
+  html += '  tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tr.appendChild(td6);';
+  html += '  tr._ddN=ddN;tr._ddE=ddE;tr._prio=sel;';
+  html += '  rowsBody.appendChild(tr)}';
+
+  // Get row data
+  html += 'function getRowData(tr){var tds=tr.querySelectorAll("td");return{date:tds[0].querySelector("input").value,description:tds[1].querySelector("textarea").value,name:tr._ddN.getValue(),email:tr._ddE.getValue(),priority:tr._prio.value}}';
+
+  // Collect all rows
+  html += 'function collectRows(){return Array.from(rowsBody.querySelectorAll("tr")).map(getRowData)}';
+
+  // Loading overlay
+  html += 'function showLoading(msg){document.getElementById("loadingText").textContent=msg||"Processing...";document.getElementById("loadingOverlay").classList.add("show")}';
+  html += 'function hideLoading(){document.getElementById("loadingOverlay").classList.remove("show")}';
+
+  // Send single row
+  html += 'function sendSingleRow(tr){var d=getRowData(tr);if(!d.name||!d.email||!d.description){setStatus("Please fill in all fields before sending.",true);return}';
+  html += '  var btn=tr.querySelector(".btnSendRow");btn.disabled=true;btn.textContent="…";';
+  html += '  fetch("/tasks/api/submit",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({rows:[d]})})';
+  html += '  .then(function(r){return r.json()}).then(function(res){';
+  html += '    if(res.error){btn.disabled=false;btn.innerHTML="✉";setStatus("Error: "+res.error,true);return}';
+  html += '    tr.remove();if(!rowsBody.querySelector("tr"))addRow();';
+  html += '    setStatus("Task sent successfully!"+(res.emailedEmployees?" Email sent.":""))';
+  html += '  }).catch(function(err){btn.disabled=false;btn.innerHTML="✉";setStatus("Error: "+err,true)})}';
+
+  // Send all tasks
+  html += 'function sendAllTasks(){var rows=collectRows().filter(function(r){return r.name&&r.email&&r.description});';
+  html += '  if(!rows.length){setStatus("No complete tasks to send.",true);return}';
+  html += '  showLoading("Sending "+rows.length+" task(s)...");';
+  html += '  fetch("/tasks/api/submit",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({rows:rows})})';
+  html += '  .then(function(r){return r.json()}).then(function(res){hideLoading();';
+  html += '    if(res.error){setStatus("Error: "+res.error,true);return}';
+  html += '    setStatus("All done! Saved "+res.savedTasks+" tasks, emailed "+res.emailedEmployees+" employees.");resetTable()';
+  html += '  }).catch(function(err){hideLoading();setStatus("Error: "+err,true)})}';
+
+  html += '</script></body></html>';
+  res.send(html);
+});
+
+
+
+
 app.get('/square/api/debug', async function(req, res) {
   try {
     var today = new Date(); today.setHours(0,0,0,0);
@@ -20319,7 +20734,7 @@ app.get('/discord', requireAuth('all'), async function(req, res) {
     html += '<a href="/ads">GOOGLE ADS</a>';
     html += '<a href="/square">SQUARE</a>';
     html += '<a href="/discord" class="active">DISCORD</a>';
-    html += '<a href="/followup">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/followup">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
   } else {
     html += '<a href="/discord" class="active">DISCORD</a>';
   }
@@ -20982,7 +21397,7 @@ app.get('/followup', async function(req, res) {
 
     // Nav — only FOLLOW UP shown
     html += '<div class="nav">';
-    html += '<a href="/followup" class="active">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/followup" class="active">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">SEO</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     html += '<div class="container">';
@@ -21432,4 +21847,4 @@ app.listen(PORT, function() {
     // Still try Tookan even if business failed
     buildTookanContext().catch(function(e2) { console.log("Tookan fallback error: " + e2.message); });
   });
-});
+});er
