@@ -21847,4 +21847,4 @@ app.listen(PORT, function() {
     // Still try Tookan even if business failed
     buildTookanContext().catch(function(e2) { console.log("Tookan fallback error: " + e2.message); });
   });
-});er
+});
