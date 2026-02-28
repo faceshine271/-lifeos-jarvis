@@ -3064,12 +3064,14 @@ function estimateTokens(text) {
   return Math.ceil(text.length / 2.5);
 }
 
-// Hard character limit for system prompts (~150K tokens max = ~375K chars)
-var MAX_SYSTEM_CHARS = 350000;
+// Hard character limit for system prompts
+// Tier 1 API limit = 30K input tokens/min. Budget ~22K tokens for system + messages.
+// When you upgrade to Tier 2 (450K ITPM), change MAX_SYSTEM_CHARS to 350000 and maxTotalTokens to 170000.
+var MAX_SYSTEM_CHARS = 50000;
 
 // Truncate context to fit within token budget
 function truncateForTokenLimit(systemPrompt, messages, maxTotalTokens) {
-  maxTotalTokens = maxTotalTokens || 170000; // Conservative buffer under 200K
+  maxTotalTokens = maxTotalTokens || 25000; // Tier 1 safe: 25K leaves room under 30K ITPM limit
   var responseBuffer = 2000;
   var budget = maxTotalTokens - responseBuffer;
 
@@ -3093,9 +3095,9 @@ function truncateForTokenLimit(systemPrompt, messages, maxTotalTokens) {
     return { systemPrompt: systemPrompt, messages: messages };
   }
 
-  // Strategy 1: Trim conversation history (keep last 4 messages)
-  if (messages.length > 4) {
-    messages = messages.slice(-4);
+  // Strategy 1: Trim conversation history (keep last 2 messages to save tokens on Tier 1)
+  if (messages.length > 2) {
+    messages = messages.slice(-2);
     msgTokens = 0;
     for (var j = 0; j < messages.length; j++) {
       msgTokens += estimateTokens(typeof messages[j].content === 'string' ? messages[j].content : JSON.stringify(messages[j].content)) + 10;
@@ -3122,37 +3124,52 @@ function truncateForTokenLimit(systemPrompt, messages, maxTotalTokens) {
 }
 
 async function askClaude(systemPrompt, messages) {
-  try {
-    // Enforce token limits before calling API
-    var trimmed = truncateForTokenLimit(systemPrompt, messages);
+  var maxRetries = 2;
+  for (var attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      // Enforce token limits before calling API
+      var trimmed = truncateForTokenLimit(systemPrompt, messages);
 
-    var response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': CLAUDE_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
-        system: trimmed.systemPrompt,
-        messages: trimmed.messages,
-      }),
-    });
-    var data = await response.json();
-    if (data.error) {
-      console.error("Claude API Error: " + JSON.stringify(data.error));
-      return "There was an error: " + (data.error.message || 'Unknown error');
+      var response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          system: trimmed.systemPrompt,
+          messages: trimmed.messages,
+        }),
+      });
+      var data = await response.json();
+      if (data.error) {
+        // Rate limit hit — wait and retry
+        if (data.error.type === 'rate_limit_error' && attempt < maxRetries) {
+          var waitSec = (attempt + 1) * 15; // 15s, then 30s
+          console.log('[askClaude] Rate limited, waiting ' + waitSec + 's before retry ' + (attempt + 1) + '/' + maxRetries);
+          await new Promise(function(resolve) { setTimeout(resolve, waitSec * 1000); });
+          continue;
+        }
+        console.error("Claude API Error: " + JSON.stringify(data.error));
+        return "There was an error: " + (data.error.message || 'Unknown error');
+      }
+      if (data.content && data.content.length > 0) {
+        return data.content[0].text;
+      }
+      return "I got an unexpected response.";
+    } catch (err) {
+      console.error("Claude fetch error: " + err.message);
+      if (attempt < maxRetries) {
+        await new Promise(function(resolve) { setTimeout(resolve, 10000); });
+        continue;
+      }
+      return "I had trouble connecting to my AI brain.";
     }
-    if (data.content && data.content.length > 0) {
-      return data.content[0].text;
-    }
-    return "I got an unexpected response.";
-  } catch (err) {
-    console.error("Claude fetch error: " + err.message);
-    return "I had trouble connecting to my AI brain.";
   }
+  return "I had trouble connecting after multiple attempts.";
 }
 
 /* ===========================
@@ -6782,13 +6799,25 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
     if (bizReschedule.length > 0) {
       html += '<div style="max-width:1400px;margin:0 auto;padding:0 40px 30px;">';
       html += '<div style="font-family:Orbitron;font-size:0.8em;letter-spacing:5px;color:#ff9f43;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;"><span style="width:8px;height:8px;background:#ff9f43;border-radius:50%;box-shadow:0 0 8px #ff9f43;display:inline-block;"></span>Needs Rescheduling (' + bizReschedule.length + ')</div>';
-      bizReschedule.slice(0, 15).forEach(function(r) {
+      bizReschedule.slice(0, 5).forEach(function(r) {
         html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff9f4315;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
         html += '<div style="color:#c0d8f0;">' + escapeHtml(r.name) + ' — ' + escapeHtml(r.location) + '</div>';
         html += '<div style="color:#4a6a8a;">' + escapeHtml(r.phone) + '</div>';
         html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #ff9f4340;color:#ff9f43;">RESCHED</div>';
         html += '</div>';
       });
+      if (bizReschedule.length > 5) {
+        html += '<div onclick="var el=document.getElementById(\'more-biz-resched\');var btn=this;if(el.style.display===\'none\'){el.style.display=\'block\';btn.textContent=\'SHOW LESS\';}else{el.style.display=\'none\';btn.textContent=\'SHOW ALL ' + bizReschedule.length + ' ITEMS\';}" style="text-align:center;padding:12px;margin-top:8px;border:1px solid #ff9f4330;color:#ff9f43;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;cursor:pointer;transition:all 0.3s;">SHOW ALL ' + bizReschedule.length + ' ITEMS</div>';
+        html += '<div id="more-biz-resched" style="display:none;">';
+        bizReschedule.slice(5).forEach(function(r) {
+          html += '<div style="background:rgba(10,20,35,0.6);border:1px solid #ff9f4315;padding:12px 16px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
+          html += '<div style="color:#c0d8f0;">' + escapeHtml(r.name) + ' — ' + escapeHtml(r.location) + '</div>';
+          html += '<div style="color:#4a6a8a;">' + escapeHtml(r.phone) + '</div>';
+          html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 10px;border:1px solid #ff9f4340;color:#ff9f43;">RESCHED</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
       html += '</div>';
     }
 
@@ -8687,9 +8716,17 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     if (reschedule.length > 0) {
       html += '<div class="section">';
       html += '<div class="section-title" style="color:#ff9f43;">Needs Rescheduling (' + reschedule.length + ')</div>';
-      reschedule.forEach(function(r) {
+      reschedule.slice(0, 5).forEach(function(r) {
         html += '<div class="list-item" style="border-color:#ff9f4315;"><div class="name">' + r + '</div><div class="status-badge badge-resched">RESCHED</div></div>';
       });
+      if (reschedule.length > 5) {
+        html += '<div onclick="var el=document.getElementById(\'more-resched\');var btn=this;if(el.style.display===\'none\'){el.style.display=\'block\';btn.textContent=\'SHOW LESS\';}else{el.style.display=\'none\';btn.textContent=\'SHOW ALL ' + reschedule.length + ' ITEMS\';}" style="text-align:center;padding:12px;margin-top:8px;border:1px solid #ff9f4330;color:#ff9f43;font-family:Orbitron;font-size:0.6em;letter-spacing:3px;cursor:pointer;transition:all 0.3s;">SHOW ALL ' + reschedule.length + ' ITEMS</div>';
+        html += '<div id="more-resched" style="display:none;">';
+        reschedule.slice(5).forEach(function(r) {
+          html += '<div class="list-item" style="border-color:#ff9f4315;"><div class="name">' + r + '</div><div class="status-badge badge-resched">RESCHED</div></div>';
+        });
+        html += '</div>';
+      }
       html += '</div>';
     }
 
@@ -19811,311 +19848,226 @@ app.post('/tasks/api/submit', requireAuth('owner'), express.json(), async functi
   }
 });
 
-// API: Dashboard data for tasks
-app.get('/tasks/api/dashboard', requireAuth('owner'), async function(req, res) {
-  try {
-    var now = new Date();
-    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    var currentMonthSheet = months[now.getMonth()] + ' ' + now.getFullYear();
-    var lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    var lastMonthSheet = months[lastMonthDate.getMonth()] + ' ' + lastMonthDate.getFullYear();
-    var todayStr = now.toISOString().slice(0, 10);
-
-    // Read current month tasks
-    var currentTasks = [];
-    try {
-      var r = await sheets.spreadsheets.values.get({ spreadsheetId: TASK_SPREADSHEET_ID, range: "'" + currentMonthSheet + "'!A2:F500" });
-      var rows = r.data.values || [];
-      currentTasks = rows.filter(function(r) { return r[0]; }).map(function(r) {
-        return { date: String(r[0] || ''), description: String(r[1] || ''), name: String(r[2] || ''), email: String(r[3] || ''), priority: String(r[4] || 'Normal'), created: String(r[5] || '') };
-      });
-    } catch(e) {}
-
-    // Last month count
-    var lastMonthCount = 0;
-    try {
-      var r2 = await sheets.spreadsheets.values.get({ spreadsheetId: TASK_SPREADSHEET_ID, range: "'" + lastMonthSheet + "'!A2:A500" });
-      lastMonthCount = (r2.data.values || []).filter(function(r) { return r[0]; }).length;
-    } catch(e) {}
-
-    // Employees
-    var empResult = await sheets.spreadsheets.values.get({ spreadsheetId: TASK_SPREADSHEET_ID, range: "'" + TASK_EMPLOYEE_SHEET + "'!A2:B200" });
-    var empRows = empResult.data.values || [];
-    var employeeCount = empRows.filter(function(r) { return r[0] && r[1]; }).length;
-
-    // Today
-    var todayTasks = currentTasks.filter(function(t) { return t.date === todayStr; }).length;
-
-    // Priority breakdown
-    var urgent = 0, priority = 0, normal = 0;
-    currentTasks.forEach(function(t) {
-      var p = (t.priority || '').toLowerCase();
-      if (p === 'urgent') urgent++;
-      else if (p === 'priority') priority++;
-      else normal++;
-    });
-
-    // By employee
-    var byEmployee = {};
-    currentTasks.forEach(function(t) {
-      var key = t.name || 'Unassigned';
-      if (!byEmployee[key]) byEmployee[key] = { total: 0, urgent: 0, priority: 0, normal: 0 };
-      byEmployee[key].total++;
-      var p = (t.priority || '').toLowerCase();
-      if (p === 'urgent') byEmployee[key].urgent++;
-      else if (p === 'priority') byEmployee[key].priority++;
-      else byEmployee[key].normal++;
-    });
-
-    var recentTasks = currentTasks.slice(-10).reverse();
-
-    // All sheets
-    var meta = await sheets.spreadsheets.get({ spreadsheetId: TASK_SPREADSHEET_ID, fields: 'sheets.properties.title' });
-    var monthTabs = meta.data.sheets.map(function(s) { return s.properties.title; }).filter(function(n) { return n !== TASK_EMPLOYEE_SHEET; });
-
-    res.json({
-      currentMonth: currentMonthSheet, lastMonth: lastMonthSheet,
-      totalThisMonth: currentTasks.length, totalLastMonth: lastMonthCount,
-      todayTasks: todayTasks, urgent: urgent, priority: priority, normal: normal,
-      employeeCount: employeeCount, byEmployee: byEmployee, recentTasks: recentTasks, monthTabs: monthTabs
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // GET /tasks — Task Assigning Desk UI
 app.get('/tasks', requireAuth('owner'), async function(req, res) {
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
-  html += '<title>Task Desk</title>';
+  html += '<title>Task Assigning Desk</title>';
   html += '<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">';
   html += '<style>';
   html += ':root{--bg:#070b14;--panel:#0f172a;--panel2:#0b1220;--border:#1f2937;--text:#e5e7eb;--muted:#94a3b8;--accent:#60a5fa;--danger:#ef4444;--success:#10b981;--warning:#f59e0b;--shadow:0 10px 30px rgba(0,0,0,.35);--radius:16px;}';
   html += '*{box-sizing:border-box;margin:0;padding:0;}';
   html += 'body{background:radial-gradient(1200px 600px at 20% 0%,#0b1220 0%,var(--bg) 50%,#050814 100%);color:var(--text);font-family:Outfit,system-ui,sans-serif;min-height:100vh;}';
-  html += '::-webkit-scrollbar{width:8px;height:8px;}::-webkit-scrollbar-track{background:#0b1220;}::-webkit-scrollbar-thumb{background:#1f2937;border-radius:4px;}';
+  html += '::-webkit-scrollbar{width:8px;height:8px;}::-webkit-scrollbar-track{background:#0b1220;}::-webkit-scrollbar-thumb{background:#1f2937;border-radius:4px;}::-webkit-scrollbar-thumb:hover{background:#374151;}';
 
-  // Top tabs
-  html += '.topTabs{display:flex;gap:0;background:rgba(15,23,42,0.95);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);}';
-  html += '.topTab{flex:1;max-width:200px;padding:14px 20px;text-align:center;cursor:pointer;font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.2s;}';
-  html += '.topTab:hover{color:var(--text);background:rgba(255,255,255,0.02);}';
-  html += '.topTab.active{color:var(--accent);border-bottom-color:var(--accent);background:rgba(96,165,250,0.05);}';
-  html += '.topTab.back{max-width:120px;color:#4a6a8a;font-size:11px;letter-spacing:1px;}';
-  html += '.topTab.back:hover{color:var(--text);}';
+  // Nav bar
+  html += '.topnav{display:flex;align-items:center;gap:8px;padding:12px 20px;background:rgba(11,18,32,0.9);border-bottom:1px solid var(--border);overflow-x:auto;flex-wrap:nowrap;backdrop-filter:blur(12px);position:sticky;top:0;z-index:100;}';
+  html += '.topnav a{font-size:11px;font-weight:600;letter-spacing:2px;padding:8px 16px;color:var(--muted);border:1px solid transparent;border-radius:8px;text-decoration:none;white-space:nowrap;transition:all 0.2s;}';
+  html += '.topnav a:hover{color:var(--text);border-color:var(--border);background:rgba(255,255,255,0.03);}';
+  html += '.topnav a.active{color:var(--accent);border-color:rgba(96,165,250,0.3);background:rgba(96,165,250,0.08);}';
 
-  // Pages
-  html += '.page{display:none;}.page.active{display:block;}';
-  html += '.wrap{max-width:1200px;margin:0 auto;padding:24px 18px 70px;}';
+  // Layout
+  html += '.wrap{max-width:1200px;margin:34px auto;padding:0 18px 70px;}';
   html += '.header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:18px;flex-wrap:wrap;}';
-  html += '.title{font-size:22px;font-weight:800;}.subtitle{margin-top:6px;color:var(--muted);font-size:13px;}';
+  html += '.title{font-size:22px;font-weight:800;letter-spacing:.2px;}';
+  html += '.subtitle{margin-top:6px;color:var(--muted);font-size:13px;}';
   html += '.pill{padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,.03);color:var(--muted);font-size:12px;font-weight:500;}';
+
+  // Card
   html += '.card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);}';
-
-  // Dashboard
-  html += '.statsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:24px;}';
-  html += '.statCard{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:14px;padding:20px;position:relative;overflow:hidden;}';
-  html += '.statCard::before{content:"";position:absolute;top:0;left:0;width:100%;height:3px;background:var(--sc,var(--accent));}';
-  html += '.statCard .lb{font-size:11px;font-weight:700;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}';
-  html += '.statCard .vl{font-size:2.2em;font-weight:800;color:var(--sc,var(--accent));line-height:1;}';
-  html += '.statCard .sb{font-size:12px;color:var(--muted);margin-top:6px;}';
-  html += '.empGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:24px;}';
-  html += '.empCard{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:16px;}';
-  html += '.empCard .nm{font-weight:700;font-size:14px;margin-bottom:8px;}';
-  html += '.badges{display:flex;gap:6px;flex-wrap:wrap;}';
-  html += '.bg{padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;}';
-  html += '.bg.u{background:rgba(239,68,68,0.12);color:#fca5a5;}';
-  html += '.bg.p{background:rgba(245,158,11,0.12);color:#fcd34d;}';
-  html += '.bg.n{background:rgba(16,185,129,0.12);color:#6ee7b7;}';
-  html += '.bg.t{background:rgba(96,165,250,0.12);color:#93c5fd;}';
-  html += '.rT{width:100%;border-collapse:collapse;}';
-  html += '.rT th{text-align:left;font-size:11px;color:var(--muted);letter-spacing:.5px;padding:10px 12px;border-bottom:1px solid #1b2230;text-transform:uppercase;font-weight:600;}';
-  html += '.rT td{padding:10px 12px;border-bottom:1px solid #121826;font-size:13px;}.rT tr:hover{background:rgba(96,165,250,0.02);}';
-  html += '.pb{padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;display:inline-block;}';
-  html += '.pb.urgent{background:rgba(239,68,68,0.15);color:#fca5a5;}.pb.priority{background:rgba(245,158,11,0.15);color:#fcd34d;}.pb.normal{background:rgba(16,185,129,0.15);color:#6ee7b7;}';
-  html += '.secTitle{font-size:13px;font-weight:700;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:12px;}';
-  html += '.dashLoad{text-align:center;padding:60px;color:var(--muted);font-size:14px;}';
-
-  // Tasks
   html += '.toolbar{display:flex;gap:10px;padding:14px;border-bottom:1px solid var(--border);align-items:center;justify-content:space-between;flex-wrap:wrap;}';
   html += '.leftTools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}';
-  html += '.btn{border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer;transition:all .15s;font-family:inherit;font-size:13px;}';
-  html += '.btn:hover{background:rgba(255,255,255,.06);border-color:#2b3646;}.btn:active{transform:translateY(1px);}';
-  html += '.btnP{background:linear-gradient(180deg,rgba(96,165,250,.22),rgba(96,165,250,.08));border-color:rgba(96,165,250,.35);color:#93c5fd;}';
-  html += '.btnD{background:linear-gradient(180deg,rgba(239,68,68,.20),rgba(239,68,68,.08));border-color:rgba(239,68,68,.35);color:#fca5a5;}';
+
+  // Buttons
+  html += '.btn{border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text);padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer;transition:all .15s;user-select:none;font-family:inherit;font-size:13px;}';
+  html += '.btn:hover{background:rgba(255,255,255,.06);border-color:#2b3646;}';
+  html += '.btn:active{transform:translateY(1px);}';
+  html += '.btnPrimary{background:linear-gradient(180deg,rgba(96,165,250,.22),rgba(96,165,250,.08));border-color:rgba(96,165,250,.35);color:#93c5fd;}';
+  html += '.btnPrimary:hover{background:linear-gradient(180deg,rgba(96,165,250,.3),rgba(96,165,250,.12));}';
+  html += '.btnDanger{background:linear-gradient(180deg,rgba(239,68,68,.20),rgba(239,68,68,.08));border-color:rgba(239,68,68,.35);color:#fca5a5;}';
+
+  // Table
   html += '.tableWrap{width:100%;overflow-x:auto;min-height:400px;padding-bottom:100px;}';
-  html += 'table.tT{width:100%;border-collapse:collapse;min-width:1000px;}';
-  html += 'table.tT thead th{text-align:left;font-size:11px;color:var(--muted);letter-spacing:.5px;padding:12px 14px;border-bottom:1px solid #1b2230;position:sticky;top:0;background:rgba(15,23,42,.98);z-index:10;font-weight:600;text-transform:uppercase;}';
-  html += 'table.tT thead th:nth-child(2){min-width:280px;}table.tT thead th:nth-child(3){min-width:200px;}table.tT thead th:nth-child(4){min-width:220px;}';
-  html += 'table.tT tbody td{padding:10px 14px;border-bottom:1px solid #121826;vertical-align:top;}';
+  html += 'table{width:100%;border-collapse:collapse;min-width:1000px;}';
+  html += 'thead th{text-align:left;font-size:11px;color:var(--muted);letter-spacing:.5px;padding:12px 14px;border-bottom:1px solid #1b2230;position:sticky;top:0;background:rgba(15,23,42,.98);z-index:10;font-weight:600;text-transform:uppercase;}';
+  html += 'thead th:nth-child(2){min-width:280px;}thead th:nth-child(3){min-width:200px;}thead th:nth-child(4){min-width:220px;}';
+  html += 'tbody td{padding:10px 14px;border-bottom:1px solid #121826;vertical-align:top;}';
+  html += 'tbody tr{transition:background 0.15s;}tbody tr:hover{background:rgba(96,165,250,0.02);}';
+
+  // Inputs
   html += 'input,textarea,select{width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:12px;padding:10px 12px;color:var(--text);outline:none;font-size:13px;font-family:inherit;transition:border-color 0.2s;}';
   html += 'input:focus,textarea:focus,select:focus{border-color:rgba(96,165,250,0.4);background:rgba(0,0,0,0.2);}';
-  html += 'textarea{height:42px;min-height:42px;resize:vertical;line-height:1.5;overflow:hidden;}textarea:focus{min-height:60px;}';
-  html += 'select{appearance:none;cursor:pointer;}select option{background:#0b1220;color:#e5e7eb;}input[readonly]{opacity:.85;cursor:not-allowed;}';
-  html += '.rowAct{display:flex;gap:6px;justify-content:flex-end;}';
-  html += '.iBtn{border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--muted);border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;font-size:14px;}';
-  html += '.iBtn:hover{background:rgba(255,255,255,.1);color:#fff;}.iBtnS{color:var(--accent);border-color:rgba(96,165,250,.2);}.iBtnS:hover{background:rgba(96,165,250,.15);}';
+  html += 'textarea{height:42px;min-height:42px;resize:vertical;line-height:1.5;overflow:hidden;}';
+  html += 'textarea:focus{min-height:60px;}';
+  html += 'select{appearance:none;background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%2394a3b8%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3e%3cpolyline points=%276 9 12 15 18 9%27%3e%3c/polyline%3e%3c/svg%3e");background-repeat:no-repeat;background-position:right 10px center;background-size:16px;cursor:pointer;}';
+  html += 'select option{background:#0b1220;color:#e5e7eb;}';
+  html += 'input[readonly]{opacity:.85;cursor:not-allowed;}';
+
+  // Row actions
+  html += '.rowActions{display:flex;gap:6px;justify-content:flex-end;}';
+  html += '.iconBtn{border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--muted);border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;font-size:14px;}';
+  html += '.iconBtn:hover{background:rgba(255,255,255,.1);color:#fff;}';
+  html += '.btnSendRow{color:var(--accent);border-color:rgba(96,165,250,.2);}.btnSendRow:hover{background:rgba(96,165,250,.15);box-shadow:0 0 10px rgba(96,165,250,.1);}';
+
+  // Status
   html += '.status{margin:12px 14px;font-size:13px;color:var(--muted);white-space:pre-line;min-height:20px;}';
-  html += '.addF{position:fixed;right:22px;bottom:18px;z-index:999;display:flex;align-items:center;gap:10px;}';
+
+  // FAB
+  html += '.addRowFloating{position:fixed;right:22px;bottom:18px;z-index:999;display:flex;align-items:center;gap:10px;}';
   html += '.fab{width:54px;height:54px;border-radius:16px;border:1px solid rgba(96,165,250,.35);background:linear-gradient(180deg,rgba(96,165,250,.26),rgba(96,165,250,.10));color:#eaf2ff;font-size:22px;font-weight:900;cursor:pointer;box-shadow:0 12px 28px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;transition:all 0.2s;font-family:inherit;}';
-  html += '.fab:hover{transform:translateY(-2px);}';
-  html += '.fabL{background:rgba(15,23,42,.9);border:1px solid var(--border);padding:10px 12px;border-radius:14px;color:var(--muted);font-size:12px;}';
-  html += '.dd{position:relative;}.ddI{padding-right:38px;cursor:pointer;}';
-  html += '.ddC{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--muted);font-weight:900;font-size:12px;}';
-  html += '.ddM{position:absolute;left:0;min-width:100%;width:max-content;max-width:350px;top:calc(100% + 6px);background:#070b14;border:1px solid #253044;border-radius:14px;box-shadow:0 18px 40px rgba(0,0,0,.75);overflow:hidden;display:none;z-index:1000;}.ddM.open{display:block;}';
-  html += '.ddS{width:100%;border:0;border-bottom:1px solid #182033;border-radius:0;background:rgba(255,255,255,.03);padding:12px;outline:none;}';
-  html += '.ddL{max-height:240px;overflow-y:auto;}';
-  html += '.ddIt{padding:12px 14px;cursor:pointer;color:#e5e7eb;border-bottom:1px solid #0f172a;font-size:13px;transition:background 0.1s;}.ddIt:hover{background:rgba(96,165,250,.10);}';
-  html += '.ddIt small{display:block;color:var(--muted);margin-top:4px;font-size:12px;}.ddE{padding:12px;color:var(--muted);font-size:13px;}';
-  html += '@media(max-width:768px){.statsGrid{grid-template-columns:repeat(2,1fr);}.empGrid{grid-template-columns:1fr;}table.tT{min-width:800px;}.topTab{padding:12px 10px;font-size:10px;letter-spacing:1px;}}';
+  html += '.fab:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(0,0,0,.4);}';
+  html += '.fabLabel{background:rgba(15,23,42,.9);border:1px solid var(--border);padding:10px 12px;border-radius:14px;color:var(--muted);font-size:12px;}';
+
+  // Dropdown
+  html += '.dd{position:relative;}.ddInput{padding-right:38px;cursor:pointer;}';
+  html += '.ddCaret{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center;pointer-events:none;color:var(--muted);font-weight:900;font-size:12px;}';
+  html += '.ddMenu{position:absolute;left:0;min-width:100%;width:max-content;max-width:350px;top:calc(100% + 6px);background:#070b14;border:1px solid #253044;border-radius:14px;box-shadow:0 18px 40px rgba(0,0,0,.75);overflow:hidden;display:none;z-index:1000;}';
+  html += '.ddMenu.open{display:block;}';
+  html += '.ddSearch{width:100%;border:0;border-bottom:1px solid #182033;border-radius:0;background:rgba(255,255,255,.03);padding:12px;outline:none;}';
+  html += '.ddList{max-height:240px;overflow-y:auto;}';
+  html += '.ddItem{padding:12px 14px;cursor:pointer;color:#e5e7eb;border-bottom:1px solid #0f172a;font-size:13px;transition:background 0.1s;}.ddItem:hover{background:rgba(96,165,250,.10);}';
+  html += '.ddItem small{display:block;color:var(--muted);margin-top:4px;font-size:12px;}.ddEmpty{padding:12px;color:var(--muted);font-size:13px;}';
+
+  // Loading overlay
+  html += '.loadingOverlay{position:fixed;inset:0;background:rgba(7,11,20,0.8);z-index:2000;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;backdrop-filter:blur(4px);}';
+  html += '.loadingOverlay.show{display:flex;}';
+  html += '.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;}';
+  html += '@keyframes spin{to{transform:rotate(360deg)}}';
+  html += '.loadingText{color:var(--muted);font-size:13px;letter-spacing:1px;}';
+
   html += '</style></head><body>';
 
-  // Tab bar
-  html += '<div class="topTabs">';
-  html += '<div class="topTab back" onclick="location.href=\'/dashboard\'">← JARVIS</div>';
-  html += '<div class="topTab active" onclick="switchPage(\'dashboard\')">Dashboard</div>';
-  html += '<div class="topTab" onclick="switchPage(\'tasks\')">Assign Tasks</div>';
+  // Nav
+  html += '<div class="topnav">';
+  html += '<a href="/dashboard">JARVIS</a>';
+  html += '<a href="/business">ATHENA</a>';
+  html += '<a href="/analytics">ANALYTICS</a>';
+  html += '<a href="/square">SQUARE</a>';
+  html += '<a href="/forecast">FORECAST</a>';
+  html += '<a href="/tasks" class="active">TASKS</a>';
+  html += '<a href="/discord">DISCORD</a>';
+  html += '<a href="/followup">FOLLOW UP</a>';
+  html += '<a href="/seo">SEO</a>';
+  html += '<a href="/audit">AUDIT</a>';
   html += '</div>';
 
-  // Dashboard page
-  html += '<div class="page active" id="page-dashboard"><div class="wrap">';
-  html += '<div class="header"><div><h1 class="title">Task Dashboard</h1><div class="subtitle">Overview of all assigned tasks and employee workload.</div></div>';
-  html += '<div style="display:flex;gap:8px;align-items:center;"><button class="btn btnP" onclick="loadDash()">↻ Refresh</button><div class="pill" id="dashMonth">Month: —</div></div></div>';
-  html += '<div id="dashContent"><div class="dashLoad">Loading dashboard...</div></div>';
-  html += '</div></div>';
-
-  // Tasks page
-  html += '<div class="page" id="page-tasks"><div class="wrap">';
+  html += '<div class="wrap">';
   html += '<div class="header"><div><h1 class="title">Task Assigning Desk</h1><div class="subtitle">Create tasks, assign employees, and send combined email notifications.</div></div>';
   html += '<div class="pill" id="todayPill">Today: —</div></div>';
-  html += '<div class="card"><div class="toolbar"><div class="leftTools">';
-  html += '<button class="btn btnP" id="sendBtn">✉ Send All Tasks</button>';
-  html += '<button class="btn btnD" id="clearBtn">✕ Clear All</button>';
+
+  html += '<div class="card">';
+  html += '<div class="toolbar"><div class="leftTools">';
+  html += '<button class="btn btnPrimary" id="sendBtn" onclick="sendAllTasks()">✉ Send All Tasks</button>';
+  html += '<button class="btn btnDanger" id="clearBtn" onclick="resetTable()">✕ Clear All</button>';
   html += '</div><div class="pill" id="employeeCount">Employees: loading...</div></div>';
-  html += '<div class="tableWrap"><table class="tT"><thead><tr>';
+
+  html += '<div class="tableWrap"><table><thead><tr>';
   html += '<th style="width:140px">Date</th><th>Task Description</th><th style="width:240px">Employee Name</th>';
   html += '<th style="width:290px">Employee Email</th><th style="width:160px">Priority</th><th style="width:130px;text-align:right">Actions</th>';
   html += '</tr></thead><tbody id="rowsBody"></tbody></table></div>';
-  html += '<div class="status" id="statusBox"></div></div></div></div>';
+  html += '<div class="status" id="statusBox"></div>';
+  html += '</div></div>';
 
   // FAB
-  html += '<div class="addF" id="fabWrap" style="display:none;"><div class="fabL">Add Row</div><button class="fab" onclick="addRow()">+</button></div>';
+  html += '<div class="addRowFloating"><div class="fabLabel">Add Row</div><button class="fab" onclick="addRow()">+</button></div>';
+
+  // Loading overlay
+  html += '<div class="loadingOverlay" id="loadingOverlay"><div class="spinner"></div><div class="loadingText" id="loadingText">Sending tasks...</div></div>';
 
   // JavaScript
   html += '<script>';
-
-  // Page switching
-  html += 'function switchPage(p){document.querySelectorAll(".page").forEach(function(x){x.classList.remove("active")});document.querySelectorAll(".topTab").forEach(function(x,i){if(i>0)x.classList.remove("active")});';
-  html += 'document.getElementById("page-"+p).classList.add("active");document.querySelectorAll(".topTab")[p==="dashboard"?1:2].classList.add("active");';
-  html += 'document.getElementById("fabWrap").style.display=p==="tasks"?"flex":"none";if(p==="dashboard")loadDash();}';
-
-  // Dashboard
-  html += 'function loadDash(){var c=document.getElementById("dashContent");c.innerHTML="<div class=dashLoad>Loading...</div>";';
-  html += 'fetch("/tasks/api/dashboard",{credentials:"include"}).then(function(r){return r.json()}).then(function(d){';
-  html += 'if(d.error){c.innerHTML="<div class=dashLoad style=color:#fca5a5>Error: "+d.error+"</div>";return}renderDash(d)';
-  html += '}).catch(function(e){c.innerHTML="<div class=dashLoad style=color:#fca5a5>"+e+"</div>"});}';
-
-  html += 'function renderDash(d){document.getElementById("dashMonth").textContent="Month: "+d.currentMonth;var h="";';
-  // Stats
-  html += 'h+="<div class=statsGrid>";';
-  html += 'h+=sc("Today",d.todayTasks,"Assigned today","--sc:#60a5fa");';
-  html += 'h+=sc("This Month",d.totalThisMonth,d.currentMonth,"--sc:#a78bfa");';
-  html += 'h+=sc("Last Month",d.totalLastMonth,d.lastMonth,"--sc:#64748b");';
-  html += 'h+=sc("Employees",d.employeeCount,"Active team","--sc:#34d399");';
-  html += 'h+=sc("Urgent",d.urgent,"High priority","--sc:#ef4444");';
-  html += 'h+=sc("Priority",d.priority,"Medium","--sc:#f59e0b");';
-  html += 'h+="</div>";';
-
-  // Employee breakdown
-  html += 'var ek=Object.keys(d.byEmployee||{});if(ek.length){h+="<div class=secTitle>Tasks by Employee</div><div class=empGrid>";';
-  html += 'ek.sort(function(a,b){return d.byEmployee[b].total-d.byEmployee[a].total});';
-  html += 'ek.forEach(function(n){var e=d.byEmployee[n];h+="<div class=empCard><div class=nm>"+esc(n)+"</div><div class=badges>";';
-  html += 'h+="<span class=\\"bg t\\">"+e.total+" total</span>";';
-  html += 'if(e.urgent)h+="<span class=\\"bg u\\">"+e.urgent+" urgent</span>";';
-  html += 'if(e.priority)h+="<span class=\\"bg p\\">"+e.priority+" priority</span>";';
-  html += 'if(e.normal)h+="<span class=\\"bg n\\">"+e.normal+" normal</span>";';
-  html += 'h+="</div></div>"});h+="</div>";}';
-
-  // Recent tasks table
-  html += 'if(d.recentTasks&&d.recentTasks.length){h+="<div class=secTitle>Recent Tasks</div><div class=card style=overflow-x:auto><table class=rT><thead><tr><th>Date</th><th>Description</th><th>Employee</th><th>Priority</th></tr></thead><tbody>";';
-  html += 'd.recentTasks.forEach(function(t){var pc=(t.priority||"").toLowerCase();h+="<tr><td style=white-space:nowrap>"+esc(t.date)+"</td><td>"+esc(t.description).substring(0,80)+(t.description.length>80?"…":"")+"</td><td>"+esc(t.name)+"</td><td><span class=\\"pb "+pc+"\\">"+esc(t.priority)+"</span></td></tr>"});';
-  html += 'h+="</tbody></table></div>";}';
-
-  // Month tabs
-  html += 'if(d.monthTabs&&d.monthTabs.length){h+="<div class=secTitle style=margin-top:24px>All Month Sheets</div><div style=display:flex;gap:8px;flex-wrap:wrap>";';
-  html += 'd.monthTabs.forEach(function(t){h+="<div class=pill>"+esc(t)+"</div>"});h+="</div>";}';
-
-  html += 'document.getElementById("dashContent").innerHTML=h;}';
-  html += 'function sc(l,v,s,st){return "<div class=statCard style=\\""+st+"\\"><div class=lb>"+l+"</div><div class=vl>"+v+"</div><div class=sb>"+s+"</div></div>";}';
-
-  // Tasks page logic
   html += 'var employees=[],rowsBody=document.getElementById("rowsBody"),statusBox=document.getElementById("statusBox");';
-  html += 'var todayISO=new Date().toISOString().slice(0,10);document.getElementById("todayPill").textContent="Today: "+todayISO;';
-  html += 'document.addEventListener("click",function(e){document.querySelectorAll(".ddM.open").forEach(function(m){if(!m.closest(".dd").contains(e.target))m.classList.remove("open")})});';
+  html += 'var todayISO=new Date().toISOString().slice(0,10);';
+  html += 'document.getElementById("todayPill").textContent="Today: "+todayISO;';
+
+  // Close dropdowns on outside click
+  html += 'document.addEventListener("click",function(e){document.querySelectorAll(".ddMenu.open").forEach(function(m){if(!m.closest(".dd").contains(e.target))m.classList.remove("open")})});';
 
   // Load employees
   html += 'fetch("/tasks/api/employees",{credentials:"include"}).then(function(r){return r.json()}).then(function(data){';
-  html += 'if(data.error){setS("Error: "+data.error,true);return}employees=data;document.getElementById("employeeCount").textContent="Employees: "+employees.length;resetT()';
-  html += '}).catch(function(err){setS("Failed: "+err,true)});';
+  html += '  if(data.error){setStatus("Error: "+data.error,true);return}';
+  html += '  employees=data;document.getElementById("employeeCount").textContent="Employees: "+employees.length;';
+  html += '  resetTable();';
+  html += '}).catch(function(err){setStatus("Failed to load employees: "+err,true)});';
 
-  // Load dashboard on start
-  html += 'loadDash();';
+  // Status
+  html += 'function setStatus(msg,isError){statusBox.style.color=isError?"#fca5a5":"#94a3b8";statusBox.textContent=msg||""}';
 
-  html += 'function setS(m,e){statusBox.style.color=e?"#fca5a5":"#94a3b8";statusBox.textContent=m||""}';
-  html += 'function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}';
-  html += 'function resetT(){rowsBody.innerHTML="";addRow();setS("")}';
+  // Escape HTML
+  html += 'function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}';
 
-  // Dropdown
-  html += 'function createDD(ph,gL,gS,onP){var w=document.createElement("div");w.className="dd";';
-  html += 'var inp=document.createElement("input");inp.className="ddI";inp.type="text";inp.placeholder=ph;inp.readOnly=true;inp.dataset.value="";';
-  html += 'var car=document.createElement("div");car.className="ddC";car.textContent="▾";';
-  html += 'var menu=document.createElement("div");menu.className="ddM";';
-  html += 'var sch=document.createElement("input");sch.className="ddS";sch.type="text";sch.placeholder="Search…";';
-  html += 'var lst=document.createElement("div");lst.className="ddL";';
-  html += 'menu.appendChild(sch);menu.appendChild(lst);w.appendChild(inp);w.appendChild(car);w.appendChild(menu);';
-  html += 'function rnd(ft){lst.innerHTML="";ft=(ft||"").trim().toLowerCase();';
-  html += 'var f=employees.filter(function(e){return !ft||gL(e).toLowerCase().indexOf(ft)>=0||gS(e).toLowerCase().indexOf(ft)>=0});';
-  html += 'if(!f.length){lst.innerHTML="<div class=ddE>No results</div>";return}';
-  html += 'f.forEach(function(e){var d=document.createElement("div");d.className="ddIt";d.innerHTML=esc(gL(e))+(gS(e)?"<small>"+esc(gS(e))+"</small>":"");';
-  html += 'd.addEventListener("click",function(){inp.value=gL(e);inp.dataset.value=gL(e);menu.classList.remove("open");onP(e)});lst.appendChild(d)})}';
-  html += 'inp.addEventListener("click",function(){document.querySelectorAll(".ddM.open").forEach(function(m){if(m!==menu)m.classList.remove("open")});menu.classList.toggle("open");if(menu.classList.contains("open")){sch.value="";rnd("");setTimeout(function(){sch.focus()},10)}});';
-  html += 'sch.addEventListener("input",function(){rnd(sch.value)});';
-  html += 'w.setByLabel=function(l){inp.value=l||"";inp.dataset.value=l||""};w.getValue=function(){return inp.dataset.value||""};w.clear=function(){w.setByLabel("")};return w}';
+  // Reset
+  html += 'function resetTable(){rowsBody.innerHTML="";addRow();setStatus("")}';
+
+  // Create dropdown
+  html += 'function createDD(placeholder,getLabel,getSub,onPick){';
+  html += '  var wrap=document.createElement("div");wrap.className="dd";';
+  html += '  var inp=document.createElement("input");inp.className="ddInput";inp.type="text";inp.placeholder=placeholder;inp.readOnly=true;inp.dataset.value="";';
+  html += '  var caret=document.createElement("div");caret.className="ddCaret";caret.textContent="▾";';
+  html += '  var menu=document.createElement("div");menu.className="ddMenu";';
+  html += '  var search=document.createElement("input");search.className="ddSearch";search.type="text";search.placeholder="Search…";';
+  html += '  var list=document.createElement("div");list.className="ddList";';
+  html += '  menu.appendChild(search);menu.appendChild(list);wrap.appendChild(inp);wrap.appendChild(caret);wrap.appendChild(menu);';
+  html += '  function render(ft){list.innerHTML="";ft=(ft||"").trim().toLowerCase();';
+  html += '    var filtered=employees.filter(function(e){return !ft||getLabel(e).toLowerCase().indexOf(ft)>=0||getSub(e).toLowerCase().indexOf(ft)>=0});';
+  html += '    if(!filtered.length){list.innerHTML="<div class=ddEmpty>No results</div>";return}';
+  html += '    filtered.forEach(function(e){var d=document.createElement("div");d.className="ddItem";d.innerHTML=esc(getLabel(e))+(getSub(e)?"<small>"+esc(getSub(e))+"</small>":"");';
+  html += '      d.addEventListener("click",function(){inp.value=getLabel(e);inp.dataset.value=getLabel(e);menu.classList.remove("open");onPick(e)});list.appendChild(d)})}';
+  html += '  inp.addEventListener("click",function(){document.querySelectorAll(".ddMenu.open").forEach(function(m){if(m!==menu)m.classList.remove("open")});menu.classList.toggle("open");if(menu.classList.contains("open")){search.value="";render("");setTimeout(function(){search.focus()},10)}});';
+  html += '  search.addEventListener("input",function(){render(search.value)});';
+  html += '  wrap.setByLabel=function(l){inp.value=l||"";inp.dataset.value=l||""};wrap.getValue=function(){return inp.dataset.value||""};wrap.clear=function(){wrap.setByLabel("")};';
+  html += '  return wrap}';
 
   // Add row
   html += 'function addRow(pre){pre=pre||{};var tr=document.createElement("tr");';
-  html += 'var td1=document.createElement("td");var di=document.createElement("input");di.type="date";di.value=pre.date||todayISO;di.readOnly=true;td1.appendChild(di);';
-  html += 'var td2=document.createElement("td");var ta=document.createElement("textarea");ta.placeholder="Task details...";ta.value=pre.description||"";td2.appendChild(ta);';
-  html += 'var td3=document.createElement("td");var ddN=createDD("Select employee…",function(e){return e.name},function(e){return e.email},function(e){ddE.setByLabel(e.email)});td3.appendChild(ddN);';
-  html += 'var td4=document.createElement("td");var ddE=createDD("Select email…",function(e){return e.email},function(e){return e.name},function(e){ddN.setByLabel(e.name)});td4.appendChild(ddE);';
-  html += 'if(pre.name)ddN.setByLabel(pre.name);if(pre.email)ddE.setByLabel(pre.email);';
-  html += 'var td5=document.createElement("td");var sel=document.createElement("select");["Normal","Priority","Urgent"].forEach(function(o){var op=document.createElement("option");op.value=o;op.textContent=o;sel.appendChild(op)});sel.value=pre.priority||"Normal";td5.appendChild(sel);';
-  html += 'var td6=document.createElement("td");td6.style.textAlign="right";var acts=document.createElement("div");acts.className="rowAct";';
-  html += 'var sb=document.createElement("button");sb.className="iBtn iBtnS";sb.title="Send";sb.innerHTML="✉";sb.onclick=function(){sendOne(tr)};';
-  html += 'var db=document.createElement("button");db.className="iBtn";db.title="Delete";db.innerHTML="✕";db.onclick=function(){tr.remove();if(!rowsBody.querySelector("tr"))addRow()};';
-  html += 'acts.appendChild(sb);acts.appendChild(db);td6.appendChild(acts);';
-  html += 'tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tr.appendChild(td6);';
-  html += 'tr._ddN=ddN;tr._ddE=ddE;tr._prio=sel;rowsBody.appendChild(tr)}';
+  // Date
+  html += '  var td1=document.createElement("td");var di=document.createElement("input");di.type="date";di.value=pre.date||todayISO;di.readOnly=true;td1.appendChild(di);';
+  // Description
+  html += '  var td2=document.createElement("td");var ta=document.createElement("textarea");ta.placeholder="Task details...";ta.value=pre.description||"";td2.appendChild(ta);';
+  // Name dropdown
+  html += '  var td3=document.createElement("td");var ddN=createDD("Select employee…",function(e){return e.name},function(e){return e.email},function(e){ddE.setByLabel(e.email)});td3.appendChild(ddN);';
+  // Email dropdown
+  html += '  var td4=document.createElement("td");var ddE=createDD("Select email…",function(e){return e.email},function(e){return e.name},function(e){ddN.setByLabel(e.name)});td4.appendChild(ddE);';
+  html += '  if(pre.name)ddN.setByLabel(pre.name);if(pre.email)ddE.setByLabel(pre.email);';
+  // Priority
+  html += '  var td5=document.createElement("td");var sel=document.createElement("select");["Normal","Priority","Urgent"].forEach(function(o){var opt=document.createElement("option");opt.value=o;opt.textContent=o;sel.appendChild(opt)});sel.value=pre.priority||"Normal";td5.appendChild(sel);';
+  // Actions
+  html += '  var td6=document.createElement("td");td6.style.textAlign="right";var acts=document.createElement("div");acts.className="rowActions";';
+  html += '  var sb=document.createElement("button");sb.className="iconBtn btnSendRow";sb.title="Send this task";sb.innerHTML="✉";sb.onclick=function(){sendSingleRow(tr)};';
+  html += '  var db=document.createElement("button");db.className="iconBtn";db.title="Delete";db.innerHTML="✕";db.onclick=function(){tr.remove();if(!rowsBody.querySelector("tr"))addRow()};';
+  html += '  acts.appendChild(sb);acts.appendChild(db);td6.appendChild(acts);';
+  html += '  tr.appendChild(td1);tr.appendChild(td2);tr.appendChild(td3);tr.appendChild(td4);tr.appendChild(td5);tr.appendChild(td6);';
+  html += '  tr._ddN=ddN;tr._ddE=ddE;tr._prio=sel;';
+  html += '  rowsBody.appendChild(tr)}';
 
-  html += 'function getR(tr){var tds=tr.querySelectorAll("td");return{date:tds[0].querySelector("input").value,description:tds[1].querySelector("textarea").value,name:tr._ddN.getValue(),email:tr._ddE.getValue(),priority:tr._prio.value}}';
-  html += 'function collectR(){return Array.from(rowsBody.querySelectorAll("tr")).map(getR)}';
+  // Get row data
+  html += 'function getRowData(tr){var tds=tr.querySelectorAll("td");return{date:tds[0].querySelector("input").value,description:tds[1].querySelector("textarea").value,name:tr._ddN.getValue(),email:tr._ddE.getValue(),priority:tr._prio.value}}';
 
-  // Send single
-  html += 'function sendOne(tr){var d=getR(tr);if(!d.name||!d.email||!d.description){setS("Fill in all fields.",true);return}';
-  html += 'var btn=tr.querySelector(".iBtnS");btn.disabled=true;btn.textContent="…";';
-  html += 'fetch("/tasks/api/submit",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({rows:[d]})})';
-  html += '.then(function(r){return r.json()}).then(function(res){if(res.error){btn.disabled=false;btn.innerHTML="✉";setS("Error: "+res.error,true);return}';
-  html += 'tr.remove();if(!rowsBody.querySelector("tr"))addRow();setS("✅ Task sent!")';
-  html += '}).catch(function(err){btn.disabled=false;btn.innerHTML="✉";setS("Error: "+err,true)})}';
+  // Collect all rows
+  html += 'function collectRows(){return Array.from(rowsBody.querySelectorAll("tr")).map(getRowData)}';
 
-  // Send all
-  html += 'document.getElementById("sendBtn").onclick=function(){var rows=collectR().filter(function(r){return r.name&&r.email&&r.description});';
-  html += 'if(!rows.length){setS("No complete tasks.",true);return}setS("⏳ Sending "+rows.length+" task(s)...");';
-  html += 'fetch("/tasks/api/submit",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({rows:rows})})';
-  html += '.then(function(r){return r.json()}).then(function(res){if(res.error){setS("Error: "+res.error,true);return}';
-  html += 'setS("✅ Saved "+res.savedTasks+" tasks, emailed "+res.emailedEmployees+".");resetT()';
-  html += '}).catch(function(err){setS("Error: "+err,true)})};';
+  // Loading overlay
+  html += 'function showLoading(msg){document.getElementById("loadingText").textContent=msg||"Processing...";document.getElementById("loadingOverlay").classList.add("show")}';
+  html += 'function hideLoading(){document.getElementById("loadingOverlay").classList.remove("show")}';
 
-  html += 'document.getElementById("clearBtn").onclick=function(){resetT();setS("✅ Cleared.")};';
+  // Send single row
+  html += 'function sendSingleRow(tr){var d=getRowData(tr);if(!d.name||!d.email||!d.description){setStatus("Please fill in all fields before sending.",true);return}';
+  html += '  var btn=tr.querySelector(".btnSendRow");btn.disabled=true;btn.textContent="…";';
+  html += '  fetch("/tasks/api/submit",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({rows:[d]})})';
+  html += '  .then(function(r){return r.json()}).then(function(res){';
+  html += '    if(res.error){btn.disabled=false;btn.innerHTML="✉";setStatus("Error: "+res.error,true);return}';
+  html += '    tr.remove();if(!rowsBody.querySelector("tr"))addRow();';
+  html += '    setStatus("Task sent successfully!"+(res.emailedEmployees?" Email sent.":""))';
+  html += '  }).catch(function(err){btn.disabled=false;btn.innerHTML="✉";setStatus("Error: "+err,true)})}';
+
+  // Send all tasks
+  html += 'function sendAllTasks(){var rows=collectRows().filter(function(r){return r.name&&r.email&&r.description});';
+  html += '  if(!rows.length){setStatus("No complete tasks to send.",true);return}';
+  html += '  showLoading("Sending "+rows.length+" task(s)...");';
+  html += '  fetch("/tasks/api/submit",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({rows:rows})})';
+  html += '  .then(function(r){return r.json()}).then(function(res){hideLoading();';
+  html += '    if(res.error){setStatus("Error: "+res.error,true);return}';
+  html += '    setStatus("All done! Saved "+res.savedTasks+" tasks, emailed "+res.emailedEmployees+" employees.");resetTable()';
+  html += '  }).catch(function(err){hideLoading();setStatus("Error: "+err,true)})}';
 
   html += '</script></body></html>';
   res.send(html);
