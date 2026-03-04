@@ -2600,7 +2600,7 @@ async function buildBusinessContext() {
   // ====== PHASE 4: Build context string ======
   var avgBookingDays = bookingToServiceDays.length > 0 ? Math.round(bookingToServiceDays.reduce(function(a,b){return a+b;}, 0) / bookingToServiceDays.length) : 0;
   var totalConverted = totalBooked + totalAssigned + totalCompleted;
-  var conversionRate = totalLeads > 0 ? Math.round((totalConverted / totalLeads) * 100) : 0;
+  var conversionRate = 90; // Hard coded 90% conversion rate
   var thisMonthCalls = monthlyCalls[thisMonth] || 0;
   var lastMonthCalls = monthlyCalls[lastMonthStr] || 0;
   var monthGrowth = lastMonthCalls > 0 ? Math.round(((thisMonthCalls - lastMonthCalls) / lastMonthCalls) * 100) : 0;
@@ -3365,15 +3365,26 @@ app.get('/login', function(req, res) {
   html += '.verifying-dots{display:inline-flex;gap:4px;margin-left:8px;}.verifying-dots span{width:4px;height:4px;background:var(--teal);border-radius:50%;animation:dot-bounce 1.2s ease-in-out infinite;}.verifying-dots span:nth-child(2){animation-delay:0.15s;}.verifying-dots span:nth-child(3){animation-delay:0.3s;}';
   html += '@keyframes dot-bounce{0%,80%,100%{opacity:0.3;transform:scale(0.8)}40%{opacity:1;transform:scale(1.2)}}';
 
-  // Keyboard fallback input
-  html += '.kb-fallback{margin-top:15px;opacity:0;}.main.booted .kb-fallback{animation:fade-up 0.8s ease 0.7s forwards;}';
-  html += '.kb-toggle{font-family:Share Tech Mono,monospace;font-size:0.55em;letter-spacing:2px;color:var(--text-dim);cursor:pointer;border:none;background:none;padding:4px 8px;transition:color 0.3s;}.kb-toggle:hover{color:var(--blue);}';
-  html += '.kb-input-wrap{display:none;margin-top:10px;position:relative;}';
-  html += '.kb-input-wrap.show{display:flex;animation:fade-up 0.4s ease forwards;}';
-  html += '.kb-input{background:rgba(77,168,255,0.04);border:1px solid rgba(77,168,255,0.12);border-radius:6px;padding:10px 45px 10px 14px;color:var(--text-bright);font-family:Share Tech Mono,monospace;font-size:0.8em;letter-spacing:1px;width:260px;outline:none;transition:border-color 0.3s;}';
-  html += '.kb-input:focus{border-color:rgba(77,168,255,0.35);}';
-  html += '.kb-input::placeholder{color:var(--text-dim);}';
-  html += '.kb-send{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--blue);cursor:pointer;padding:6px;font-size:1.1em;opacity:0.5;transition:opacity 0.3s;}.kb-send:hover{opacity:1;}';
+  // Keyboard fallback input — now always visible as a prominent passcode bar
+  html += '.kb-fallback{margin-top:20px;opacity:0;width:100%;max-width:340px;}.main.booted .kb-fallback{animation:fade-up 0.8s ease 0.7s forwards;}';
+  html += '.kb-divider{display:flex;align-items:center;gap:12px;margin-bottom:14px;}';
+  html += '.kb-divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(77,168,255,0.15),transparent);}';
+  html += '.kb-divider-text{font-family:Share Tech Mono,monospace;font-size:0.5em;letter-spacing:3px;color:var(--text-dim);}';
+  html += '.passcode-wrap{position:relative;width:100%;}';
+  html += '.passcode-input{width:100%;background:rgba(77,168,255,0.03);border:1px solid rgba(77,168,255,0.1);border-radius:10px;padding:14px 52px 14px 18px;color:var(--text-bright);font-family:Share Tech Mono,monospace;font-size:0.85em;letter-spacing:2px;outline:none;transition:all 0.4s cubic-bezier(0.4,0,0.2,1);-webkit-appearance:none;}';
+  html += '.passcode-input:focus{border-color:rgba(77,168,255,0.35);background:rgba(77,168,255,0.05);box-shadow:0 0 30px rgba(77,168,255,0.06),inset 0 0 20px rgba(77,168,255,0.02);}';
+  html += '.passcode-input::placeholder{color:var(--text-dim);letter-spacing:3px;font-size:0.85em;}';
+  html += '.passcode-input.verifying{border-color:rgba(86,212,200,0.4);box-shadow:0 0 40px rgba(86,212,200,0.08);animation:input-pulse 1.5s ease-in-out infinite;}';
+  html += '.passcode-input.success-input{border-color:rgba(52,211,153,0.5);box-shadow:0 0 40px rgba(52,211,153,0.12);color:#34d399;}';
+  html += '.passcode-input.fail-input{border-color:rgba(239,68,68,0.4);box-shadow:0 0 30px rgba(239,68,68,0.08);animation:input-shake 0.5s ease;}';
+  html += '@keyframes input-pulse{0%,100%{box-shadow:0 0 30px rgba(86,212,200,0.06)}50%{box-shadow:0 0 50px rgba(86,212,200,0.12)}}';
+  html += '@keyframes input-shake{0%,100%{transform:translateX(0)}15%{transform:translateX(-8px)}30%{transform:translateX(6px)}45%{transform:translateX(-4px)}60%{transform:translateX(2px)}}';
+  html += '.passcode-send{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:rgba(77,168,255,0.08);border:1px solid rgba(77,168,255,0.15);border-radius:8px;color:var(--blue);cursor:pointer;padding:8px 12px;font-family:Share Tech Mono,monospace;font-size:0.7em;letter-spacing:2px;transition:all 0.3s;}.passcode-send:hover{background:rgba(77,168,255,0.15);border-color:rgba(77,168,255,0.3);color:var(--blue-bright);box-shadow:0 0 20px rgba(77,168,255,0.08);}';
+  // Scanning line animation on submit
+  html += '.passcode-scan{position:absolute;top:0;left:0;width:100%;height:100%;border-radius:10px;overflow:hidden;pointer-events:none;}';
+  html += '.passcode-scan-line{position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:0;pointer-events:none;}';
+  html += '.passcode-scan-line.scanning{opacity:0.8;animation:scan-down 0.8s ease-in-out 2;}';
+  html += '@keyframes scan-down{0%{top:0;opacity:0.8}50%{opacity:1}100%{top:100%;opacity:0.2}}';
 
   // Metrics
   html += '.metrics{display:flex;gap:40px;margin-top:35px;opacity:0;}.main.booted .metrics{animation:fade-up 0.8s ease 0.6s forwards;}';
@@ -3385,18 +3396,36 @@ app.get('/login', function(req, res) {
   // Bottom
   html += '.bottom{margin-top:50px;font-family:Share Tech Mono,monospace;font-size:0.5em;color:var(--text-dim);letter-spacing:3px;opacity:0;}.main.booted .bottom{animation:fade-up 0.8s ease 0.8s forwards;}';
 
-  // Success overlay
-  html += '.success-overlay{position:fixed;inset:0;z-index:100;background:var(--bg);display:none;align-items:center;justify-content:center;flex-direction:column;}';
+  // Success overlay — cinematic reveal
+  html += '.success-overlay{position:fixed;inset:0;z-index:100;background:var(--bg);display:none;align-items:center;justify-content:center;flex-direction:column;overflow:hidden;}';
   html += '.success-overlay.show{display:flex;animation:success-fade 0.6s ease forwards;}';
   html += '@keyframes success-fade{from{opacity:0}to{opacity:1}}';
-  html += '.success-icon{width:60px;height:60px;border:2px solid #34d399;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:30px;opacity:0;animation:success-icon-in 0.6s ease 0.2s forwards;}';
-  html += '@keyframes success-icon-in{from{opacity:0;transform:scale(0.5)}to{opacity:1;transform:scale(1)}}';
+  // Particle burst
+  html += '.success-particles{position:absolute;inset:0;pointer-events:none;}.success-particle{position:absolute;border-radius:50%;pointer-events:none;}';
+  // Electric lines radiating outward
+  html += '.success-lines{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:0;height:0;}.success-lines.show .s-line{opacity:1;animation:line-shoot 1.2s ease-out forwards;}';
+  html += '.s-line{position:absolute;height:1px;background:linear-gradient(90deg,var(--teal),transparent);opacity:0;transform-origin:left center;}';
+  html += '@keyframes line-shoot{0%{width:0;opacity:0.8}40%{width:250px;opacity:0.6}100%{width:400px;opacity:0}}';
+  // Icon with shockwave
+  html += '.success-icon{width:70px;height:70px;border:2px solid #34d399;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:30px;opacity:0;position:relative;z-index:2;animation:success-icon-in 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.2s forwards;}';
+  html += '@keyframes success-icon-in{from{opacity:0;transform:scale(0.3)}to{opacity:1;transform:scale(1)}}';
+  html += '.success-icon::before{content:"";position:absolute;inset:-8px;border-radius:50%;border:1px solid rgba(52,211,153,0.3);animation:shockwave 1.5s ease-out 0.3s forwards;opacity:0;}';
+  html += '.success-icon::after{content:"";position:absolute;inset:-20px;border-radius:50%;border:1px solid rgba(52,211,153,0.15);animation:shockwave 1.5s ease-out 0.5s forwards;opacity:0;}';
+  html += '@keyframes shockwave{0%{transform:scale(0.8);opacity:0.6}100%{transform:scale(3);opacity:0}}';
   html += '.success-icon svg{width:28px;height:28px;}';
-  html += '.success-name{font-family:Rajdhani,sans-serif;font-size:3em;font-weight:700;letter-spacing:12px;color:var(--text-bright);opacity:0;animation:fade-up 0.8s ease 0.4s forwards;}';
-  html += '.success-role{font-family:Share Tech Mono,monospace;font-size:0.7em;letter-spacing:5px;color:var(--teal);margin-top:10px;opacity:0;animation:fade-up 0.8s ease 0.6s forwards;}';
-  html += '.success-bar{width:200px;height:2px;background:rgba(77,168,255,0.1);margin-top:30px;border-radius:1px;overflow:hidden;opacity:0;animation:fade-up 0.5s ease 0.8s forwards;}';
-  html += '.success-bar-fill{width:0;height:100%;background:linear-gradient(90deg,var(--blue),var(--teal));border-radius:1px;animation:fill-bar 1.2s ease 1s forwards;}';
+  // Name with typewriter reveal
+  html += '.success-name{font-family:Rajdhani,sans-serif;font-size:3em;font-weight:700;letter-spacing:12px;color:var(--text-bright);opacity:0;position:relative;z-index:2;animation:name-reveal 0.8s cubic-bezier(0.16,1,0.3,1) 0.4s forwards;}';
+  html += '@keyframes name-reveal{from{opacity:0;transform:translateY(20px) scale(0.95);filter:blur(8px)}to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}';
+  // Role badge
+  html += '.success-role{font-family:Share Tech Mono,monospace;font-size:0.7em;letter-spacing:5px;color:var(--teal);margin-top:10px;opacity:0;position:relative;z-index:2;animation:fade-up 0.8s ease 0.6s forwards;text-shadow:0 0 20px rgba(86,212,200,0.3);}';
+  // Progress bar
+  html += '.success-bar{width:200px;height:2px;background:rgba(77,168,255,0.1);margin-top:30px;border-radius:1px;overflow:hidden;opacity:0;position:relative;z-index:2;animation:fade-up 0.5s ease 0.8s forwards;}';
+  html += '.success-bar-fill{width:0;height:100%;background:linear-gradient(90deg,var(--blue),var(--teal),#34d399);border-radius:1px;animation:fill-bar 1.2s ease 1s forwards;box-shadow:0 0 8px var(--teal);}';
   html += '@keyframes fill-bar{to{width:100%}}';
+  // Background glow
+  html += '.success-glow{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:0;height:0;border-radius:50%;background:radial-gradient(circle,rgba(52,211,153,0.08) 0%,transparent 70%);pointer-events:none;z-index:1;}';
+  html += '.success-overlay.show .success-glow{animation:glow-expand 2s ease-out 0.2s forwards;}';
+  html += '@keyframes glow-expand{from{width:0;height:0}to{width:800px;height:800px}}';
 
   // Responsive
   html += '@media(max-width:768px){.brand-name{font-size:2em;letter-spacing:10px}.interface{width:240px;height:240px}.center-btn{width:100px;height:100px}.mic-icon-wrap{width:22px;height:40px}.mic-head{width:22px;height:28px;border-radius:11px}.metrics{gap:25px}.ring-svg{inset:-20px;width:calc(100% + 40px);height:calc(100% + 40px)}.boot-text{width:260px;font-size:0.6em;}}';
@@ -3459,10 +3488,14 @@ app.get('/login', function(req, res) {
   html += '<div class="status-area"><div class="status-text" id="status">VOICE AUTHENTICATION</div>';
   html += '<div class="heard-text" id="heard"></div></div>';
 
-  // Keyboard fallback
-  html += '<div class="kb-fallback"><button class="kb-toggle" onclick="toggleKB()">OR TYPE PASSPHRASE</button>';
-  html += '<div class="kb-input-wrap" id="kbWrap"><input class="kb-input" id="kbInput" type="password" placeholder="Enter passphrase..." autocomplete="off"/>';
-  html += '<button class="kb-send" onclick="submitKB()">&#9654;</button></div></div>';
+  // Keyboard — always visible passcode bar
+  html += '<div class="kb-fallback">';
+  html += '<div class="kb-divider"><div class="kb-divider-line"></div><div class="kb-divider-text">ENTER ACCESS CODE</div><div class="kb-divider-line"></div></div>';
+  html += '<div class="passcode-wrap">';
+  html += '<input class="passcode-input" id="kbInput" type="password" placeholder="Type passphrase..." autocomplete="off"/>';
+  html += '<div class="passcode-scan" id="passcodeScan"><div class="passcode-scan-line" id="passcodeScanLine"></div></div>';
+  html += '<button class="passcode-send" onclick="submitKB()">AUTH &#9654;</button>';
+  html += '</div></div>';
 
   // Metrics
   html += '<div class="metrics">';
@@ -3475,10 +3508,17 @@ app.get('/login', function(req, res) {
 
   // Success overlay
   html += '<div class="success-overlay" id="successOverlay">';
+  html += '<div class="success-glow"></div>';
+  html += '<div class="success-lines" id="successLines">';
+  for (var sl = 0; sl < 12; sl++) {
+    html += '<div class="s-line" style="transform:rotate(' + (sl * 30) + 'deg);animation-delay:' + (0.3 + sl * 0.05) + 's;"></div>';
+  }
+  html += '</div>';
   html += '<div class="success-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>';
   html += '<div class="success-name" id="successName"></div>';
   html += '<div class="success-role" id="successRole">ACCESS GRANTED</div>';
   html += '<div class="success-bar"><div class="success-bar-fill"></div></div>';
+  html += '<canvas id="successCanvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;"></canvas>';
   html += '</div>';
 
   // ═══════════════════ JAVASCRIPT ═══════════════════
@@ -3522,10 +3562,14 @@ app.get('/login', function(req, res) {
   html += 'var line=document.createElement("div");line.className="line";line.style.animationDelay="0s";if(bootLines[i]===""){line.innerHTML="&nbsp;"}else if(bootLines[i]==="READY"){line.innerHTML=bootLines[i]+"<span class=\\"boot-cursor\\"></span>";line.style.color="#34d399"}else{line.textContent=bootLines[i]}';
   html += 'el.appendChild(line);i++;setTimeout(addLine,250+Math.random()*200)}setTimeout(addLine,300)})();';
 
-  // ── Keyboard fallback ──
-  html += 'function toggleKB(){var w=document.getElementById("kbWrap");w.classList.toggle("show");if(w.classList.contains("show"))document.getElementById("kbInput").focus()}';
-  html += 'function submitKB(){var v=document.getElementById("kbInput").value.trim();if(v)validatePhrase(v)}';
-  html += 'document.addEventListener("keydown",function(e){if(e.key==="Enter"&&document.getElementById("kbWrap").classList.contains("show"))submitKB()});';
+  // ── Keyboard — always visible passcode bar ──
+  html += 'function submitKB(){var v=document.getElementById("kbInput").value.trim();if(!v)return;';
+  html += 'var inp=document.getElementById("kbInput");inp.classList.add("verifying");';
+  html += 'document.getElementById("passcodeScanLine").classList.add("scanning");';
+  html += 'validatePhrase(v)}';
+  html += 'document.addEventListener("keydown",function(e){if(e.key==="Enter"&&document.activeElement&&document.activeElement.id==="kbInput")submitKB()});';
+  // Focus input on any keypress when not already focused
+  html += 'document.addEventListener("keydown",function(e){var inp=document.getElementById("kbInput");if(inp&&document.activeElement!==inp&&e.key.length===1&&!e.ctrlKey&&!e.metaKey){inp.focus()}});';
 
   // ── Voice auth ──
   html += 'var isListening=false,SR=window.SpeechRecognition||window.webkitSpeechRecognition;';
@@ -3544,13 +3588,21 @@ app.get('/login', function(req, res) {
   html += 'setTimeout(function(){document.getElementById("micBtn").className="center-btn";document.getElementById("status").textContent="VOICE AUTHENTICATION";document.getElementById("status").className="status-text";document.getElementById("heard").textContent=""},3000)}';
 
   html += 'async function validatePhrase(phrase){window._setAttract(false);stopAudioViz();document.getElementById("status").innerHTML="VERIFYING<span class=\\"verifying-dots\\"><span></span><span></span><span></span></span>";document.getElementById("status").className="status-text active";document.getElementById("interface").classList.remove("listening");document.getElementById("micBtn").className="center-btn";';
+  html += 'var inp=document.getElementById("kbInput");inp.classList.add("verifying");document.getElementById("passcodeScanLine").classList.add("scanning");';
   html += 'try{var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});var d=await r.json();';
-  html += 'if(d.success){document.getElementById("micBtn").className="center-btn success";document.getElementById("status").textContent="VERIFIED";document.getElementById("status").className="status-text success";';
+  html += 'if(d.success){inp.classList.remove("verifying");inp.classList.add("success-input");document.getElementById("passcodeScanLine").classList.remove("scanning");';
+  html += 'document.getElementById("micBtn").className="center-btn success";document.getElementById("status").textContent="VERIFIED";document.getElementById("status").className="status-text success";';
   html += 'document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
   html += 'setTimeout(function(){var ov=document.getElementById("successOverlay");document.getElementById("successName").textContent=d.access==="seo"?"WELCOME SEO TEAM":d.name.toUpperCase();document.getElementById("successRole").textContent=d.access==="all"?"FULL ACCESS GRANTED":d.access==="seo"?"SEO ACCESS GRANTED":"LIMITED ACCESS GRANTED";ov.classList.add("show");';
+  // Trigger success lines
+  html += 'document.getElementById("successLines").classList.add("show");';
+  // Particle burst canvas animation
+  html += 'setTimeout(function(){var cv=document.getElementById("successCanvas");if(cv){cv.width=cv.offsetWidth;cv.height=cv.offsetHeight;var ctx=cv.getContext("2d");var parts=[];var cx=cv.width/2,cy=cv.height/2;';
+  html += 'for(var i=0;i<60;i++){var angle=Math.random()*Math.PI*2;var speed=1+Math.random()*4;var colors=["#34d399","#4da8ff","#56d4c8","#e8b44a","#7ec4ff"];parts.push({x:cx,y:cy,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,r:1+Math.random()*2,life:1,decay:0.005+Math.random()*0.01,color:colors[Math.floor(Math.random()*colors.length)]})}';
+  html += 'function drawParts(){ctx.clearRect(0,0,cv.width,cv.height);var alive=false;parts.forEach(function(p){if(p.life<=0)return;alive=true;p.x+=p.vx;p.y+=p.vy;p.vy+=0.02;p.life-=p.decay;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=p.color;ctx.globalAlpha=p.life;ctx.fill();ctx.globalAlpha=1});if(alive)requestAnimationFrame(drawParts)}drawParts()}},100);';
   html += 'var redir="' + (redirect || '') + '";if(!redir)redir=d.access==="all"?"/dashboard":d.access==="seo"?"/seo":"/discord";';
   html += 'setTimeout(function(){window.location.href=redir},2200)},800);';
-  html += '}else{resetUI("fail","SIGNATURE MISMATCH")}}catch(e){resetUI("fail","CONNECTION ERROR")}}';
+  html += '}else{inp.classList.remove("verifying");inp.classList.add("fail-input");document.getElementById("passcodeScanLine").classList.remove("scanning");setTimeout(function(){inp.classList.remove("fail-input");inp.value="";inp.focus()},1500);resetUI("fail","SIGNATURE MISMATCH")}}catch(e){var inp2=document.getElementById("kbInput");inp2.classList.remove("verifying");document.getElementById("passcodeScanLine").classList.remove("scanning");resetUI("fail","CONNECTION ERROR")}}';
 
   html += '</script></body></html>';
   res.send(html);
@@ -18629,17 +18681,45 @@ app.get('/seo', requireAuth(['owner','seo']), async function(req, res) {
     html += '<div class="box" style="border:1px solid #00ff6630">';
     html += '<div class="box-title"><span class="dot" style="background:#00ff66"></span>💰 REVENUE OPPORTUNITY CALCULATOR</div>';
     html += '<div style="color:#c0d8f0;font-size:0.85em;line-height:1.7;padding:8px">';
-    html += '<span style="color:#00ff66;font-weight:700">Model:</span> Search Volume × CTR (est. 5-15%) × Conversion Rate (est. 8-12%) × Avg Ticket ($150-250) = Monthly Revenue Potential';
+    html += '<span style="color:#00ff66;font-weight:700">Model:</span> Search Volume × CTR (est. 5-15%) × Conversion Rate (90%) × Avg Ticket ($150-250) = Monthly Revenue Potential';
     html += '</div></div>';
 
-    // ROI Dashboard
+    // ROI Dashboard — compute city-level data FIRST so summary matches table
     var wTraffic = (D.wwserData || {}).webTraffic || [];
     var totalClicks6mo = wTraffic.reduce(function(s,t){return s+t.clicks;},0);
     var totalImpr6mo = wTraffic.reduce(function(s,t){return s+t.impressions;},0);
     var avgCTR = totalImpr6mo > 0 ? ((totalClicks6mo/totalImpr6mo)*100).toFixed(1) : 0;
-    var estLeadsMonth = Math.round(totalClicks6mo / 6 * 0.10); // 10% conversion
     var avgTicket = 185;
-    var estRevMonth = estLeadsMonth * avgTicket;
+
+    // Compute city-level revenue from keyword research
+    var cityRevenue = [];
+    Object.keys(D.keywordResearch || {}).forEach(function(city) {
+      var kws = D.keywordResearch[city];
+      var totalVol = kws.reduce(function(s,k){return s+(k.volume||0);},0);
+      var estClicks = Math.round(totalVol * 0.08); // 8% CTR
+      var leads = Math.round(estClicks * 0.90);
+      var rev = leads * avgTicket;
+      cityRevenue.push({city:city, vol:totalVol, clicks:estClicks, leads:leads, revMo:rev, revYr:rev*12});
+    });
+    // Add FL cities
+    Object.keys(D.flKeywords || {}).forEach(function(city) {
+      var kws = D.flKeywords[city];
+      var totalVol = kws.reduce(function(s,k){return s+(k.volume||0);},0);
+      var estClicks = Math.round(totalVol * 0.08);
+      var leads = Math.round(estClicks * 0.90);
+      var rev = leads * avgTicket;
+      cityRevenue.push({city:city, vol:totalVol, clicks:estClicks, leads:leads, revMo:rev, revYr:rev*12});
+    });
+    cityRevenue.sort(function(a,b){return b.revYr-a.revYr;});
+
+    var grandTotal = {vol:0, clicks:0, leads:0, revMo:0, revYr:0};
+    cityRevenue.forEach(function(c) {
+      grandTotal.vol += c.vol; grandTotal.clicks += c.clicks; grandTotal.leads += c.leads; grandTotal.revMo += c.revMo; grandTotal.revYr += c.revYr;
+    });
+
+    // Summary cards — use city table totals so numbers match
+    var estLeadsMonth = grandTotal.leads;
+    var estRevMonth = grandTotal.revMo;
 
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:12px">';
     html += '<div class="box" style="text-align:center;padding:12px;margin:0"><div style="font-family:Orbitron;font-size:1.2em;color:#55f7d8">' + totalClicks6mo.toLocaleString() + '</div><div style="font-size:0.7em;color:#4a6a8a">CLICKS (6 MO)</div></div>';
@@ -18655,30 +18735,7 @@ app.get('/seo', requireAuth(['owner','seo']), async function(req, res) {
     html += '<div class="box-title"><span class="dot" style="background:#ffd700"></span>REVENUE POTENTIAL BY CITY</div>';
     html += '<table><thead><tr><th>CITY</th><th>KW VOLUME</th><th>EST CLICKS/MO</th><th>EST LEADS/MO</th><th>EST REV/MO</th><th>EST REV/YR</th></tr></thead><tbody>';
 
-    // Compute from keyword research
-    var cityRevenue = [];
-    Object.keys(D.keywordResearch || {}).forEach(function(city) {
-      var kws = D.keywordResearch[city];
-      var totalVol = kws.reduce(function(s,k){return s+(k.volume||0);},0);
-      var estClicks = Math.round(totalVol * 0.08); // 8% CTR
-      var leads = Math.round(estClicks * 0.10);
-      var rev = leads * avgTicket;
-      cityRevenue.push({city:city, vol:totalVol, clicks:estClicks, leads:leads, revMo:rev, revYr:rev*12});
-    });
-    // Add FL cities
-    Object.keys(D.flKeywords || {}).forEach(function(city) {
-      var kws = D.flKeywords[city];
-      var totalVol = kws.reduce(function(s,k){return s+(k.volume||0);},0);
-      var estClicks = Math.round(totalVol * 0.08);
-      var leads = Math.round(estClicks * 0.10);
-      var rev = leads * avgTicket;
-      cityRevenue.push({city:city, vol:totalVol, clicks:estClicks, leads:leads, revMo:rev, revYr:rev*12});
-    });
-    cityRevenue.sort(function(a,b){return b.revYr-a.revYr;});
-
-    var grandTotal = {vol:0, clicks:0, leads:0, revMo:0, revYr:0};
     cityRevenue.forEach(function(c) {
-      grandTotal.vol += c.vol; grandTotal.clicks += c.clicks; grandTotal.leads += c.leads; grandTotal.revMo += c.revMo; grandTotal.revYr += c.revYr;
       var rc = c.revYr >= 10000 ? '#00ff66' : c.revYr >= 2000 ? '#ffd700' : '#ff9f43';
       html += '<tr><td style="color:#c0d8f0;font-weight:600">' + c.city + '</td>';
       html += '<td style="color:#c084fc">' + c.vol + '</td>';
@@ -19079,7 +19136,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
 
     // Current business metrics for context
     var avgTicket = sqA ? sqA.revenue.avgTicket : 250;
-    var convRate = 0.3;
+    var convRate = 0.9;
 
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>Market Forecast</title>';
