@@ -1150,6 +1150,7 @@ function squareAnalyze(snap) {
 var voiceUsers = [
   { name: 'Trace', passphrase: 'jarvis activate', role: 'owner', access: 'all' },
   { name: 'Rubait', passphrase: 'discord open', role: 'manager', access: 'discord' },
+  { name: 'SEO Team', passphrase: 'seo activate', role: 'seo', access: 'seo' },
 ];
 var voiceSessions = {};
 
@@ -3184,6 +3185,7 @@ app.get('/', function(req, res) {
   if (!session) return res.redirect('/login');
   if (session.access === 'all') return res.redirect('/dashboard');
   if (session.access === 'discord') return res.redirect('/discord');
+  if (session.access === 'seo') return res.redirect('/seo');
   return res.redirect('/dashboard');
 });
 
@@ -3236,6 +3238,7 @@ app.get('/login', function(req, res) {
   if (session && !denied) {
     if (session.access === 'all') return res.redirect(redirect || '/dashboard');
     if (session.access === 'discord') return res.redirect('/discord');
+    if (session.access === 'seo') return res.redirect(redirect || '/seo');
     return res.redirect(redirect || '/dashboard');
   }
 
@@ -3544,8 +3547,8 @@ app.get('/login', function(req, res) {
   html += 'try{var r=await fetch("/auth/voice",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({passphrase:phrase})});var d=await r.json();';
   html += 'if(d.success){document.getElementById("micBtn").className="center-btn success";document.getElementById("status").textContent="VERIFIED";document.getElementById("status").className="status-text success";';
   html += 'document.cookie="voice_token="+d.token+";path=/;max-age=604800;SameSite=Lax";';
-  html += 'setTimeout(function(){var ov=document.getElementById("successOverlay");document.getElementById("successName").textContent=d.name.toUpperCase();document.getElementById("successRole").textContent=d.access==="all"?"FULL ACCESS GRANTED":"LIMITED ACCESS GRANTED";ov.classList.add("show");';
-  html += 'var redir="' + (redirect || '') + '";if(!redir)redir=d.access==="all"?"/dashboard":"/discord";';
+  html += 'setTimeout(function(){var ov=document.getElementById("successOverlay");document.getElementById("successName").textContent=d.access==="seo"?"WELCOME SEO TEAM":d.name.toUpperCase();document.getElementById("successRole").textContent=d.access==="all"?"FULL ACCESS GRANTED":d.access==="seo"?"SEO ACCESS GRANTED":"LIMITED ACCESS GRANTED";ov.classList.add("show");';
+  html += 'var redir="' + (redirect || '') + '";if(!redir)redir=d.access==="all"?"/dashboard":d.access==="seo"?"/seo":"/discord";';
   html += 'setTimeout(function(){window.location.href=redir},2200)},800);';
   html += '}else{resetUI("fail","SIGNATURE MISMATCH")}}catch(e){resetUI("fail","CONNECTION ERROR")}}';
 
@@ -15205,7 +15208,7 @@ async function runSystemAudit() {
 }
 
 // ====== SEO AUDIT API ======
-app.get('/api/seo', requireAuth('owner'), function(req, res) {
+app.get('/api/seo', requireAuth(['owner','seo']), function(req, res) {
   var state = req.query.state;
   var service = req.query.service;
   if (state) {
@@ -15218,7 +15221,7 @@ app.get('/api/seo', requireAuth('owner'), function(req, res) {
   return res.json({ national: getSeoNationalTotals(), stateRanking: getSeoStateRanking() });
 });
 
-app.get('/api/seo/predict', requireAuth('owner'), function(req, res) {
+app.get('/api/seo/predict', requireAuth(['owner','seo']), function(req, res) {
   var state = req.query.state || 'Kansas';
   var city = req.query.city;
   var months = parseInt(req.query.months) || 12;
@@ -16810,8 +16813,10 @@ app.post('/api/ai/analyze', requireAuth('owner'), async function(req, res) {
   } catch(e) { res.json({ error: e.message }); }
 });
 
-app.get('/seo', requireAuth('owner'), async function(req, res) {
+app.get('/seo', requireAuth(['owner','seo']), async function(req, res) {
   try {
+    var session = getVoiceSession(req);
+    var isSeoUser = session && session.access === 'seo';
     var D = SEO_CONTENT_DATA;
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>SEO Command Center</title>';
@@ -16869,17 +16874,27 @@ app.get('/seo', requireAuth('owner'), async function(req, res) {
 
     // Nav
     html += '<div class="nav">';
-    html += '<a href="/">JARVIS</a><a href="/athena">ATHENA</a><a href="/tookan">TOOKAN</a>';
-    html += '<a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a>';
-    html += '<a href="/google-ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
-    html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
-    html += '<a href="/ai">AI</a><a href="/forecast">FORECAST</a>';
-    html += '<a href="/seo" class="active">SEO</a><a href="/audit">AUDIT</a>';
-    html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
+    if (isSeoUser) {
+      html += '<a href="/seo" class="active">SEO</a>';
+      html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
+    } else {
+      html += '<a href="/">JARVIS</a><a href="/athena">ATHENA</a><a href="/tookan">TOOKAN</a>';
+      html += '<a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a>';
+      html += '<a href="/google-ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
+      html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
+      html += '<a href="/ai">AI</a><a href="/forecast">FORECAST</a>';
+      html += '<a href="/seo" class="active">SEO</a><a href="/audit">AUDIT</a>';
+      html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
+    }
     html += '</div>';
 
-    html += '<div class="header"><h1>SEO COMMAND CENTER</h1>';
-    html += '<div class="sub">Wildwood Small Engine Repair — Full SEO Intelligence Dashboard</div>';
+    if (isSeoUser) {
+      html += '<div class="header"><h1>WELCOME SEO TEAM</h1>';
+      html += '<div class="sub">SEO Command Center — Wildwood Small Engine Repair</div>';
+    } else {
+      html += '<div class="header"><h1>SEO COMMAND CENTER</h1>';
+      html += '<div class="sub">Wildwood Small Engine Repair — Full SEO Intelligence Dashboard</div>';
+    }
     html += '<input class="search" id="globalSearch" placeholder="🔍 Search across all tabs... (cities, keywords, domains, anything)" oninput="globalFilter()" style="margin-top:10px;max-width:600px">';
     html += '</div>';
 
