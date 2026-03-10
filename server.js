@@ -19394,6 +19394,11 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += '.loading{color:#c084fc;font-family:Orbitron;font-size:0.7em;letter-spacing:3px;animation:pulse 1.5s infinite}';
     html += '@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}';
     html += '.tag{display:inline-block;padding:2px 8px;font-size:0.7em;font-family:Orbitron;letter-spacing:1px;margin:1px}';
+    html += '.metric-toggle{display:flex;gap:0;margin-bottom:10px}';
+    html += '.metric-btn{flex:1;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;padding:10px 8px;border:1px solid #1a2a3a;color:#4a6a8a;cursor:pointer;transition:all 0.3s;text-align:center;background:transparent}';
+    html += '.metric-btn:first-child{border-radius:4px 0 0 4px}.metric-btn:last-child{border-radius:0 4px 4px 0}';
+    html += '.metric-btn.active{color:#55f7d8;border-color:#55f7d8;background:rgba(85,247,216,0.08)}';
+    html += '.metric-btn:hover:not(.active){color:#c0d8f0;border-color:#4a6a8a}';
     html += '</style></head><body>';
 
     // Nav
@@ -19476,6 +19481,12 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     // 12-month stacked chart
     html += '<div class="box">';
     html += '<div class="box-title"><span class="dot" style="background:#c084fc"></span>12-MONTH DEMAND FORECAST</div>';
+    html += '<div class="metric-toggle">';
+    html += '<div class="metric-btn active" onclick="setMetric(\'searches\')" id="btn-searches">SEARCHES</div>';
+    html += '<div class="metric-btn" onclick="setMetric(\'leads\')" id="btn-leads">LEADS</div>';
+    html += '<div class="metric-btn" onclick="setMetric(\'revenue\')" id="btn-revenue">REVENUE</div>';
+    html += '<div class="metric-btn" onclick="setMetric(\'bookings\')" id="btn-bookings">BOOKINGS</div>';
+    html += '</div>';
     html += '<div class="legend">';
     html += '<span><i style="background:#00ff66"></i>Mowers</span>';
     html += '<span><i style="background:#00d4ff"></i>Small Engine</span>';
@@ -19640,41 +19651,49 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'selectedLocs.forEach(function(l){svcKeys.forEach(function(sk){';
     html += 'if(l.services&&l.services[sk]&&l.services[sk].vol>0){';
     html += 'var mult=SEO_SEASONAL[sk][mi];var predVol=Math.round(l.services[sk].vol*mult);';
-    html += 'var kd=l.services[sk].kd||0.3;var ctr=kd<0.2?0.15:kd<0.4?0.08:0.04;';
+    html += 'var kd=l.services[sk].kd||0.3;var ctr=kd<0.15?0.35:kd<0.3?0.25:kd<0.5?0.18:0.12;';
     html += 'var leads=Math.round(predVol*ctr);';
     html += 'svcs[sk].vol+=predVol;svcs[sk].leads+=leads;svcs[sk].rev+=Math.round(leads*CONV_RATE*AVG_TICKET);}});});';
-    html += 'var totalVol=0,totalLeads=0,totalRev=0,dominant="";var maxV=0;';
-    html += 'svcKeys.forEach(function(sk){totalVol+=svcs[sk].vol;totalLeads+=svcs[sk].leads;totalRev+=svcs[sk].rev;if(svcs[sk].vol>maxV){maxV=svcs[sk].vol;dominant=SVC_LABELS[sk];}});';
-    html += 'months.push({label:MONTH_NAMES[mi]+" "+yr,mi:mi,totalVol:totalVol,totalLeads:totalLeads,totalRev:totalRev,dominant:dominant,services:svcs});}';
+    html += 'var totalVol=0,totalLeads=0,totalRev=0,totalBookings=0,dominant="";var maxV=0;';
+    html += 'svcKeys.forEach(function(sk){totalVol+=svcs[sk].vol;totalLeads+=svcs[sk].leads;totalRev+=svcs[sk].rev;svcs[sk].bookings=Math.round(svcs[sk].leads*CONV_RATE);totalBookings+=svcs[sk].bookings;if(svcs[sk].vol>maxV){maxV=svcs[sk].vol;dominant=SVC_LABELS[sk];}});';
+    html += 'months.push({label:MONTH_NAMES[mi]+" "+yr,mi:mi,totalVol:totalVol,totalLeads:totalLeads,totalRev:totalRev,totalBookings:totalBookings,dominant:dominant,services:svcs});}';
     html += 'return months;}';
+    // Active metric state
+    html += 'var activeMetric="searches";';
+    html += 'function setMetric(m){activeMetric=m;document.querySelectorAll(".metric-btn").forEach(function(b){b.classList.remove("active");});document.getElementById("btn-"+m).classList.add("active");var months=calcForecast();renderChart(months);renderCards(months);}';
 
-    // Render chart
+    // Render chart - metric-aware
+    html += 'function getMetricVal(m,sk){var sv=m.services[sk];if(!sv)return 0;';
+    html += 'if(activeMetric==="leads")return sv.leads;if(activeMetric==="revenue")return sv.rev;if(activeMetric==="bookings")return sv.bookings||0;return sv.vol;}';
+    html += 'function getMetricTotal(m){if(activeMetric==="leads")return m.totalLeads;if(activeMetric==="revenue")return m.totalRev;if(activeMetric==="bookings")return m.totalBookings;return m.totalVol;}';
+    html += 'function fmtMetric(v){if(activeMetric==="revenue")return "$"+v.toLocaleString();return v.toLocaleString();}';
     html += 'function renderChart(months){var el=document.getElementById("forecastChart");';
     html += 'if(months.length===0||selectedLocs.length===0){el.innerHTML="<div style=\\"text-align:center;color:#4a6a8a;padding:60px\\">Add locations to see forecast</div>";return;}';
-    html += 'var maxV=Math.max.apply(null,months.map(function(m){return m.totalVol;}))||1;';
+    html += 'var maxV=Math.max.apply(null,months.map(function(m){return getMetricTotal(m);}))||1;';
     html += 'var h="";months.forEach(function(m){';
-    html += 'var totalH=Math.round((m.totalVol/maxV)*180);';
+    html += 'var total=getMetricTotal(m);var totalH=Math.round((total/maxV)*180);';
     html += 'h+="<div class=\\"month-col\\">";';
-    html += 'h+="<div style=\\"color:#c0d8f0;font-size:0.75em;font-weight:700;margin-bottom:2px\\">"+m.totalVol+"</div>";';
+    html += 'h+="<div style=\\"color:#c0d8f0;font-size:0.75em;font-weight:700;margin-bottom:2px\\">"+fmtMetric(total)+"</div>";';
     html += 'h+="<div class=\\"month-stack\\" style=\\"height:"+totalH+"px\\">";';
     html += '["lawn_mower_repair","small_engine_repair","snow_blower_repair","generator_repair","motorcycle_repair"].forEach(function(sk){';
-    html += 'var sv=m.services[sk];if(sv&&sv.vol>0){var sh=Math.max(2,Math.round((sv.vol/maxV)*180));';
-    html += 'h+="<div style=\\"width:100%;height:"+sh+"px;background:"+SVC_COLORS[sk]+";opacity:0.75\\" title=\\""+SVC_LABELS[sk]+": "+sv.vol+"/mo · ~"+sv.leads+" leads · ~$"+sv.rev.toLocaleString()+"\\"></div>";}});';
+    html += 'var sv=m.services[sk];if(sv){var val=getMetricVal(m,sk);if(val>0){var sh=Math.max(2,Math.round((val/maxV)*180));';
+    html += 'h+="<div style=\\"width:100%;height:"+sh+"px;background:"+SVC_COLORS[sk]+";opacity:0.75\\" title=\\""+SVC_LABELS[sk]+": "+sv.vol+" searches · "+sv.leads+" leads · "+(sv.bookings||0)+" bookings · $"+sv.rev.toLocaleString()+"\\"></div>";}}});';
     html += 'h+="</div><div class=\\"month-label\\">"+m.label.split(" ")[0]+"</div></div>";});';
     html += 'el.innerHTML=h;}';
 
-    // Render forecast cards
+    // Render forecast cards - metric-aware
     html += 'function renderCards(months){var el=document.getElementById("forecastCards");';
     html += 'if(months.length===0){el.innerHTML="";return;}';
-    html += 'var maxV=Math.max.apply(null,months.map(function(m){return m.totalVol;}))||1;';
+    html += 'var maxV=Math.max.apply(null,months.map(function(m){return getMetricTotal(m);}))||1;';
     html += 'var h="";months.forEach(function(m){';
-    html += 'var isHigh=m.totalVol>maxV*0.7;var isLow=m.totalVol<maxV*0.3;';
+    html += 'var val=getMetricTotal(m);var isHigh=val>maxV*0.7;var isLow=val<maxV*0.3;';
     html += 'var col=isHigh?"#00ff66":isLow?"#ff4757":"#ff9f43";';
     html += 'h+="<div class=\\"fc-card\\" style=\\"border-color:"+col+"20\\">";';
     html += 'h+="<div class=\\"mo\\">"+m.label+"</div>";';
-    html += 'h+="<div class=\\"vol\\" style=\\"color:"+col+"\\">"+m.totalVol+"</div>";';
+    html += 'h+="<div class=\\"vol\\" style=\\"color:"+col+"\\">"+fmtMetric(val)+"</div>";';
     html += 'h+="<div style=\\"font-family:Orbitron;font-size:0.5em;letter-spacing:2px;color:"+col+"\\">"+(isHigh?"HIGH":isLow?"LOW":"NORMAL")+"</div>";';
-    html += 'h+="<div class=\\"meta\\">~"+m.totalLeads+" leads · $"+m.totalRev.toLocaleString()+"</div>";';
+    html += 'h+="<div class=\\"meta\\">"+m.totalVol.toLocaleString()+" searches · "+m.totalLeads+" leads</div>";';
+    html += 'h+="<div class=\\"meta\\">"+m.totalBookings+" bookings · $"+m.totalRev.toLocaleString()+"</div>";';
     html += 'h+="<div class=\\"meta\\">Top: "+m.dominant+"</div>";';
     html += 'h+="</div>";});el.innerHTML=h;}';
 
@@ -19697,7 +19716,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'function renderLocBreakdown(){var el=document.getElementById("locBreakdown");';
     html += 'if(selectedLocs.length===0){el.innerHTML="<div style=\\"color:#4a6a8a\\">Add locations to see per-city forecasts...</div>";return;}';
     html += 'var h="";selectedLocs.forEach(function(l,i){';
-    html += 'var estLeads=0;Object.keys(l.services||{}).forEach(function(sk){var s=l.services[sk];if(s.vol>0){var ctr=s.kd<0.2?0.15:s.kd<0.4?0.08:0.04;estLeads+=Math.round(s.vol*ctr);}});';
+    html += 'var estLeads=0;Object.keys(l.services||{}).forEach(function(sk){var s=l.services[sk];if(s.vol>0){var ctr=s.kd<0.15?0.35:s.kd<0.3?0.25:s.kd<0.5?0.18:0.12;estLeads+=Math.round(s.vol*ctr);}});';
     html += 'var estRev=Math.round(estLeads*CONV_RATE*AVG_TICKET);';
     html += 'h+="<div style=\\"display:flex;align-items:center;gap:8px;margin-bottom:4px;padding:6px 0;border-bottom:1px solid #ffffff05\\">";';
     html += 'h+="<div style=\\"width:22px;color:#55f7d8;font-family:Orbitron;font-size:0.7em\\">"+(i+1)+"</div>";';
