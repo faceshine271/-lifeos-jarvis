@@ -1057,7 +1057,12 @@ function squareAnalyze(snap) {
       weekGrowth: weekGrowth, avgTicket: avgTicket, medianTicket: medianTicket,
       maxTicket: maxTicket, minTicket: minTicket,
       avgDailyRev: Object.keys(paymentsByDay).length > 0 ? totalRev / Object.keys(paymentsByDay).length : 0,
-      allTimeTotal: grossRev
+      allTimeTotal: grossRev,
+      currentMonthActual: monthlyRevenue[currentYearKey + '-' + String(currentMonth).padStart(2, '0')] || 0,
+      currentMonthProjected: monthProjections[String(currentMonth).padStart(2, '0')] ? monthProjections[String(currentMonth).padStart(2, '0')].estimate : 0,
+      currentMonthDayOfMonth: nowCT.getDate(),
+      currentMonthDaysTotal: new Date(currentYear, currentMonth, 0).getDate(),
+      currentMonthKey: currentYearKey + '-' + String(currentMonth).padStart(2, '0')
     },
     trends: {
       monthlyRevenue: monthlyRevenue, monthlyPaymentCount: monthlyPaymentCount,
@@ -20673,7 +20678,9 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   // Revenue section
   html += 'h+="<div class=\\"section-title\\">💰 REVENUE</div><div class=\\"stats\\">";';
   html += 'h+=sc("$"+a.revenue.today.toFixed(0),"TODAY","");h+=sc("$"+a.revenue.week.toFixed(0),"THIS WEEK","");h+=sc((a.revenue.weekGrowth>=0?"+":"")+a.revenue.weekGrowth+"%","WEEK GROWTH",a.revenue.weekGrowth>=0?"":"danger");';
-  html += 'h+=sc("$"+a.revenue.month30d.toFixed(0),"30-DAY REV","");h+=sc("$"+a.revenue.net.toFixed(0),"NET REVENUE","blue");h+=sc("$"+a.revenue.tips.toFixed(0),"TIPS","");h+=sc("$"+a.revenue.fees.toFixed(0),"FEES","warn");';
+  html += 'h+=sc("$"+Math.round(a.revenue.currentMonthActual).toLocaleString(),"MTD (DAY "+a.revenue.currentMonthDayOfMonth+"/"+a.revenue.currentMonthDaysTotal+")","");';
+  html += 'h+=sc("$"+Math.round(a.revenue.currentMonthProjected).toLocaleString(),"MONTH PROJECTED","blue");';
+  html += 'h+=sc("$"+a.revenue.net.toFixed(0),"NET REVENUE","blue");h+=sc("$"+a.revenue.tips.toFixed(0),"TIPS","");h+=sc("$"+a.revenue.fees.toFixed(0),"FEES","warn");';
   html += 'h+=sc("$"+a.revenue.avgTicket.toFixed(0),"AVG TICKET","");h+=sc("$"+a.revenue.medianTicket.toFixed(0),"MEDIAN","blue");h+=sc("$"+a.revenue.avgDailyRev.toFixed(0),"AVG DAILY","");';
   html += 'h+=sc("$"+Math.round(a.revenue.allTimeTotal).toLocaleString(),"ALL-TIME GROSS","blue");';
   html += 'h+="</div>";';
@@ -20731,25 +20738,40 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
 
   html += 'var monthlyData={};function renderMonthBars(year,el){if(!D||!D.analytics)return;var mr=D.analytics.trends.monthlyRevenue;var mc=D.analytics.trends.monthlyPaymentCount;var mat=D.analytics.trends.monthlyAvgTicket;';
   html += 'if(el){document.querySelectorAll("#yearTabs .tab-btn").forEach(function(b){b.classList.remove("active");});el.classList.add("active");}';
-  html += 'var months=[];for(var i=1;i<=12;i++){var key=year+"-"+(i<10?"0":"")+i;months.push({month:key,label:["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][i],rev:mr[key]||0,count:mc[key]||0,avg:mat[key]||0});}';
-  html += 'monthlyData=months;var max=0;months.forEach(function(m){if(m.rev>max)max=m.rev;});if(!max)max=1;';
+  html += 'var curMoKey=D.analytics.revenue.currentMonthKey;var mp=D.analytics.trends.projections.monthProjections;';
+  html += 'var months=[];for(var i=1;i<=12;i++){var key=year+"-"+(i<10?"0":"")+i;var proj=mp[(i<10?"0":"")+i];var isCurrentMo=(key===curMoKey);var projEst=isCurrentMo&&proj?proj.estimate:0;months.push({month:key,label:["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][i],rev:mr[key]||0,count:mc[key]||0,avg:mat[key]||0,isCurrent:isCurrentMo,projected:projEst});}';
+  html += 'monthlyData=months;var max=0;months.forEach(function(m){var v=m.isCurrent&&m.projected>m.rev?m.projected:m.rev;if(v>max)max=v;});if(!max)max=1;';
   html += 'var c=document.getElementById("monthlyChart");var W=c.offsetWidth-60;var bw=Math.max(20,(W/12)-8);';
   html += 'var h="<svg width=\\"100%\\" height=\\"210\\">";';
-  html += 'months.forEach(function(m,i){var bh=Math.max(2,(m.rev/max)*160);var x=40+i*(bw+6);var clr=m.rev>0?"#10b981":"#1a2a3a";';
+  html += 'months.forEach(function(m,i){var x=40+i*(bw+6);';
+  html += 'if(m.isCurrent&&m.projected>0){';
+  html += 'var projH=Math.max(2,(m.projected/max)*160);var actH=Math.max(2,(m.rev/max)*160);';
+  html += 'h+="<rect x=\\""+x+"\\" y=\\""+Math.round(175-projH)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(projH)+"\\" fill=\\"#6366f1\\" opacity=\\"0.25\\" rx=\\"2\\" stroke=\\"#6366f1\\" stroke-dasharray=\\"3,2\\" style=\\"cursor:pointer\\" onclick=\\"showMonthDetail("+i+")\\" ><title>"+m.label+" PROJECTED: $"+m.projected+" (actual so far: $"+m.rev.toFixed(2)+")</title></rect>";';
+  html += 'h+="<rect x=\\""+x+"\\" y=\\""+Math.round(175-actH)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(actH)+"\\" fill=\\"#10b981\\" rx=\\"0 0 2 2\\" style=\\"cursor:pointer\\" onclick=\\"showMonthDetail("+i+")\\" />";';
+  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(170-projH)+"\\" fill=\\"#818cf8\\" font-size=\\"6\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">~$"+Math.round(m.projected)+"</text>";';
+  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(178-actH)+"\\" fill=\\"#10b981\\" font-size=\\"6\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">$"+Math.round(m.rev)+"</text>";';
+  html += '}else{';
+  html += 'var bh=Math.max(2,(m.rev/max)*160);var clr=m.rev>0?"#10b981":"#1a2a3a";';
   html += 'h+="<rect x=\\""+x+"\\" y=\\""+Math.round(175-bh)+"\\" width=\\""+bw+"\\" height=\\""+Math.round(bh)+"\\" fill=\\""+clr+"\\" rx=\\"2\\" style=\\"cursor:pointer\\" onclick=\\"showMonthDetail("+i+")\\" ><title>"+m.label+" "+year+": $"+m.rev.toFixed(2)+" ("+m.count+" payments, avg $"+m.avg+")</title></rect>";';
-  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\"192\\" fill=\\"#4a6a8a\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">"+m.label+"</text>";';
-  html += 'if(m.rev>0)h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(170-bh)+"\\" fill=\\"#10b981\\" font-size=\\"7\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">$"+Math.round(m.rev)+"</text>";});';
+  html += 'if(m.rev>0)h+="<text x=\\""+(x+bw/2)+"\\" y=\\""+Math.round(170-bh)+"\\" fill=\\"#10b981\\" font-size=\\"7\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">$"+Math.round(m.rev)+"</text>";}';
+  html += 'h+="<text x=\\""+(x+bw/2)+"\\" y=\\"192\\" fill=\\""+(m.isCurrent?"#818cf8":"#4a6a8a")+"\\" font-size=\\"8\\" font-family=\\"Orbitron\\" text-anchor=\\"middle\\">"+m.label+(m.isCurrent?" *":"")+"</text>";';
+  html += '});';
   html += 'h+="<text x=\\"5\\" y=\\"12\\" fill=\\"#4a6a8a\\" font-size=\\"8\\" font-family=\\"Orbitron\\">$"+Math.round(max)+"</text>";';
-  html += 'h+="<line x1=\\"40\\" y1=\\"175\\" x2=\\""+Math.round(40+12*(bw+6))+"\\" y2=\\"175\\" stroke=\\"#1a3a5a\\"/></svg>";c.innerHTML=h;}';
+  html += 'h+="<line x1=\\"40\\" y1=\\"175\\" x2=\\""+Math.round(40+12*(bw+6))+"\\" y2=\\"175\\" stroke=\\"#1a3a5a\\"/></svg>";';
+  html += 'h+="<div style=\\"display:flex;justify-content:center;gap:16px;margin-top:6px;font-size:9px;font-family:Orbitron;\\"><span style=\\"color:#10b981;\\">■ Actual</span><span style=\\"color:#6366f1;\\">▪ Projected</span></div>";';
+  html += 'c.innerHTML=h;}';
 
-  // Month detail panel
-  html += 'function showMonthDetail(i){var m=monthlyData[i];if(!m||m.rev===0){document.getElementById("monthDetail").style.display="none";return;}';
+  // Month detail panel — current month shows actual + projected
+  html += 'function showMonthDetail(i){var m=monthlyData[i];if(!m||(m.rev===0&&!m.isCurrent)){document.getElementById("monthDetail").style.display="none";return;}';
   html += 'var d=document.getElementById("monthDetail");d.style.display="block";';
-  html += 'd.innerHTML="<div style=\\"font-family:Orbitron;font-size:0.7em;color:#10b981;letter-spacing:3px;margin-bottom:8px;\\">"+m.label.toUpperCase()+" "+m.month.substring(0,4)+"</div>"';
+  html += 'var titleClr=m.isCurrent?"#818cf8":"#10b981";var titleExtra=m.isCurrent?" (IN PROGRESS — DAY "+D.analytics.revenue.currentMonthDayOfMonth+" OF "+D.analytics.revenue.currentMonthDaysTotal+")":"";';
+  html += 'd.innerHTML="<div style=\\"font-family:Orbitron;font-size:0.7em;color:"+titleClr+";letter-spacing:3px;margin-bottom:8px;\\">"+m.label.toUpperCase()+" "+m.month.substring(0,4)+titleExtra+"</div>"';
   html += '+"<div style=\\"display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;\\">"';
-  html += '+"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#10b981;\\">$"+m.rev.toFixed(2)+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">REVENUE</div></div>"';
+  html += '+"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#10b981;\\">$"+Math.round(m.rev).toLocaleString()+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">"+(m.isCurrent?"ACTUAL SO FAR":"REVENUE")+"</div></div>"';
+  html += '+(m.isCurrent&&m.projected?"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#818cf8;\\">$"+Math.round(m.projected).toLocaleString()+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">PROJECTED FULL MONTH</div></div>":"")';
   html += '+"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#0af;\\">"+m.count+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">PAYMENTS</div></div>"';
   html += '+"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1.2em;color:#a78bfa;\\">$"+m.avg+"</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">AVG TICKET</div></div>"';
+  html += '+(m.isCurrent?"<div style=\\"text-align:center;\\"><div style=\\"font-family:Orbitron;font-size:1em;color:#f59e0b;\\">"+Math.round((D.analytics.revenue.currentMonthDayOfMonth/D.analytics.revenue.currentMonthDaysTotal)*100)+"%</div><div style=\\"font-family:Orbitron;font-size:0.4em;color:#4a6a8a;\\">MONTH COMPLETE</div></div>":"")';
   html += '+"</div>";}';
 
   // BOLLINGER BANDS
