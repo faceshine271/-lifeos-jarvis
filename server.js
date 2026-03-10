@@ -19440,13 +19440,32 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += '</div>';
     html += '</div>';
 
-    // Quick presets
+    // Quick presets — Existing + 3 Tiers
     html += '<div class="box">';
-    html += '<div class="box-title"><span class="dot" style="background:#ff9f43"></span>QUICK PRESETS</div>';
-    html += '<div class="btn" onclick="loadPreset(\'surrounding\')" style="margin-bottom:6px">KS + MO + OK + NE</div>';
-    html += '<div class="btn" onclick="loadPreset(\'south\')" style="margin-bottom:6px">TX + AR + TN + NC</div>';
-    html += '<div class="btn" onclick="loadPreset(\'top10\')" style="margin-bottom:6px">TOP 10 US MARKETS</div>';
-    html += '<div class="btn" onclick="loadPreset(\'midwest\')" style="margin-bottom:6px">MIDWEST (8 states)</div>';
+    html += '<div class="box-title"><span class="dot" style="background:#10b981"></span>EXISTING MARKETS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'existing\')" style="margin-bottom:6px;border-color:#10b98140;color:#10b981">EXISTING LOCATIONS (18)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#4285f4"></span>TIER ONE — MAJOR METROS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'tier1\')" style="margin-bottom:6px;border-color:#4285f440;color:#4285f4">ALL TIER 1 (21 cities)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff9f43"></span>TIER TWO — GROWTH MARKETS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'tier2\')" style="margin-bottom:6px;border-color:#ff9f4340;color:#ff9f43">ALL TIER 2 (30 cities)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#a855f7"></span>TIER THREE — EXPANSION</div>';
+    html += '<div class="btn" onclick="loadPreset(\'tier3\')" style="margin-bottom:6px;border-color:#a855f740;color:#a855f7">ALL TIER 3 (36 cities)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff6b9d"></span>COMBOS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'existing+tier1\')" style="margin-bottom:6px">EXISTING + TIER 1</div>';
+    html += '<div class="btn" onclick="loadPreset(\'existing+tier1+tier2\')" style="margin-bottom:6px">EXISTING + TIER 1 + 2</div>';
+    html += '<div class="btn" onclick="loadPreset(\'all\')" style="margin-bottom:6px">ALL MARKETS (105 cities)</div>';
     html += '</div>';
 
     html += '</div>'; // end panel-left
@@ -19560,18 +19579,28 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'function addLoc(city,state){if(selectedLocs.some(function(l){return l.city===city&&l.state===state;}))return;';
     html += 'var d=getCityData(city,state);selectedLocs.push({city:city,state:state,pop:d?d.pop:0,totalVol:d?d.totalVol:0,avgKd:d?d.avgKd:0,score:d?d.score:0,services:d?d.services:{}});};';
 
-    // Presets
-    html += 'function addAllKS(){var cities=STATE_CITIES["Kansas"]||[];cities.forEach(function(c){addLoc(c.name,"Kansas");});renderAll();}';
+    // Presets — Existing + 3 Tiers
+    html += 'var PRESET_EXISTING=[';
+    html += '"Cape Coral,Florida","Tampa,Florida","Rensselaer,New York","Kansas City,Missouri","Northlake,Illinois","Holden,Massachusetts","Loveland,Colorado","Detroit,Michigan","Poinciana,Florida","Houston,Texas","Castle Hayne,North Carolina","Sioux Falls,South Dakota","Reno,Nevada","San Antonio,Texas"';
+    html += '];';
+    html += 'var PRESET_TIER1=[';
+    html += '"Atlanta,Georgia","Dallas,Texas","Seattle,Washington","Charlotte,North Carolina","Indianapolis,Indiana","Austin,Texas","Jacksonville,Florida","Cleveland,Ohio","Minneapolis,Minnesota","Fort Worth,Texas","Phoenix,Arizona","Columbus,Ohio","Orlando,Florida","Nashville,Tennessee","Raleigh,North Carolina","Cincinnati,Ohio","Memphis,Tennessee","Vancouver,Washington","Miami,Florida","Tucson,Arizona","Omaha,Nebraska"';
+    html += '];';
+    html += 'var PRESET_TIER2=[';
+    html += '"Oklahoma City,Oklahoma","St. Louis,Missouri","Baltimore,Maryland","Philadelphia,Pennsylvania","Tulsa,Oklahoma","Louisville,Kentucky","Greenville,South Carolina","Milwaukee,Wisconsin","Pittsburgh,Pennsylvania","New Orleans,Louisiana","Jackson,Mississippi","Richmond,Virginia","Lincoln,Nebraska","Virginia Beach,Virginia","Birmingham,Alabama","Huntsville,Alabama","Lexington,Kentucky","Columbia,South Carolina","Baton Rouge,Louisiana","Mobile,Alabama","Des Moines,Iowa","Charleston,South Carolina","Augusta,Georgia","Fayetteville,Arkansas","Bentonville,Arkansas","Little Rock,Arkansas","Madison,Wisconsin","Green Bay,Wisconsin","Montgomery,Alabama","Denver,Colorado"';
+    html += '];';
+    html += 'var PRESET_TIER3=[';
+    html += '"Colorado Springs,Colorado","Pueblo,Colorado","Portland,Oregon","Spokane,Washington","Medford,Oregon","Salt Lake City,Utah","Boise,Idaho","Albuquerque,New Mexico","Cheyenne,Wyoming","Wichita,Kansas","Topeka,Kansas","Fargo,North Dakota","Bismarck,North Dakota","Rapid City,South Dakota","Springfield,Missouri","Chicago,Illinois","Rockford,Illinois","Peoria,Illinois","Fort Wayne,Indiana","Evansville,Indiana","Grand Rapids,Michigan","Lansing,Michigan","Flint,Michigan","Buffalo,New York","Rochester,New York","Syracuse,New York","Albany,New York","Hartford,Connecticut","Providence,Rhode Island","Manchester,New Hampshire","Portland,Maine","Burlington,Vermont","Newark,New Jersey","Wilmington,Delaware","Greensboro,North Carolina","Fayetteville,North Carolina","Asheville,North Carolina"';
+    html += '];';
+    html += 'function loadPresetCities(arr){arr.forEach(function(s){var parts=s.split(",");addLoc(parts[0].trim(),parts[1].trim());});}';
     html += 'function loadPreset(p){selectedLocs=[];';
-    html += 'var presets={';
-    html += 'surrounding:["Kansas","Missouri","Oklahoma","Nebraska"],';
-    html += 'south:["Texas","Arkansas","Tennessee","North Carolina"],';
-    html += 'midwest:["Kansas","Missouri","Oklahoma","Nebraska","Iowa","Illinois","Indiana","Ohio"],';
-    html += 'top10:null};';
-    html += 'if(p==="top10"){';
-    // Top 10 by score - just pick top cities from biggest states
-    html += '["Houston,Texas","San Antonio,Texas","Dallas,Texas","Kansas City,Missouri","Oklahoma City,Oklahoma","Minneapolis,Minnesota","Charlotte,North Carolina","Nashville,Tennessee","Indianapolis,Indiana","Columbus,Ohio"].forEach(function(s){var parts=s.split(",");addLoc(parts[0],parts[1]);});';
-    html += '}else{var states=presets[p]||[];states.forEach(function(st){var cities=STATE_CITIES[st]||[];cities.slice(0,5).forEach(function(c){addLoc(c.name,st);});});}';
+    html += 'if(p==="existing")loadPresetCities(PRESET_EXISTING);';
+    html += 'else if(p==="tier1")loadPresetCities(PRESET_TIER1);';
+    html += 'else if(p==="tier2")loadPresetCities(PRESET_TIER2);';
+    html += 'else if(p==="tier3")loadPresetCities(PRESET_TIER3);';
+    html += 'else if(p==="existing+tier1"){loadPresetCities(PRESET_EXISTING);loadPresetCities(PRESET_TIER1);}';
+    html += 'else if(p==="existing+tier1+tier2"){loadPresetCities(PRESET_EXISTING);loadPresetCities(PRESET_TIER1);loadPresetCities(PRESET_TIER2);}';
+    html += 'else if(p==="all"){loadPresetCities(PRESET_EXISTING);loadPresetCities(PRESET_TIER1);loadPresetCities(PRESET_TIER2);loadPresetCities(PRESET_TIER3);}';
     html += 'renderAll();}';
 
     // Clear
