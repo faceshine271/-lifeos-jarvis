@@ -14025,8 +14025,10 @@ app.get('/ads', function(req, res, next) {
   // Allow access via owner auth OR google-ads passcode token
   var gadsToken = req.query.gads_token || (req.headers.cookie || '').split(';').map(function(c){return c.trim();}).filter(function(c){return c.startsWith('gads_token=');})[0];
   if (gadsToken && gadsToken.startsWith('gads_token=')) gadsToken = gadsToken.substring(11);
-  if (gadsToken && googleAdsSessions[gadsToken] && (Date.now() - googleAdsSessions[gadsToken].created < 86400000)) return next();
+  if (gadsToken && googleAdsSessions[gadsToken] && (Date.now() - googleAdsSessions[gadsToken].created < 86400000)) { req._adsGuest = true; return next(); }
   // Fall back to normal auth (owner or ads role)
+  var session = getVoiceSession(req);
+  if (session && session.access === 'ads') { req._adsGuest = true; req._adsGuestName = session.name; }
   requireAuth(['owner', 'ads'])(req, res, next);
 }, async function(req, res) {
   try {
@@ -14163,23 +14165,39 @@ app.get('/ads', function(req, res, next) {
     html += '@media(max-width:480px){.kpi-row{grid-template-columns:1fr;}}';
     html += '</style></head><body><div class="wrap">';
 
-    // Nav
-    html += '<div class="nav">';
-    html += '<a href="/dashboard">JARVIS</a>';
-    html += '<a href="/business">ATHENA</a>';
-    html += '<a href="/tookan">TOOKAN</a>';
-    html += '<a href="/business/chart">CHARTS</a>';
-    html += '<a href="/analytics">ANALYTICS</a>';
-    html += '<a href="/ads" class="active">GOOGLE ADS</a>';
-    html += '<a href="/square">SQUARE</a>';
-    html += '<a href="/discord">DISCORD</a>';
-    html += '<a href="/followup">FOLLOW UP</a>';
-    html += '<a href="/ai">AI</a>';
-    html += '<a href="/audit">AUDIT</a>';
-    html += '<a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
-    html += '</div>';
+    // Nav — only show full nav for owner, minimal for ads guests
+    var isAdsGuest = req._adsGuest || false;
+    var adsGuestName = req._adsGuestName || 'Tucker';
+    if (!isAdsGuest) {
+      html += '<div class="nav">';
+      html += '<a href="/dashboard">JARVIS</a>';
+      html += '<a href="/business">ATHENA</a>';
+      html += '<a href="/tookan">TOOKAN</a>';
+      html += '<a href="/business/chart">CHARTS</a>';
+      html += '<a href="/analytics">ANALYTICS</a>';
+      html += '<a href="/ads" class="active">GOOGLE ADS</a>';
+      html += '<a href="/square">SQUARE</a>';
+      html += '<a href="/discord">DISCORD</a>';
+      html += '<a href="/followup">FOLLOW UP</a>';
+      html += '<a href="/ai">AI</a>';
+      html += '<a href="/audit">AUDIT</a>';
+      html += '<a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+      html += '</div>';
+    } else {
+      html += '<div class="nav">';
+      html += '<a href="/ads" class="active">GOOGLE ADS</a>';
+      html += '<a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+      html += '</div>';
+    }
 
-    html += '<div style="font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:5px;">GOOGLE ADS INTELLIGENCE</div>';
+    // Greeting — time-of-day for ads guests, standard header for owner
+    if (isAdsGuest) {
+      var hour = new Date().getHours();
+      var greeting = hour < 12 ? 'GOOD MORNING' : hour < 17 ? 'GOOD AFTERNOON' : 'GOOD EVENING';
+      html += '<div style="font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:5px;">' + greeting + ', ' + adsGuestName.toUpperCase() + '</div>';
+    } else {
+      html += '<div style="font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:5px;">GOOGLE ADS INTELLIGENCE</div>';
+    }
     html += '<div style="font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#4a6a8a;margin-bottom:20px;">CAMPAIGN FIBONACCI &bull; CPC ANALYSIS &bull; CONVERSION TRACKING &bull; SEARCH TERMS &bull; BUDGET OPTIMIZATION</div>';
 
     // Connection status
