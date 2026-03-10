@@ -7348,6 +7348,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
 
     // ====== LIGHTWEIGHT CHARTS SCRIPT ======
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></' + 'script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}</' + 'script>';
     html += '<script>';
     html += '(function(){';
     html += 'var md=' + lcMain + ',bbU=' + lcBBU + ',bbM=' + lcBBM + ',bbL=' + lcBBL + ',s3=' + lcS3 + ',s6=' + lcS6 + ';';
@@ -10537,7 +10538,7 @@ app.post('/chat/athena', async function(req, res) {
       }
 
       history = {
-        systemPrompt: "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. You are speaking through a voice interface to Trace, the owner.\n\nRULES:\n- You are ATHENA, not Jarvis. You are the business intelligence brain.\n- You know EVERYTHING about the business across every dashboard:\n  * CRM: bookings, conversion rates, cancellations, growth trends, monthly/weekly volume\n  * FINANCIAL: revenue, expenses, profit, margins, tech payouts, daily averages, ad spend\n  * GOOGLE ADS: spend, clicks, conversions, ROAS, cost per lead, campaign performance\n  * TECHNICIANS: job counts, completion rates, equipment specialties, workload balance\n  * EMPLOYEES: follow-up submissions, on-time rates, late streaks, AI audit scores\n  * DISPATCH: active Tookan tasks, completed today, tech assignments\n  * EQUIPMENT & BRANDS: what you fix most, brand trends\n  * LOCATIONS: top markets, calls by city, new expansion areas\n  * CALL PATTERNS: monthly trends, seasonal patterns, busiest periods\n  * REVIEWS & OPS: customer feedback, operational data\n  * SOPs: Standard Operating Procedures, contracts, checklists for each role\n  * TEAM ROLES: who is a tech, receptionist, or admin and their current performance\n  * DISCORD: team communication messages, who's active, response quality\n  * SQUARE: COMPLETE historical data since 2022 — payments, revenue by year/month/quarter, customers, invoices, refunds, disputes, catalog items, team members, payment methods, customer lifetime value, repeat rates, seasonal patterns, yearly comparisons, best/worst months\n- You can recommend WHAT NEEDS FOCUS based on the data.\n- You can recommend WHO SHOULD DO IT by matching the task to the right team member.\n- When asked about Discord or team communication, analyze message quality, response times, who's active vs quiet, and suggest improvements.\n- Give specific numbers when asked. Be precise.\n- Keep responses to 2-5 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound confident, analytical, and sharp.\n\nBUSINESS DATA:\n" + athenaContext,
+        systemPrompt: "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. You are speaking through a voice interface to Trace, the owner.\n\nRULES:\n- You are ATHENA, not Jarvis. You are the business intelligence brain.\n- You know EVERYTHING about the business across every dashboard:\n  * CRM: bookings, conversion rates, cancellations, growth trends, monthly/weekly volume\n  * FINANCIAL: revenue, expenses, profit, margins, tech payouts, daily averages, ad spend\n  * GOOGLE ADS: spend, clicks, conversions, ROAS, cost per lead, campaign performance\n  * TECHNICIANS: job counts, completion rates, equipment specialties, workload balance\n  * EMPLOYEES: follow-up submissions, on-time rates, late streaks, AI audit scores\n  * DISPATCH: active Tookan tasks, completed today, tech assignments\n  * EQUIPMENT & BRANDS: what you fix most, brand trends\n  * LOCATIONS: top markets, calls by city, new expansion areas\n  * CALL PATTERNS: monthly trends, seasonal patterns, busiest periods\n  * REVIEWS & OPS: customer feedback, operational data\n  * SOPs: Standard Operating Procedures, contracts, checklists for each role\n  * TEAM ROLES: who is a tech, receptionist, or admin and their current performance\n  * DISCORD: team communication messages, who's active, response quality\n  * SQUARE: COMPLETE historical data since 2022 — payments, revenue by year/month/quarter, customers, invoices, refunds, disputes, catalog items, team members, payment methods, customer lifetime value, repeat rates, seasonal patterns, yearly comparisons, best/worst months\n- You can recommend WHAT NEEDS FOCUS based on the data.\n- You can recommend WHO SHOULD DO IT by matching the task to the right team member.\n- When asked about Discord or team communication, analyze message quality, response times, who's active vs quiet, and suggest improvements.\n- Give specific numbers when asked. Be precise.\n- Keep responses to 2-5 sentences MAX. You are being read aloud.\n- Never use markdown, bullet points, or formatting.\n- Sound confident, analytical, and sharp.\n\nHOUSE CALL PRICING MODEL (CRITICAL — understand this before making ANY pricing recommendations):\n- Wildwood charges a $100 DIAGNOSTIC FEE + a $50 HOUSE CALL FEE for on-site visits.\n- The $100 diagnostic fee is NOT lost revenue — it is a CREDIT that applies toward a tune-up (now or in the future). The customer gets the diagnostic fee back when they commit to service.\n- To offset this, ALL tune-up prices have been raised by $100. So the business is NOT eating the diagnostic cost — it is built into the tune-up pricing.\n- NEVER recommend raising the house call fee or diagnostic fee. The current structure is intentional and already accounts for the cost.\n- When analyzing average ticket size, understand that the $100 diagnostic + $50 house call = $150 minimum per house call before any actual repair work. This is by design.\n- Focus pricing recommendations on service rates, parts markup, and seasonal demand — NOT on the house call/diagnostic fee structure.\n\nBUSINESS DATA:\n" + athenaContext,
         messages: [],
       };
     }
@@ -10955,7 +10956,7 @@ app.get('/business/insights', async function(req, res) {
   try {
     var bizContext = await buildBusinessContext();
     var insights = await askClaude(
-      "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. Analyze the CRM data and generate a sharp weekly business report. Be specific with numbers. Cover: 1) What's working (top performing locations, best techs, growing markets), 2) What needs attention (high cancel rates, understaffed areas, slow response times), 3) Growth opportunities (new markets to target, seasonal prep, upsell opportunities), 4) Action items for this week (specific, numbered, actionable). Keep it under 500 words. No markdown formatting, use plain text with line breaks.",
+      "You are ATHENA, the AI business operations engine for Wildwood Small Engine Repair. Analyze the CRM data and generate a sharp weekly business report. Be specific with numbers. Cover: 1) What's working (top performing locations, best techs, growing markets), 2) What needs attention (high cancel rates, understaffed areas, slow response times), 3) Growth opportunities (new markets to target, seasonal prep, upsell opportunities), 4) Action items for this week (specific, numbered, actionable). Keep it under 500 words. No markdown formatting, use plain text with line breaks.\n\nPRICING MODEL: Wildwood charges $100 diagnostic fee + $50 house call fee. The $100 diagnostic is a CREDIT toward a tune-up (now or future). All tune-up prices are raised $100 to offset this. Do NOT recommend raising the house call or diagnostic fee — the model is intentional and already profitable. Focus pricing suggestions on service rates, parts markup, and upsells instead.",
       [{ role: 'user', content: 'Generate my weekly business insights report.\n\nCRM DATA:\n' + bizContext }]
     );
     res.json({ insights: insights });
@@ -11730,6 +11731,7 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '<title>ATHENA — Call Volume Technical Analysis</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">';
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}<\/script>';
     html += '<style>';
     html += 'body{margin:0;background:#050d18;color:#c0d8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}';
     html += '.wrap{max-width:1500px;margin:0 auto;padding:20px 30px;}';
@@ -12521,6 +12523,7 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += '<title>WILDWOOD — Predictive Analytics Engine</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}<\/script>';
     html += '<style>';
     html += '*{margin:0;padding:0;box-sizing:border-box;}';
     html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
@@ -12654,7 +12657,7 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += '<button onclick="toggleOverlay(\'ema\')" id="btn-ema2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">EMA</button>';
     html += '<button onclick="toggleOverlay(\'fib\')" id="btn-fib2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(0,255,102,0.1);color:#00ff66;border:1px solid #00ff6640;cursor:pointer;">FIB</button>';
     html += '<button onclick="toggleOverlay(\'ext\')" id="btn-ext2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">FIB EXT</button>';
-    html += '<button onclick="toggleOverlay(\'forecast\')" id="btn-fore2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4340;cursor:pointer;">FORECAST</button>';
+    html += '<button onclick="toggleOverlay(\'forecast\')" id="btn-forecast2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4340;cursor:pointer;">FORECAST</button>';
     html += '</div>';
 
     html += '<div id="call-chart" style="border:1px solid #1a2a3a;min-height:350px;width:100%;"></div>';
@@ -13280,9 +13283,11 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
 
     // Chart creation - wrapped in load handler
     html += 'window.addEventListener("load",function(){';
+    html += 'if(typeof LightweightCharts==="undefined"){document.getElementById("call-chart").innerHTML="<div style=\\"color:#ef4444;padding:20px;font-family:Orbitron;font-size:0.7em;\\">Chart library failed to load. Check internet connection and refresh.</div>";return;}';
     html += 'var chartOpts={layout:{background:{color:"#050d18"},textColor:"#4a6a8a",fontSize:11},grid:{vertLines:{color:"#0a1520"},horzLines:{color:"#0a1520"}},crosshair:{mode:0},timeScale:{borderColor:"#1a2a3a",timeVisible:false},rightPriceScale:{borderColor:"#1a2a3a"}};';
 
     // Call Volume Interactive Chart
+    html += 'try{';
     html += 'var cEl=document.getElementById("call-chart");';
     html += 'var cW=cEl.offsetWidth;';
     html += 'var mainC=LightweightCharts.createChart(cEl,Object.assign({},chartOpts,{width:cW,height:350}));';
@@ -13334,8 +13339,8 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += 'var overlays={bb:false,sma:false,ema:false,fib:true,ext:false,forecast:true};';
     html += 'window.toggleOverlay=function(id){overlays[id]=!overlays[id];';
     html += 'var el=document.getElementById("btn-"+id+"2");';
-    html += 'if(overlays[id]){el.style.background="rgba(0,212,255,0.15)";el.style.color="#00d4ff";el.style.borderColor="#00d4ff40";}';
-    html += 'else{el.style.background="#0a1520";el.style.color="#4a6a8a";el.style.borderColor="#1a2a3a";}';
+    html += 'if(el){if(overlays[id]){el.style.background="rgba(0,212,255,0.15)";el.style.color="#00d4ff";el.style.borderColor="#00d4ff40";}';
+    html += 'else{el.style.background="#0a1520";el.style.color="#4a6a8a";el.style.borderColor="#1a2a3a";}}';
     html += 'bbUp.applyOptions({visible:overlays.bb});bbLo.applyOptions({visible:overlays.bb});bbMd.applyOptions({visible:overlays.bb});';
     html += 'smaS.applyOptions({visible:overlays.sma});emaS.applyOptions({visible:overlays.ema});';
     html += 'showFib2=overlays.fib;drawFibLines();';
@@ -13343,18 +13348,24 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += 'foreS.applyOptions({visible:overlays.forecast});foreUpperS.applyOptions({visible:overlays.forecast});foreLowerS.applyOptions({visible:overlays.forecast});';
     html += '}';
 
+    html += '}catch(e){console.error("Main chart error:",e);document.getElementById("call-chart").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">Main chart error: "+e.message+"</div>";}';
+
     // RSI chart
+    html += 'try{';
     html += 'var rsiEl=document.getElementById("call-rsi");';
     html += 'var rsiC=LightweightCharts.createChart(rsiEl,Object.assign({},chartOpts,{width:cW,height:100}));';
     html += 'var rsiS=rsiC.addLineSeries({color:"#a855f7",lineWidth:1.5});';
-    html += 'var rsiData=callData.slice(' + Math.min(6, monthVals.length) + ').map(function(d,i){return{time:d.time,value:' + JSON.stringify(callRSI) + '[i]||50};});';
+    html += 'var rsiArr=' + JSON.stringify(callRSI) + ';';
+    html += 'var rsiData=callData.slice(' + Math.min(6, monthVals.length) + ').map(function(d,i){return{time:d.time,value:rsiArr[i]||50};});';
     html += 'rsiS.setData(rsiData);';
     // RSI levels
     html += 'rsiS.createPriceLine({price:70,color:"#ff475740",lineWidth:1,lineStyle:2,title:"Overbought"});';
     html += 'rsiS.createPriceLine({price:30,color:"#00ff6640",lineWidth:1,lineStyle:2,title:"Oversold"});';
     html += 'rsiS.createPriceLine({price:50,color:"#ffd70020",lineWidth:1,lineStyle:1,title:""});';
+    html += '}catch(e){console.error("RSI chart error:",e);document.getElementById("call-rsi").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">RSI error: "+e.message+"</div>";}';
 
     // MACD chart
+    html += 'try{';
     html += 'var macdEl=document.getElementById("call-macd");';
     html += 'var macdC=LightweightCharts.createChart(macdEl,Object.assign({},chartOpts,{width:cW,height:100}));';
     html += 'var macdLS=macdC.addLineSeries({color:"#00d4ff",lineWidth:1.5,title:"MACD"});';
@@ -13367,27 +13378,33 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += 'var sigD=callData.map(function(d,i){return{time:d.time,value:macdSig2[i]||0};});';
     html += 'var histD=callData.map(function(d,i){return{time:d.time,value:macdHist2[i]||0,color:(macdHist2[i]||0)>=0?"#26a69a80":"#ef535080"};});';
     html += 'macdLS.setData(macdD);macdSS.setData(sigD);macdHS.setData(histD);';
+    html += '}catch(e){console.error("MACD chart error:",e);document.getElementById("call-macd").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">MACD error: "+e.message+"</div>";}';
 
     // Revenue chart
+    html += 'var revC;';
+    html += 'try{';
     html += 'if(revChartData.length>1){';
     html += 'var rEl=document.getElementById("rev-chart");';
-    html += 'var revC=LightweightCharts.createChart(rEl,Object.assign({},chartOpts,{width:rEl.offsetWidth,height:300}));';
+    html += 'revC=LightweightCharts.createChart(rEl,Object.assign({},chartOpts,{width:rEl.offsetWidth,height:300}));';
     html += 'var revS=revC.addLineSeries({color:"#00ff66",lineWidth:2,title:"Revenue"});';
     html += 'var profS=revC.addLineSeries({color:"#ffd700",lineWidth:2,title:"Profit"});';
     html += 'revS.setData(revChartData);profS.setData(profChartData);';
     // Rev fib lines
     html += '["38.2","50.0","61.8"].forEach(function(k){if(revFib[k]){revS.createPriceLine({price:revFib[k],color:k==="38.2"?"#ff475730":k==="50.0"?"#ffd70030":"#00ff6630",lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"Fib "+k+"%"});}});';
     html += 'revC.timeScale().fitContent();}';
+    html += '}catch(e){console.error("Revenue chart error:",e);document.getElementById("rev-chart").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">Revenue chart error: "+e.message+"</div>";}';
 
     // Sync crosshairs
-    html += 'mainC.timeScale().fitContent();rsiC.timeScale().fitContent();macdC.timeScale().fitContent();';
+    html += 'try{mainC.timeScale().fitContent();}catch(e){}';
+    html += 'try{rsiC.timeScale().fitContent();}catch(e){}';
+    html += 'try{macdC.timeScale().fitContent();}catch(e){}';
 
     // Resize handler
     html += 'window.addEventListener("resize",function(){';
-    html += 'var w=document.getElementById("call-chart").offsetWidth;';
-    html += 'mainC.applyOptions({width:w});rsiC.applyOptions({width:w});macdC.applyOptions({width:w});';
-    html += 'if(typeof revC!=="undefined"){revC.applyOptions({width:document.getElementById("rev-chart").offsetWidth});}';
-    html += '});'; // close resize handler
+    html += 'try{var w=document.getElementById("call-chart").offsetWidth;';
+    html += 'if(mainC)mainC.applyOptions({width:w});if(rsiC)rsiC.applyOptions({width:w});if(macdC)macdC.applyOptions({width:w});';
+    html += 'if(revC){revC.applyOptions({width:document.getElementById("rev-chart").offsetWidth});}';
+    html += '}catch(e){}});'; // close resize handler
     html += '});'; // close window load handler
 
     html += '<\/script>';
@@ -14127,6 +14144,7 @@ app.get('/ads', function(req, res, next) {
     html += '<title>WILDWOOD — Google Ads Intelligence</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}<\/script>';
     html += '<style>';
     html += '*{margin:0;padding:0;box-sizing:border-box;}';
     html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
@@ -15677,37 +15695,42 @@ app.get('/ai', requireAuth('owner'), async function(req, res) {
       Math.round(ads.accountSummary.totalSpend / ads.accountSummary.totalConversions * 100) / 100 : 0;
     
     // Pricing recommendations
+    // NOTE: Wildwood pricing model — $100 diagnostic fee (credit toward tune-up) + $50 house call fee.
+    // Tune-up prices raised $100 to offset. Do NOT recommend raising house call/diagnostic fees.
     var overallAvgTicket = Math.round(ticketAvg);
     if (overallAvgTicket > 0) {
-      // Check if current pricing is below/above trend
+      // House call pricing model context
+      pricing.recommendations.push({ type: 'info', msg: 'Pricing model: $100 diagnostic fee (credits toward tune-up) + $50 house call fee. Tune-up prices include $100 offset. Minimum house call ticket: $150 before repair work.', impact: 'low' });
+
+      // Check if current pricing is below/above trend — focus on service rates, not house call fees
       if (currentAvgTicket < overallAvgTicket * 0.9) {
-        pricing.recommendations.push({ type: 'increase', msg: 'Current avg ticket ($' + Math.round(currentAvgTicket) + ') is below 12-month average ($' + overallAvgTicket + '). Consider raising base rates.', impact: 'high' });
+        pricing.recommendations.push({ type: 'increase', msg: 'Current avg ticket ($' + Math.round(currentAvgTicket) + ') is below 12-month average ($' + overallAvgTicket + '). Consider raising service/repair rates or parts markup — NOT the house call or diagnostic fee.', impact: 'high' });
       }
-      
+
       // Seasonal pricing suggestion
       var nextMonthMo = String(((currentMonth) % 12) + 1).padStart(2, '0');
       var nextSeason = seasonalPricing[nextMonthMo];
       if (nextSeason && nextSeason.impliedTicket > overallAvgTicket * 1.2) {
-        pricing.recommendations.push({ type: 'seasonal', msg: monthNames[parseInt(nextMonthMo)] + ' historically has higher avg ticket ($' + nextSeason.impliedTicket + ' vs $' + overallAvgTicket + '). Peak demand = premium pricing opportunity.', impact: 'high' });
+        pricing.recommendations.push({ type: 'seasonal', msg: monthNames[parseInt(nextMonthMo)] + ' historically has higher avg ticket ($' + nextSeason.impliedTicket + ' vs $' + overallAvgTicket + '). Peak demand = charge premium on service labor and parts.', impact: 'high' });
       } else if (nextSeason && nextSeason.impliedTicket < overallAvgTicket * 0.8) {
-        pricing.recommendations.push({ type: 'promo', msg: monthNames[parseInt(nextMonthMo)] + ' is typically slow ($' + nextSeason.impliedTicket + ' avg ticket). Consider promo pricing or service bundles to drive volume.', impact: 'medium' });
+        pricing.recommendations.push({ type: 'promo', msg: monthNames[parseInt(nextMonthMo)] + ' is typically slow ($' + nextSeason.impliedTicket + ' avg ticket). Consider tune-up bundles or seasonal service packages to drive volume.', impact: 'medium' });
       }
-      
+
       // Cost per lead vs ticket
       if (costPerLead > 0 && costPerLead > currentAvgTicket * 0.3) {
-        pricing.recommendations.push({ type: 'warning', msg: 'Ad cost per lead ($' + costPerLead + ') is ' + Math.round(costPerLead / currentAvgTicket * 100) + '% of avg ticket. Raise prices or optimize ads.', impact: 'high' });
+        pricing.recommendations.push({ type: 'warning', msg: 'Ad cost per lead ($' + costPerLead + ') is ' + Math.round(costPerLead / currentAvgTicket * 100) + '% of avg ticket. Optimize ad targeting or increase service/repair rates to improve margin.', impact: 'high' });
       } else if (costPerLead > 0) {
-        pricing.recommendations.push({ type: 'positive', msg: 'Ad cost per lead ($' + costPerLead + ') is only ' + Math.round(costPerLead / currentAvgTicket * 100) + '% of avg ticket ($' + Math.round(currentAvgTicket) + '). Strong margin.', impact: 'low' });
+        pricing.recommendations.push({ type: 'positive', msg: 'Ad cost per lead ($' + costPerLead + ') is only ' + Math.round(costPerLead / currentAvgTicket * 100) + '% of avg ticket ($' + Math.round(currentAvgTicket) + '). Strong margin on the $100 diagnostic + tune-up model.', impact: 'low' });
       }
-      
+
       // Ticket trend direction
       if (ticketTrend.length >= 6) {
         var first3 = ticketTrend.slice(0, 3).reduce(function(s,t){return s+t.ticket;},0) / 3;
         var last3 = ticketTrend.slice(-3).reduce(function(s,t){return s+t.ticket;},0) / 3;
         if (last3 > first3 * 1.1) {
-          pricing.recommendations.push({ type: 'positive', msg: 'Avg ticket trending UP (' + Math.round(first3) + ' → $' + Math.round(last3) + '). Market supports higher prices.', impact: 'medium' });
+          pricing.recommendations.push({ type: 'positive', msg: 'Avg ticket trending UP ($' + Math.round(first3) + ' → $' + Math.round(last3) + '). Diagnostic-to-tune-up conversion driving strong revenue.', impact: 'medium' });
         } else if (last3 < first3 * 0.9) {
-          pricing.recommendations.push({ type: 'warning', msg: 'Avg ticket trending DOWN ($' + Math.round(first3) + ' → $' + Math.round(last3) + '). May need to review discounting or job mix.', impact: 'medium' });
+          pricing.recommendations.push({ type: 'warning', msg: 'Avg ticket trending DOWN ($' + Math.round(first3) + ' → $' + Math.round(last3) + '). Check diagnostic-to-tune-up conversion rate and upsell opportunities on parts.', impact: 'medium' });
         }
       }
     }
@@ -19417,13 +19440,32 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += '</div>';
     html += '</div>';
 
-    // Quick presets
+    // Quick presets — Existing + 3 Tiers
     html += '<div class="box">';
-    html += '<div class="box-title"><span class="dot" style="background:#ff9f43"></span>QUICK PRESETS</div>';
-    html += '<div class="btn" onclick="loadPreset(\'surrounding\')" style="margin-bottom:6px">KS + MO + OK + NE</div>';
-    html += '<div class="btn" onclick="loadPreset(\'south\')" style="margin-bottom:6px">TX + AR + TN + NC</div>';
-    html += '<div class="btn" onclick="loadPreset(\'top10\')" style="margin-bottom:6px">TOP 10 US MARKETS</div>';
-    html += '<div class="btn" onclick="loadPreset(\'midwest\')" style="margin-bottom:6px">MIDWEST (8 states)</div>';
+    html += '<div class="box-title"><span class="dot" style="background:#10b981"></span>EXISTING MARKETS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'existing\')" style="margin-bottom:6px;border-color:#10b98140;color:#10b981">EXISTING LOCATIONS (18)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#4285f4"></span>TIER ONE — MAJOR METROS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'tier1\')" style="margin-bottom:6px;border-color:#4285f440;color:#4285f4">ALL TIER 1 (21 cities)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff9f43"></span>TIER TWO — GROWTH MARKETS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'tier2\')" style="margin-bottom:6px;border-color:#ff9f4340;color:#ff9f43">ALL TIER 2 (30 cities)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#a855f7"></span>TIER THREE — EXPANSION</div>';
+    html += '<div class="btn" onclick="loadPreset(\'tier3\')" style="margin-bottom:6px;border-color:#a855f740;color:#a855f7">ALL TIER 3 (36 cities)</div>';
+    html += '</div>';
+
+    html += '<div class="box">';
+    html += '<div class="box-title"><span class="dot" style="background:#ff6b9d"></span>COMBOS</div>';
+    html += '<div class="btn" onclick="loadPreset(\'existing+tier1\')" style="margin-bottom:6px">EXISTING + TIER 1</div>';
+    html += '<div class="btn" onclick="loadPreset(\'existing+tier1+tier2\')" style="margin-bottom:6px">EXISTING + TIER 1 + 2</div>';
+    html += '<div class="btn" onclick="loadPreset(\'all\')" style="margin-bottom:6px">ALL MARKETS (105 cities)</div>';
     html += '</div>';
 
     html += '</div>'; // end panel-left
@@ -19537,18 +19579,28 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'function addLoc(city,state){if(selectedLocs.some(function(l){return l.city===city&&l.state===state;}))return;';
     html += 'var d=getCityData(city,state);selectedLocs.push({city:city,state:state,pop:d?d.pop:0,totalVol:d?d.totalVol:0,avgKd:d?d.avgKd:0,score:d?d.score:0,services:d?d.services:{}});};';
 
-    // Presets
-    html += 'function addAllKS(){var cities=STATE_CITIES["Kansas"]||[];cities.forEach(function(c){addLoc(c.name,"Kansas");});renderAll();}';
+    // Presets — Existing + 3 Tiers
+    html += 'var PRESET_EXISTING=[';
+    html += '"Cape Coral,Florida","Tampa,Florida","Rensselaer,New York","Kansas City,Missouri","Northlake,Illinois","Holden,Massachusetts","Loveland,Colorado","Detroit,Michigan","Poinciana,Florida","Houston,Texas","Castle Hayne,North Carolina","Sioux Falls,South Dakota","Reno,Nevada","San Antonio,Texas"';
+    html += '];';
+    html += 'var PRESET_TIER1=[';
+    html += '"Atlanta,Georgia","Dallas,Texas","Seattle,Washington","Charlotte,North Carolina","Indianapolis,Indiana","Austin,Texas","Jacksonville,Florida","Cleveland,Ohio","Minneapolis,Minnesota","Fort Worth,Texas","Phoenix,Arizona","Columbus,Ohio","Orlando,Florida","Nashville,Tennessee","Raleigh,North Carolina","Cincinnati,Ohio","Memphis,Tennessee","Vancouver,Washington","Miami,Florida","Tucson,Arizona","Omaha,Nebraska"';
+    html += '];';
+    html += 'var PRESET_TIER2=[';
+    html += '"Oklahoma City,Oklahoma","St. Louis,Missouri","Baltimore,Maryland","Philadelphia,Pennsylvania","Tulsa,Oklahoma","Louisville,Kentucky","Greenville,South Carolina","Milwaukee,Wisconsin","Pittsburgh,Pennsylvania","New Orleans,Louisiana","Jackson,Mississippi","Richmond,Virginia","Lincoln,Nebraska","Virginia Beach,Virginia","Birmingham,Alabama","Huntsville,Alabama","Lexington,Kentucky","Columbia,South Carolina","Baton Rouge,Louisiana","Mobile,Alabama","Des Moines,Iowa","Charleston,South Carolina","Augusta,Georgia","Fayetteville,Arkansas","Bentonville,Arkansas","Little Rock,Arkansas","Madison,Wisconsin","Green Bay,Wisconsin","Montgomery,Alabama","Denver,Colorado"';
+    html += '];';
+    html += 'var PRESET_TIER3=[';
+    html += '"Colorado Springs,Colorado","Pueblo,Colorado","Portland,Oregon","Spokane,Washington","Medford,Oregon","Salt Lake City,Utah","Boise,Idaho","Albuquerque,New Mexico","Cheyenne,Wyoming","Wichita,Kansas","Topeka,Kansas","Fargo,North Dakota","Bismarck,North Dakota","Rapid City,South Dakota","Springfield,Missouri","Chicago,Illinois","Rockford,Illinois","Peoria,Illinois","Fort Wayne,Indiana","Evansville,Indiana","Grand Rapids,Michigan","Lansing,Michigan","Flint,Michigan","Buffalo,New York","Rochester,New York","Syracuse,New York","Albany,New York","Hartford,Connecticut","Providence,Rhode Island","Manchester,New Hampshire","Portland,Maine","Burlington,Vermont","Newark,New Jersey","Wilmington,Delaware","Greensboro,North Carolina","Fayetteville,North Carolina","Asheville,North Carolina"';
+    html += '];';
+    html += 'function loadPresetCities(arr){arr.forEach(function(s){var parts=s.split(",");addLoc(parts[0].trim(),parts[1].trim());});}';
     html += 'function loadPreset(p){selectedLocs=[];';
-    html += 'var presets={';
-    html += 'surrounding:["Kansas","Missouri","Oklahoma","Nebraska"],';
-    html += 'south:["Texas","Arkansas","Tennessee","North Carolina"],';
-    html += 'midwest:["Kansas","Missouri","Oklahoma","Nebraska","Iowa","Illinois","Indiana","Ohio"],';
-    html += 'top10:null};';
-    html += 'if(p==="top10"){';
-    // Top 10 by score - just pick top cities from biggest states
-    html += '["Houston,Texas","San Antonio,Texas","Dallas,Texas","Kansas City,Missouri","Oklahoma City,Oklahoma","Minneapolis,Minnesota","Charlotte,North Carolina","Nashville,Tennessee","Indianapolis,Indiana","Columbus,Ohio"].forEach(function(s){var parts=s.split(",");addLoc(parts[0],parts[1]);});';
-    html += '}else{var states=presets[p]||[];states.forEach(function(st){var cities=STATE_CITIES[st]||[];cities.slice(0,5).forEach(function(c){addLoc(c.name,st);});});}';
+    html += 'if(p==="existing")loadPresetCities(PRESET_EXISTING);';
+    html += 'else if(p==="tier1")loadPresetCities(PRESET_TIER1);';
+    html += 'else if(p==="tier2")loadPresetCities(PRESET_TIER2);';
+    html += 'else if(p==="tier3")loadPresetCities(PRESET_TIER3);';
+    html += 'else if(p==="existing+tier1"){loadPresetCities(PRESET_EXISTING);loadPresetCities(PRESET_TIER1);}';
+    html += 'else if(p==="existing+tier1+tier2"){loadPresetCities(PRESET_EXISTING);loadPresetCities(PRESET_TIER1);loadPresetCities(PRESET_TIER2);}';
+    html += 'else if(p==="all"){loadPresetCities(PRESET_EXISTING);loadPresetCities(PRESET_TIER1);loadPresetCities(PRESET_TIER2);loadPresetCities(PRESET_TIER3);}';
     html += 'renderAll();}';
 
     // Clear
@@ -20444,7 +20496,7 @@ app.post('/square/api/analyze', express.json(), async function(req, res) {
     context += '=== OTHER ===\nGift Cards: ' + a.giftCards.active + ' ($' + a.giftCards.totalBalance.toFixed(2) + ') | Subs: ' + a.subscriptions.active + ' | Payouts: $' + a.payouts.total.toFixed(2) + ' | Catalog Items: ' + a.catalog.items + ' | Team: ' + a.team.active + '\n';
 
     var prompt = 'You are ATHENA, the AI business intelligence engine for Wildwood Small Engine Repair. You have COMPLETE historical Square payment data going back to 2022.\n\n' + context;
-    prompt += '\n\nIMPORTANT INSTRUCTIONS:\n1. Use SPECIFIC dollar amounts, percentages, and dates in every insight.\n2. Compare year-over-year and month-over-month to show trends.\n3. For EVERY finding, give a CONCRETE RECOMMENDATION with a specific action Trace (the owner) should take.\n4. Identify the #1 most urgent action item.\n5. Call out any red flags (declining revenue, rising refunds, etc).\n6. Show growth trajectory — is the business growing, flat, or declining?\n7. Identify seasonal patterns and what to prepare for.\n8. Reference actual data — don\'t be vague.\n9. Do NOT mention unpaid invoices, overdue invoices, collection rates, or outstanding balances — the owner manages collections separately.\n\n';
+    prompt += '\n\nHOUSE CALL PRICING MODEL (understand this before making ANY pricing recommendations):\n- Wildwood charges a $100 DIAGNOSTIC FEE + a $50 HOUSE CALL FEE for on-site visits.\n- The $100 diagnostic fee is a CREDIT that applies toward a tune-up (now or in the future). The customer gets it back when they commit to service.\n- ALL tune-up prices have been raised by $100 to offset this credit. The business is NOT eating the diagnostic cost.\n- NEVER recommend raising the house call fee or diagnostic fee — the current structure is intentional and profitable.\n- Focus pricing recommendations on service rates, parts markup, seasonal demand, and upsells — NOT the house call/diagnostic fee structure.\n\nIMPORTANT INSTRUCTIONS:\n1. Use SPECIFIC dollar amounts, percentages, and dates in every insight.\n2. Compare year-over-year and month-over-month to show trends.\n3. For EVERY finding, give a CONCRETE RECOMMENDATION with a specific action Trace (the owner) should take.\n4. Identify the #1 most urgent action item.\n5. Call out any red flags (declining revenue, rising refunds, etc).\n6. Show growth trajectory — is the business growing, flat, or declining?\n7. Identify seasonal patterns and what to prepare for.\n8. Reference actual data — don\'t be vague.\n9. Do NOT mention unpaid invoices, overdue invoices, collection rates, or outstanding balances — the owner manages collections separately.\n10. Do NOT suggest raising the house call fee or diagnostic fee — the pricing model is intentional (see above).\n\n';
 
     if (topic === 'revenue') prompt += 'FOCUS: Revenue deep dive — year-over-year growth, monthly trends, seasonal patterns, ticket size evolution, fee impact, peak times. What months to push hard, what months are slow. Growth trajectory and revenue forecast. Give 5+ specific recommendations to increase revenue.';
     else if (topic === 'collections') prompt += 'FOCUS: Cash flow analysis — revenue timing, payout patterns, seasonal cash flow gaps, monthly burn rate. Give a specific plan for improving cash flow and maximizing revenue during peak months.';
@@ -20502,7 +20554,7 @@ app.post('/square/api/voice', express.json(), async function(req, res) {
     ctx += 'Locations: ' + (snap.locations||[]).length + ' total\n';
 
     var OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-    var sysPrompt = 'You are the Square Data Voice Assistant for Wildwood Small Engine Repair. You answer questions about the business Square payment data. You have complete historical data since 2022.\n\nRULES:\n- Be concise: 2-4 sentences max (you are being read aloud)\n- Use specific dollar amounts, percentages, dates\n- When comparing, show the actual numbers\n- Sound confident and analytical\n- No markdown, bullets, or formatting\n- Do NOT mention unpaid invoices or collections\n- If asked about a specific location, you may be viewing filtered data for that location\n\nDATA:\n' + ctx;
+    var sysPrompt = 'You are the Square Data Voice Assistant for Wildwood Small Engine Repair. You answer questions about the business Square payment data. You have complete historical data since 2022.\n\nRULES:\n- Be concise: 2-4 sentences max (you are being read aloud)\n- Use specific dollar amounts, percentages, dates\n- When comparing, show the actual numbers\n- Sound confident and analytical\n- No markdown, bullets, or formatting\n- Do NOT mention unpaid invoices or collections\n- If asked about a specific location, you may be viewing filtered data for that location\n\nPRICING MODEL: Wildwood charges $100 diagnostic fee + $50 house call fee. The $100 diagnostic is a CREDIT toward a tune-up (now or future). All tune-up prices are raised $100 to offset. NEVER recommend raising house call or diagnostic fees — the model is intentional. Focus on service rates, parts markup, upsells.\n\nDATA:\n' + ctx;
 
     var aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + OPENAI_API_KEY },
