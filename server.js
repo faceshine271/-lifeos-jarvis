@@ -3188,13 +3188,15 @@ app.get('/', function(req, res) {
   if (session.access === 'discord') return res.redirect('/discord');
   if (session.access === 'seo') return res.redirect('/seo');
   if (session.access === 'ads') return res.redirect('/ads');
+  if (session.access === 'followup') return res.redirect('/followup');
   return res.redirect('/dashboard');
 });
 
-app.post('/auth/voice', express.json(), function(req, res) {
+app.post('/auth/voice', express.json(), async function(req, res) {
   var spoken = (req.body.passphrase || '').trim();
   if (!spoken) return res.json({ success: false, message: 'No passphrase detected' });
 
+  // Check hardcoded voice users first
   for (var i = 0; i < voiceUsers.length; i++) {
     if (matchPassphrase(spoken, voiceUsers[i].passphrase)) {
       var token = 'vt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12);
@@ -3217,6 +3219,34 @@ app.post('/auth/voice', express.json(), function(req, res) {
       });
     }
   }
+
+  // Check follow-up team members by name (dynamic from Google Sheet)
+  try {
+    var fuUsers = typeof fuGetUsers === 'function' ? await fuGetUsers() : [];
+    var spokenLower = spoken.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+    var fuMatch = fuUsers.find(function(u) {
+      return spokenLower === u.name.toLowerCase() || spokenLower.includes(u.name.toLowerCase());
+    });
+    if (fuMatch) {
+      var fuToken = 'vt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12);
+      voiceSessions[fuToken] = {
+        name: fuMatch.name,
+        role: 'followup',
+        access: 'followup',
+        created: Date.now()
+      };
+      return res.json({
+        success: true,
+        name: fuMatch.name,
+        role: 'followup',
+        access: 'followup',
+        token: fuToken
+      });
+    }
+  } catch (fuErr) {
+    console.log("Follow-up user check error:", fuErr.message);
+  }
+
   res.json({ success: false, message: 'Passphrase not recognized' });
 });
 
@@ -3242,6 +3272,7 @@ app.get('/login', function(req, res) {
     if (session.access === 'discord') return res.redirect('/discord');
     if (session.access === 'seo') return res.redirect(redirect || '/seo');
     if (session.access === 'ads') return res.redirect('/ads');
+    if (session.access === 'followup') return res.redirect('/followup');
     return res.redirect(redirect || '/dashboard');
   }
 
