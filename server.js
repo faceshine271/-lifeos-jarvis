@@ -1198,19 +1198,29 @@ function matchPassphrase(spoken, target) {
 }
 
 async function discordFetch(endpoint) {
-  if (!DISCORD_BOT_TOKEN) return null;
-  var res = await fetch('https://discord.com/api/v10' + endpoint, {
-    headers: { 'Authorization': 'Bot ' + DISCORD_BOT_TOKEN }
-  });
-  if (!res.ok) { console.log("Discord API error: " + res.status + " on " + endpoint); return null; }
-  return res.json();
+  if (!DISCORD_BOT_TOKEN) return { _error: 'DISCORD_BOT_TOKEN not set' };
+  try {
+    var res = await fetch('https://discord.com/api/v10' + endpoint, {
+      headers: { 'Authorization': 'Bot ' + DISCORD_BOT_TOKEN }
+    });
+    if (!res.ok) {
+      var errBody = ''; try { errBody = await res.text(); } catch(e) {}
+      console.log("Discord API error: " + res.status + " on " + endpoint + " — " + errBody);
+      return { _error: 'Discord API ' + res.status + (res.status === 401 ? ' (Invalid bot token)' : res.status === 403 ? ' (Missing permissions — ensure bot is invited to server and has Read Messages permission)' : res.status === 404 ? ' (Guild not found — check DISCORD_GUILD_ID)' : '') };
+    }
+    return res.json();
+  } catch (err) {
+    console.log("Discord fetch failed:", err.message);
+    return { _error: 'Network error: ' + err.message };
+  }
 }
 
 async function discordGetChannels() {
-  if (!DISCORD_GUILD_ID) return [];
+  if (!DISCORD_GUILD_ID) return { _error: 'DISCORD_GUILD_ID not set' };
   if (discordCache.channels && (Date.now() - discordCache.time) < 300000) return discordCache.channels;
   var channels = await discordFetch('/guilds/' + DISCORD_GUILD_ID + '/channels');
-  if (!channels) return [];
+  if (channels && channels._error) return channels;
+  if (!channels || !Array.isArray(channels)) return { _error: 'Unexpected response from Discord API' };
   var textChannels = channels.filter(function(c) { return c.type === 0; });
   discordCache.channels = textChannels;
   discordCache.time = Date.now();
@@ -1224,7 +1234,7 @@ async function discordGetMessages(channelId, limit) {
     return discordCache.messages[cacheKey].data;
   }
   var msgs = await discordFetch('/channels/' + channelId + '/messages?limit=' + limit);
-  if (!msgs) return [];
+  if (!msgs || msgs._error || !Array.isArray(msgs)) return [];
   discordCache.messages[cacheKey] = { data: msgs, time: Date.now() };
   return msgs;
 }
@@ -1232,6 +1242,7 @@ async function discordGetMessages(channelId, limit) {
 async function discordGetAllRecent(limit) {
   limit = limit || 30;
   var channels = await discordGetChannels();
+  if (channels && channels._error) return [];
   var all = [];
   for (var i = 0; i < channels.length; i++) {
     var msgs = await discordGetMessages(channels[i].id, limit);
@@ -1266,6 +1277,7 @@ async function discordSendMessage(channelId, content) {
 
 async function discordGetQuietChannels() {
   var channels = await discordGetChannels();
+  if (channels && channels._error) return [];
   var quiet = [];
   var now = Date.now();
   for (var i = 0; i < channels.length; i++) {
@@ -1285,6 +1297,7 @@ async function discordGetQuietChannels() {
 
 async function discordAnalyzeResponseRates() {
   var channels = await discordGetChannels();
+  if (channels && channels._error) return [];
   var people = {};
   var RESPONSE_WINDOW = 7200000;
   for (var i = 0; i < channels.length; i++) {
@@ -14993,6 +15006,7 @@ async function fuRunAIAudit(pdfText) {
 // Discord Messages API
 app.get('/discord/api/channels', async function(req, res) {
   var channels = await discordGetChannels();
+  if (channels && channels._error) return res.json({ channels: [], error: channels._error });
   res.json({ channels: channels.map(function(c) { return { id: c.id, name: c.name, position: c.position }; }) });
 });
 
@@ -20950,8 +20964,15 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
 // Discord Dashboard Page
 app.get('/discord', requireAuth('all'), async function(req, res) {
   var session = getVoiceSession(req);
-  var channels = await discordGetChannels();
-  var allMsgs = await discordGetAllRecent(30);
+  var channelsResult = await discordGetChannels();
+  var discordError = null;
+  var channels = [];
+  if (channelsResult && channelsResult._error) {
+    discordError = channelsResult._error;
+  } else if (Array.isArray(channelsResult)) {
+    channels = channelsResult;
+  }
+  var allMsgs = discordError ? [] : await discordGetAllRecent(30);
 
   // Count messages by author
   var authorCounts = {};
@@ -21022,11 +21043,15 @@ app.get('/discord', requireAuth('all'), async function(req, res) {
   html += '<h1>DISCORD</h1>';
   html += '<div class="subtitle">TEAM COMMUNICATIONS MONITOR</div>';
 
-  if (!DISCORD_BOT_TOKEN) {
+  if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) {
     html += '<div style="text-align:center;padding:60px 20px;">';
     html += '<div style="font-family:Orbitron;font-size:1.2em;color:#7c3aed;margin-bottom:20px;">DISCORD NOT CONNECTED</div>';
     html += '<div style="color:#4a6a8a;max-width:600px;margin:0 auto;line-height:1.8;">';
-    html += 'To connect Discord:<br><br>';
+    if (!DISCORD_BOT_TOKEN) html += '<div style="color:#ef4444;margin-bottom:10px;">✗ DISCORD_BOT_TOKEN is missing</div>';
+    else html += '<div style="color:#10b981;margin-bottom:10px;">✓ DISCORD_BOT_TOKEN is set</div>';
+    if (!DISCORD_GUILD_ID) html += '<div style="color:#ef4444;margin-bottom:10px;">✗ DISCORD_GUILD_ID is missing</div>';
+    else html += '<div style="color:#10b981;margin-bottom:10px;">✓ DISCORD_GUILD_ID is set</div>';
+    html += '<br>To connect Discord:<br><br>';
     html += '1. Go to <a href="https://discord.com/developers/applications" target="_blank" style="color:#7c3aed;">Discord Developer Portal</a><br>';
     html += '2. Create a New Application → Bot → Copy the Token<br>';
     html += '3. Enable "Message Content Intent" under Bot settings<br>';
@@ -21034,6 +21059,19 @@ app.get('/discord', requireAuth('all'), async function(req, res) {
     html += '5. On Render, add env vars:<br>';
     html += '<span style="color:#a78bfa;">DISCORD_BOT_TOKEN</span> = your bot token<br>';
     html += '<span style="color:#a78bfa;">DISCORD_GUILD_ID</span> = your server ID (right-click server → Copy Server ID)<br>';
+    html += '</div></div>';
+  } else if (discordError) {
+    html += '<div style="text-align:center;padding:60px 20px;">';
+    html += '<div style="font-family:Orbitron;font-size:1.2em;color:#ef4444;margin-bottom:20px;">DISCORD CONNECTION ERROR</div>';
+    html += '<div style="color:#ef4444;max-width:600px;margin:0 auto;line-height:1.8;background:rgba(239,68,68,0.1);border:1px solid #ef444440;padding:20px;">';
+    html += discordError;
+    html += '</div>';
+    html += '<div style="color:#4a6a8a;max-width:600px;margin:20px auto 0;line-height:1.8;">';
+    html += 'Troubleshooting:<br>';
+    html += '• Verify your <span style="color:#a78bfa;">DISCORD_BOT_TOKEN</span> is correct and not expired<br>';
+    html += '• Verify your <span style="color:#a78bfa;">DISCORD_GUILD_ID</span> matches your server<br>';
+    html += '• Ensure the bot has been invited to the server with proper permissions<br>';
+    html += '• Enable "Message Content Intent" in the Discord Developer Portal<br>';
     html += '</div></div>';
   } else {
     // Stats cards
