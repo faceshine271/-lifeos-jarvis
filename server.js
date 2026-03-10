@@ -1151,6 +1151,7 @@ var voiceUsers = [
   { name: 'Trace', passphrase: 'jarvis activate', role: 'owner', access: 'all' },
   { name: 'Rubait', passphrase: 'discord open', role: 'manager', access: 'discord' },
   { name: 'SEO Team', passphrase: 'seo activate', role: 'seo', access: 'seo' },
+  { name: 'Tucker', passphrase: 'tucker', role: 'ads', access: 'ads' },
 ];
 var voiceSessions = {};
 
@@ -3186,13 +3187,16 @@ app.get('/', function(req, res) {
   if (session.access === 'all') return res.redirect('/dashboard');
   if (session.access === 'discord') return res.redirect('/discord');
   if (session.access === 'seo') return res.redirect('/seo');
+  if (session.access === 'ads') return res.redirect('/ads');
+  if (session.access === 'followup') return res.redirect('/followup');
   return res.redirect('/dashboard');
 });
 
-app.post('/auth/voice', express.json(), function(req, res) {
+app.post('/auth/voice', express.json(), async function(req, res) {
   var spoken = (req.body.passphrase || '').trim();
   if (!spoken) return res.json({ success: false, message: 'No passphrase detected' });
 
+  // Check hardcoded voice users first
   for (var i = 0; i < voiceUsers.length; i++) {
     if (matchPassphrase(spoken, voiceUsers[i].passphrase)) {
       var token = 'vt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12);
@@ -3215,6 +3219,34 @@ app.post('/auth/voice', express.json(), function(req, res) {
       });
     }
   }
+
+  // Check follow-up team members by name (dynamic from Google Sheet)
+  try {
+    var fuUsers = typeof fuGetUsers === 'function' ? await fuGetUsers() : [];
+    var spokenLower = spoken.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+    var fuMatch = fuUsers.find(function(u) {
+      return spokenLower === u.name.toLowerCase() || spokenLower.includes(u.name.toLowerCase());
+    });
+    if (fuMatch) {
+      var fuToken = 'vt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 12);
+      voiceSessions[fuToken] = {
+        name: fuMatch.name,
+        role: 'followup',
+        access: 'followup',
+        created: Date.now()
+      };
+      return res.json({
+        success: true,
+        name: fuMatch.name,
+        role: 'followup',
+        access: 'followup',
+        token: fuToken
+      });
+    }
+  } catch (fuErr) {
+    console.log("Follow-up user check error:", fuErr.message);
+  }
+
   res.json({ success: false, message: 'Passphrase not recognized' });
 });
 
@@ -3239,6 +3271,8 @@ app.get('/login', function(req, res) {
     if (session.access === 'all') return res.redirect(redirect || '/dashboard');
     if (session.access === 'discord') return res.redirect('/discord');
     if (session.access === 'seo') return res.redirect(redirect || '/seo');
+    if (session.access === 'ads') return res.redirect('/ads');
+    if (session.access === 'followup') return res.redirect('/followup');
     return res.redirect(redirect || '/dashboard');
   }
 
@@ -13966,12 +14000,22 @@ app.get('/ads/debug', async function(req, res) {
   }
 });
 
+// Google Ads passcode sessions (used by /google-ads login and /ads auth check)
+var googleAdsSessions = {};
+
 /* ===========================
    /ads — GOOGLE ADS DASHBOARD
    Full interactive dashboard with Fibonacci, forecasting, every metric
 =========================== */
 
-app.get('/ads', requireAuth('owner'), async function(req, res) {
+app.get('/ads', function(req, res, next) {
+  // Allow access via owner auth OR google-ads passcode token
+  var gadsToken = req.query.gads_token || (req.headers.cookie || '').split(';').map(function(c){return c.trim();}).filter(function(c){return c.startsWith('gads_token=');})[0];
+  if (gadsToken && gadsToken.startsWith('gads_token=')) gadsToken = gadsToken.substring(11);
+  if (gadsToken && googleAdsSessions[gadsToken] && (Date.now() - googleAdsSessions[gadsToken].created < 86400000)) return next();
+  // Fall back to normal auth (owner or ads role)
+  requireAuth(['owner', 'ads'])(req, res, next);
+}, async function(req, res) {
   try {
     await buildBusinessContext();
     var ads;
@@ -14433,6 +14477,106 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
     console.error("Ads dashboard error:", err.stack || err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+/* ===========================
+   /google-ads — PASSCODE LOGIN FOR ADS DASHBOARD
+   Code: tucker — redirects to existing /ads dashboard
+=========================== */
+
+app.post('/google-ads/login', express.json(), function(req, res) {
+  var code = (req.body.code || '').trim().toLowerCase();
+  if (code === 'tucker') {
+    var token = 'gads_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    googleAdsSessions[token] = { created: Date.now() };
+    // Clean old sessions (24h expiry)
+    var now = Date.now();
+    Object.keys(googleAdsSessions).forEach(function(k) {
+      if (now - googleAdsSessions[k].created > 86400000) delete googleAdsSessions[k];
+    });
+    res.json({ success: true, token: token });
+  } else {
+    res.json({ success: false, message: 'Invalid code' });
+  }
+});
+
+app.get('/google-ads', function(req, res) {
+  // Check if already authenticated via gads token
+  var token = req.query.token || (req.headers.cookie || '').split(';').map(function(c){return c.trim();}).filter(function(c){return c.startsWith('gads_token=');})[0];
+  if (token && token.startsWith('gads_token=')) token = token.substring(11);
+  if (token && googleAdsSessions[token] && (Date.now() - googleAdsSessions[token].created < 86400000)) {
+    return res.redirect('/ads?gads_token=' + token);
+  }
+
+  // Show login screen
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+  html += '<title>Google Ads Dashboard — Access</title>';
+  html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
+  html += '<style>';
+  html += '*{margin:0;padding:0;box-sizing:border-box;}';
+  html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden;}';
+  html += '.login-box{width:380px;padding:50px 40px;border:1px solid #1a2a3a;background:rgba(10,20,35,0.9);text-align:center;position:relative;}';
+  html += '.login-box::before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#4285f4,transparent);}';
+  html += '.login-box::after{content:"";position:absolute;bottom:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#4285f4,transparent);}';
+  html += '.logo{font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:6px;}';
+  html += '.sub{font-family:Orbitron;font-size:0.5em;letter-spacing:4px;color:#4a6a8a;margin-bottom:35px;}';
+  html += '.input-wrap{position:relative;margin-bottom:20px;}';
+  html += '.input-wrap input{width:100%;padding:14px 18px;background:rgba(5,10,20,0.8);border:1px solid #1a2a3a;color:#c0d8f0;font-family:Orbitron;font-size:0.85em;letter-spacing:3px;text-align:center;outline:none;transition:all 0.3s;}';
+  html += '.input-wrap input:focus{border-color:#4285f4;box-shadow:0 0 20px rgba(66,133,244,0.1);}';
+  html += '.input-wrap input::placeholder{color:#2a3a4a;letter-spacing:4px;}';
+  html += '.enter-btn{width:100%;padding:14px;background:rgba(66,133,244,0.15);border:1px solid #4285f440;color:#4285f4;font-family:Orbitron;font-size:0.8em;letter-spacing:4px;cursor:pointer;transition:all 0.3s;}';
+  html += '.enter-btn:hover{background:rgba(66,133,244,0.25);border-color:#4285f4;box-shadow:0 0 30px rgba(66,133,244,0.15);}';
+  html += '.error-msg{color:#ff4757;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;margin-top:15px;min-height:20px;}';
+  html += '.particles{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:-1;}';
+  html += '.particle{position:absolute;width:2px;height:2px;background:#4285f4;border-radius:50%;opacity:0.3;animation:float linear infinite;}';
+  html += '@keyframes float{0%{transform:translateY(100vh) scale(0);opacity:0;}10%{opacity:0.3;}90%{opacity:0.3;}100%{transform:translateY(-10vh) scale(1);opacity:0;}}';
+  html += '.scan-line{position:fixed;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#4285f420,transparent);animation:scanDown 4s linear infinite;pointer-events:none;z-index:-1;}';
+  html += '@keyframes scanDown{0%{top:0;}100%{top:100%;}}';
+  html += '</style></head><body>';
+
+  // Particles
+  html += '<div class="particles">';
+  for (var pi = 0; pi < 30; pi++) {
+    var px = Math.random() * 100;
+    var dur = 4 + Math.random() * 8;
+    var delay = Math.random() * 6;
+    var size = 1 + Math.random() * 2;
+    html += '<div class="particle" style="left:' + px + '%;width:' + size + 'px;height:' + size + 'px;animation-duration:' + dur + 's;animation-delay:' + delay + 's;"></div>';
+  }
+  html += '</div>';
+  html += '<div class="scan-line"></div>';
+
+  html += '<div class="login-box">';
+  html += '<div class="logo">GOOGLE ADS</div>';
+  html += '<div class="sub">INTELLIGENCE DASHBOARD</div>';
+  html += '<div class="input-wrap"><input type="password" id="codeInput" placeholder="ENTER CODE" autocomplete="off"></div>';
+  html += '<button class="enter-btn" onclick="doLogin()">ACCESS DASHBOARD</button>';
+  html += '<div class="error-msg" id="errMsg"></div>';
+  html += '</div>';
+
+  html += '<script>';
+  html += 'document.getElementById("codeInput").addEventListener("keydown",function(e){if(e.key==="Enter")doLogin();});';
+  html += 'document.getElementById("codeInput").focus();';
+  html += 'function doLogin(){';
+  html += '  var code=document.getElementById("codeInput").value.trim();';
+  html += '  if(!code){document.getElementById("errMsg").textContent="ENTER ACCESS CODE";return;}';
+  html += '  document.querySelector(".enter-btn").textContent="AUTHENTICATING...";';
+  html += '  fetch("/google-ads/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:code})})';
+  html += '  .then(function(r){return r.json();})';
+  html += '  .then(function(d){';
+  html += '    if(d.success){';
+  html += '      document.cookie="gads_token="+d.token+";path=/;max-age=86400";';
+  html += '      window.location.href="/ads?gads_token="+d.token;';
+  html += '    } else {';
+  html += '      document.getElementById("errMsg").textContent="ACCESS DENIED";';
+  html += '      document.querySelector(".enter-btn").textContent="ACCESS DASHBOARD";';
+  html += '      document.getElementById("codeInput").value="";';
+  html += '      document.getElementById("codeInput").focus();';
+  html += '    }';
+  html += '  }).catch(function(){document.getElementById("errMsg").textContent="CONNECTION ERROR";document.querySelector(".enter-btn").textContent="ACCESS DASHBOARD";});';
+  html += '}';
+  html += '<\/script></body></html>';
+  res.send(html);
 });
 
 app.get('/tookan/json', async function(req, res) {
