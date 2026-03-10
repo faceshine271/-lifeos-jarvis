@@ -14435,6 +14435,557 @@ app.get('/ads', requireAuth('owner'), async function(req, res) {
   }
 });
 
+/* ===========================
+   /google-ads — STANDALONE GOOGLE ADS DASHBOARD
+   Passcode-protected (code: tucker)
+   No owner auth required — anyone with the code can view
+=========================== */
+
+var googleAdsSessions = {};
+
+app.post('/google-ads/login', express.json(), function(req, res) {
+  var code = (req.body.code || '').trim().toLowerCase();
+  if (code === 'tucker') {
+    var token = 'gads_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    googleAdsSessions[token] = { created: Date.now() };
+    // Clean old sessions (24h expiry)
+    var now = Date.now();
+    Object.keys(googleAdsSessions).forEach(function(k) {
+      if (now - googleAdsSessions[k].created > 86400000) delete googleAdsSessions[k];
+    });
+    res.json({ success: true, token: token });
+  } else {
+    res.json({ success: false, message: 'Invalid code' });
+  }
+});
+
+app.get('/google-ads', async function(req, res) {
+  var token = req.query.token || (req.headers.cookie || '').split(';').map(function(c){return c.trim();}).filter(function(c){return c.startsWith('gads_token=');})[0];
+  if (token && token.startsWith('gads_token=')) token = token.substring(11);
+  var authed = token && googleAdsSessions[token] && (Date.now() - googleAdsSessions[token].created < 86400000);
+
+  // ===== LOGIN SCREEN =====
+  if (!authed) {
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>Google Ads Dashboard — Access</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
+    html += '<style>';
+    html += '*{margin:0;padding:0;box-sizing:border-box;}';
+    html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden;}';
+    html += '.login-box{width:380px;padding:50px 40px;border:1px solid #1a2a3a;background:rgba(10,20,35,0.9);text-align:center;position:relative;}';
+    html += '.login-box::before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#4285f4,transparent);}';
+    html += '.login-box::after{content:"";position:absolute;bottom:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#4285f4,transparent);}';
+    html += '.logo{font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;margin-bottom:6px;}';
+    html += '.sub{font-family:Orbitron;font-size:0.5em;letter-spacing:4px;color:#4a6a8a;margin-bottom:35px;}';
+    html += '.input-wrap{position:relative;margin-bottom:20px;}';
+    html += '.input-wrap input{width:100%;padding:14px 18px;background:rgba(5,10,20,0.8);border:1px solid #1a2a3a;color:#c0d8f0;font-family:Orbitron;font-size:0.85em;letter-spacing:3px;text-align:center;outline:none;transition:all 0.3s;}';
+    html += '.input-wrap input:focus{border-color:#4285f4;box-shadow:0 0 20px rgba(66,133,244,0.1);}';
+    html += '.input-wrap input::placeholder{color:#2a3a4a;letter-spacing:4px;}';
+    html += '.enter-btn{width:100%;padding:14px;background:rgba(66,133,244,0.15);border:1px solid #4285f440;color:#4285f4;font-family:Orbitron;font-size:0.8em;letter-spacing:4px;cursor:pointer;transition:all 0.3s;}';
+    html += '.enter-btn:hover{background:rgba(66,133,244,0.25);border-color:#4285f4;box-shadow:0 0 30px rgba(66,133,244,0.15);}';
+    html += '.error-msg{color:#ff4757;font-family:Orbitron;font-size:0.6em;letter-spacing:2px;margin-top:15px;min-height:20px;}';
+    html += '.particles{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:-1;}';
+    html += '.particle{position:absolute;width:2px;height:2px;background:#4285f4;border-radius:50%;opacity:0.3;animation:float linear infinite;}';
+    html += '@keyframes float{0%{transform:translateY(100vh) scale(0);opacity:0;}10%{opacity:0.3;}90%{opacity:0.3;}100%{transform:translateY(-10vh) scale(1);opacity:0;}}';
+    html += '@keyframes pulse{0%,100%{opacity:0.4;}50%{opacity:1;}}';
+    html += '.scan-line{position:fixed;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,transparent,#4285f420,transparent);animation:scanDown 4s linear infinite;pointer-events:none;z-index:-1;}';
+    html += '@keyframes scanDown{0%{top:0;}100%{top:100%;}}';
+    html += '</style></head><body>';
+
+    // Particles
+    html += '<div class="particles">';
+    for (var pi = 0; pi < 30; pi++) {
+      var px = Math.random() * 100;
+      var dur = 4 + Math.random() * 8;
+      var delay = Math.random() * 6;
+      var size = 1 + Math.random() * 2;
+      html += '<div class="particle" style="left:' + px + '%;width:' + size + 'px;height:' + size + 'px;animation-duration:' + dur + 's;animation-delay:' + delay + 's;"></div>';
+    }
+    html += '</div>';
+    html += '<div class="scan-line"></div>';
+
+    html += '<div class="login-box">';
+    html += '<div class="logo">GOOGLE ADS</div>';
+    html += '<div class="sub">INTELLIGENCE DASHBOARD</div>';
+    html += '<div class="input-wrap"><input type="password" id="codeInput" placeholder="ENTER CODE" autocomplete="off"></div>';
+    html += '<button class="enter-btn" onclick="doLogin()">ACCESS DASHBOARD</button>';
+    html += '<div class="error-msg" id="errMsg"></div>';
+    html += '</div>';
+
+    html += '<script>';
+    html += 'document.getElementById("codeInput").addEventListener("keydown",function(e){if(e.key==="Enter")doLogin();});';
+    html += 'document.getElementById("codeInput").focus();';
+    html += 'function doLogin(){';
+    html += '  var code=document.getElementById("codeInput").value.trim();';
+    html += '  if(!code){document.getElementById("errMsg").textContent="ENTER ACCESS CODE";return;}';
+    html += '  document.querySelector(".enter-btn").textContent="AUTHENTICATING...";';
+    html += '  fetch("/google-ads/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:code})})';
+    html += '  .then(function(r){return r.json();})';
+    html += '  .then(function(d){';
+    html += '    if(d.success){';
+    html += '      document.cookie="gads_token="+d.token+";path=/;max-age=86400";';
+    html += '      window.location.href="/google-ads?token="+d.token;';
+    html += '    } else {';
+    html += '      document.getElementById("errMsg").textContent="ACCESS DENIED";';
+    html += '      document.querySelector(".enter-btn").textContent="ACCESS DASHBOARD";';
+    html += '      document.getElementById("codeInput").value="";';
+    html += '      document.getElementById("codeInput").focus();';
+    html += '    }';
+    html += '  }).catch(function(){document.getElementById("errMsg").textContent="CONNECTION ERROR";document.querySelector(".enter-btn").textContent="ACCESS DASHBOARD";});';
+    html += '}';
+    html += '<\/script></body></html>';
+    return res.send(html);
+  }
+
+  // ===== AUTHENTICATED — FULL DASHBOARD =====
+  try {
+    var ads;
+    try { ads = await buildAdsContext(); } catch(ae) { ads = null; console.log("Google-ads load error:", ae.message); }
+    if (!ads) ads = { connected: false, needsAuth: true, campaigns: [], adGroups: [], keywords: [], searchTerms: [], geoPerformance: [], devicePerformance: [], hourlyPerformance: [], dayOfWeekPerformance: [], monthlyPerformance: [], weeklyPerformance: [], dailyPerformance: [], conversionActions: [], accountSummary: {}, errors: ['Failed to load ads data'] };
+
+    // Analytics helpers
+    function gadsLinearRegression(values) {
+      var n = values.length;
+      if (n < 2) return { slope: 0, intercept: values[0] || 0, r2: 0 };
+      var sumX=0,sumY=0,sumXY=0,sumXX=0;
+      for (var i=0;i<n;i++){sumX+=i;sumY+=values[i];sumXY+=i*values[i];sumXX+=i*i;}
+      var d=(n*sumXX-sumX*sumX);var slope=d!==0?(n*sumXY-sumX*sumY)/d:0;var intercept=(sumY-slope*sumX)/n;
+      var ssRes=0,ssTot=0,mean=sumY/n;
+      for(var j=0;j<n;j++){var p=intercept+slope*j;ssRes+=(values[j]-p)*(values[j]-p);ssTot+=(values[j]-mean)*(values[j]-mean);}
+      return{slope:Math.round(slope*100)/100,intercept:Math.round(intercept*100)/100,r2:ssTot>0?Math.round((1-ssRes/ssTot)*1000)/1000:0};
+    }
+    function gadsCalcFibExt(values) {
+      var recent=values.slice(-12);var high=Math.max.apply(null,recent.length>0?recent:[0]);
+      var low=Math.min.apply(null,recent.length>0?recent:[0]);var range=high-low;
+      return{high:high,low:low,range:range,'23.6':Math.round(low+range*0.236),'38.2':Math.round(low+range*0.382),
+        '50.0':Math.round(low+range*0.5),'61.8':Math.round(low+range*0.618),'78.6':Math.round(low+range*0.786),
+        '127.2':Math.round(low+range*1.272),'161.8':Math.round(low+range*1.618),
+        current:recent.length>0?recent[recent.length-1]:0};
+    }
+    function gadsGrowthMetrics(values) {
+      if(values.length<2)return{mom:0,last:0,prev:0};
+      var last=values[values.length-1],prev=values[values.length-2];
+      var mom=prev>0?Math.round(((last-prev)/prev)*1000)/10:0;
+      return{mom:mom,last:last,prev:prev};
+    }
+    function gadsForecast(values,months) {
+      var lr=gadsLinearRegression(values);var n=values.length;var preds=[];
+      for(var i=0;i<months;i++){preds.push(Math.max(0,Math.round(lr.intercept+lr.slope*(n+i))));}
+      return preds;
+    }
+
+    // Monthly Fibonacci data
+    var monthlyCosts = ads.monthlyPerformance.map(function(m){return m.cost;});
+    var monthlyClicks = ads.monthlyPerformance.map(function(m){return m.clicks;});
+    var monthlyConv = ads.monthlyPerformance.map(function(m){return m.conversions;});
+    var monthlyCPC = ads.monthlyPerformance.map(function(m){return m.avgCPC;});
+    var monthlyROAS = ads.monthlyPerformance.map(function(m){return m.roas;});
+    var monthlyCTR = ads.monthlyPerformance.map(function(m){return m.ctr;});
+
+    var costFib = gadsCalcFibExt(monthlyCosts);
+    var clickFib = gadsCalcFibExt(monthlyClicks);
+    var convFib = gadsCalcFibExt(monthlyConv);
+    var cpcFib = gadsCalcFibExt(monthlyCPC);
+    var roasFib = gadsCalcFibExt(monthlyROAS);
+    var ctrFib = gadsCalcFibExt(monthlyCTR);
+
+    var costGrowth = gadsGrowthMetrics(monthlyCosts);
+    var clickGrowth = gadsGrowthMetrics(monthlyClicks);
+    var convGrowth = gadsGrowthMetrics(monthlyConv);
+    var cpcGrowth = gadsGrowthMetrics(monthlyCPC);
+    var roasGrowth = gadsGrowthMetrics(monthlyROAS);
+
+    var costForecast = gadsForecast(monthlyCosts, 3);
+    var clickForecast = gadsForecast(monthlyClicks, 3);
+    var convForecast = gadsForecast(monthlyConv, 3);
+
+    var as = ads.accountSummary || {};
+    as.totalSpend = as.totalSpend || 0;
+    as.totalClicks = as.totalClicks || 0;
+    as.totalImpressions = as.totalImpressions || 0;
+    as.totalConversions = as.totalConversions || 0;
+    as.totalConvValue = as.totalConvValue || 0;
+    as.avgCPC = as.avgCPC || 0;
+    as.avgCTR = as.avgCTR || 0;
+    as.avgCostPerConv = as.avgCostPerConv || 0;
+    as.roas = as.roas || 0;
+    as.activeCampaigns = as.activeCampaigns || 0;
+    as.totalCampaigns = as.totalCampaigns || 0;
+
+    // ========== BUILD HTML ==========
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>Google Ads Dashboard</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
+    html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<style>';
+    html += '*{margin:0;padding:0;box-sizing:border-box;}';
+    html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
+    html += '.wrap{max-width:1500px;margin:0 auto;padding:20px 30px;}';
+    html += '.top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:15px;border-bottom:1px solid #1a2a3a;}';
+    html += '.top-bar .title{font-family:Orbitron;font-size:1.4em;letter-spacing:8px;color:#4285f4;}';
+    html += '.top-bar .subtitle{font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#4a6a8a;margin-top:4px;}';
+    html += '.logout-btn{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;padding:8px 20px;color:#ef4444;border:1px solid #ef444440;background:rgba(5,10,20,0.6);cursor:pointer;transition:all 0.3s;text-decoration:none;}';
+    html += '.logout-btn:hover{border-color:#ef4444;background:rgba(239,68,68,0.1);}';
+    html += '.section{margin-bottom:30px;} .section-head{font-family:Orbitron;font-size:0.85em;letter-spacing:5px;text-transform:uppercase;margin-bottom:15px;display:flex;align-items:center;gap:10px;}';
+    html += '.section-head .dot{width:10px;height:10px;border-radius:50%;display:inline-block;animation:glow 2s ease-in-out infinite alternate;}';
+    html += '@keyframes glow{0%{box-shadow:0 0 5px var(--gc,#4285f4);}100%{box-shadow:0 0 20px var(--gc,#4285f4);}}';
+    html += '.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:15px;}';
+    html += '.kpi{background:rgba(10,20,35,0.8);border:1px solid rgba(255,255,255,0.05);padding:14px;position:relative;overflow:hidden;transition:all 0.3s;}';
+    html += '.kpi:hover{border-color:var(--c,#4285f4);transform:translateY(-2px);}';
+    html += '.kpi::before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:var(--c,#4285f4);opacity:0.4;}';
+    html += '.kpi-label{color:#4a6a8a;font-family:Orbitron;font-size:0.45em;letter-spacing:2px;margin-bottom:4px;}';
+    html += '.kpi-val{font-family:Orbitron;font-size:1.3em;font-weight:900;color:var(--c,#4285f4);}';
+    html += '.kpi-sub{color:#4a6a8a;font-size:0.75em;margin-top:2px;}';
+    html += '.fib-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:15px;}';
+    html += '.fib-card{background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;padding:16px;}';
+    html += '.fib-title{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}';
+    html += '.fib-level{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #0a1520;}';
+    html += '.fib-level .pct{font-family:Orbitron;font-size:0.5em;color:#4a6a8a;width:50px;}';
+    html += '.fib-level .bar{flex:1;height:5px;background:#0a1520;margin:0 6px;position:relative;}';
+    html += '.fib-level .fill{height:100%;position:absolute;top:0;left:0;}';
+    html += '.fib-level .val{font-family:Orbitron;font-size:0.65em;width:65px;text-align:right;}';
+    html += '.data-table{width:100%;border-collapse:collapse;font-size:0.8em;}';
+    html += '.data-table th{padding:8px;text-align:left;color:#4285f4;font-family:Orbitron;font-size:0.5em;letter-spacing:1px;border-bottom:2px solid #4285f415;}';
+    html += '.data-table td{padding:5px 8px;border-bottom:1px solid #0a1520;}';
+    html += '.data-table tr:nth-child(even){background:rgba(10,20,35,0.3);}';
+    html += '.data-table tr:hover{background:rgba(66,133,244,0.03);}';
+    html += '.pill{display:inline-block;font-family:Orbitron;font-size:0.45em;letter-spacing:1px;padding:2px 8px;border-radius:2px;}';
+    html += '.pill-green{background:rgba(0,255,102,0.1);color:#00ff66;border:1px solid #00ff6630;}';
+    html += '.pill-red{background:rgba(255,71,87,0.1);color:#ff4757;border:1px solid #ff475730;}';
+    html += '.pill-blue{background:rgba(66,133,244,0.1);color:#4285f4;border:1px solid #4285f430;}';
+    html += '.pill-orange{background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4330;}';
+    html += '.signal-box{padding:12px;border:1px solid;margin-top:10px;font-size:0.85em;line-height:1.5;}';
+    html += '.chart-box{background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;padding:16px;margin-bottom:12px;}';
+    html += '.chart-title{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;margin-bottom:10px;}';
+    html += '.forecast-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:15px;}';
+    html += '.forecast-card{background:rgba(10,20,35,0.8);border:1px solid #1a2a3a;padding:14px;text-align:center;}';
+    html += '.forecast-label{font-family:Orbitron;font-size:0.45em;letter-spacing:2px;color:#4a6a8a;margin-bottom:4px;}';
+    html += '.forecast-val{font-family:Orbitron;font-size:1.1em;font-weight:900;}';
+    html += '@media(max-width:768px){.wrap{padding:10px 12px;} .kpi-row{grid-template-columns:repeat(2,1fr);} .fib-grid{grid-template-columns:1fr;} .top-bar{flex-direction:column;gap:10px;} .kpi-val{font-size:1em;} table{font-size:0.65em;} .forecast-grid{grid-template-columns:1fr;}}';
+    html += '@media(max-width:480px){.kpi-row{grid-template-columns:1fr;}}';
+    html += '</style></head><body><div class="wrap">';
+
+    // Top bar with logout
+    html += '<div class="top-bar"><div><div class="title">GOOGLE ADS</div><div class="subtitle">CAMPAIGN PERFORMANCE &bull; FIBONACCI ANALYSIS &bull; SEARCH TERMS &bull; FORECASTING</div></div>';
+    html += '<a href="/google-ads" onclick="document.cookie=\'gads_token=;path=/;max-age=0\';return true;" class="logout-btn">LOGOUT</a></div>';
+
+    // Connection status
+    if (!ads.connected) {
+      html += '<div style="padding:30px;border:2px solid #ff9f4340;background:rgba(255,159,67,0.05);text-align:center;margin-bottom:20px;">';
+      html += '<div style="font-family:Orbitron;font-size:1.2em;color:#ff9f43;margin-bottom:10px;">CONNECT GOOGLE ADS</div>';
+      html += '<div style="color:#c0d8f0;margin-bottom:10px;">Google Ads API is not yet connected. Contact the administrator to set up API credentials.</div>';
+      if (ads.errors.length > 0) {
+        html += '<div style="margin-top:10px;color:#ff4757;font-size:0.8em;">' + ads.errors.join('<br>') + '</div>';
+      }
+      html += '</div>';
+    }
+
+    // ====== SECTION 1: ACCOUNT OVERVIEW ======
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;display:flex;align-items:center;gap:15px;"><span class="dot" style="background:#4285f4;"></span>ACCOUNT OVERVIEW <select id="adsRange" onchange="filterByRange()" style="background:#0a1520;color:#4285f4;border:1px solid #4285f440;font-family:Orbitron;font-size:0.65em;padding:4px 10px;letter-spacing:2px;cursor:pointer;"><option value="1">TODAY</option><option value="7">7 DAYS</option><option value="14">14 DAYS</option><option value="30">30 DAYS</option><option value="thismonth">THIS MONTH</option><option value="60">60 DAYS</option><option value="90">90 DAYS</option><option value="180">6 MONTHS</option><option value="thisyear">THIS YEAR</option><option value="365">1 YEAR</option><option value="0" selected>ALL TIME</option></select></div>';
+    html += '<div id="kpi-row" class="kpi-row">';
+    var acctKPIs = [
+      { label: 'TOTAL SPEND', val: '$' + as.totalSpend.toLocaleString(), sub: as.activeCampaigns + ' active campaigns', c: '#ff4757' },
+      { label: 'TOTAL CLICKS', val: as.totalClicks.toLocaleString(), sub: as.avgCTR + '% CTR', c: '#4285f4' },
+      { label: 'IMPRESSIONS', val: as.totalImpressions.toLocaleString(), sub: 'Across all campaigns', c: '#00d4ff' },
+      { label: 'CONVERSIONS', val: as.totalConversions, sub: '$' + as.avgCostPerConv + ' per conversion', c: '#00ff66' },
+      { label: 'CONV. VALUE', val: '$' + as.totalConvValue.toLocaleString(), sub: as.roas + 'x ROAS', c: '#ffd700' },
+      { label: 'AVG CPC', val: '$' + as.avgCPC, sub: 'Cost per click', c: '#a855f7' },
+      { label: 'AVG CTR', val: as.avgCTR + '%', sub: 'Click-through rate', c: '#55f7d8' },
+      { label: 'COST/CONVERSION', val: '$' + as.avgCostPerConv, sub: 'Avg acquisition cost', c: '#ff9f43' },
+    ];
+    acctKPIs.forEach(function(k) {
+      html += '<div class="kpi" style="--c:' + k.c + ';"><div class="kpi-label">' + k.label + '</div><div class="kpi-val">' + k.val + '</div><div class="kpi-sub">' + k.sub + '</div></div>';
+    });
+    html += '</div></div>';
+
+    // ====== SECTION 2: INTERACTIVE DAILY CHART ======
+    if (ads.dailyPerformance.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#00d4ff;--gc:#00d4ff;"><span class="dot" style="background:#00d4ff;"></span>DAILY PERFORMANCE</div>';
+      html += '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">';
+      html += '<button onclick="switchMetric(\'cost\')" id="btn-m-cost" class="mbtn active" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:rgba(66,133,244,0.15);color:#4285f4;border:1px solid #4285f440;cursor:pointer;">SPEND</button>';
+      html += '<button onclick="switchMetric(\'clicks\')" id="btn-m-clicks" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CLICKS</button>';
+      html += '<button onclick="switchMetric(\'conversions\')" id="btn-m-conv" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CONVERSIONS</button>';
+      html += '<button onclick="switchMetric(\'ctr\')" id="btn-m-ctr" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CTR</button>';
+      html += '<button onclick="switchMetric(\'avgCPC\')" id="btn-m-cpc" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">CPC</button>';
+      html += '<button onclick="switchMetric(\'roas\')" id="btn-m-roas" class="mbtn" style="font-family:Orbitron;font-size:0.5em;padding:6px 12px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">ROAS</button>';
+      html += '</div>';
+      html += '<div id="gads-daily-chart" style="border:1px solid #1a2a3a;min-height:350px;width:100%;"></div>';
+      html += '</div>';
+    }
+
+    // ====== SECTION 3: MONTHLY FIBONACCI CARDS ======
+    if (ads.monthlyPerformance.length >= 3) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>MONTHLY FIBONACCI RETRACEMENT</div>';
+      html += '<div class="fib-grid">';
+
+      var adsFibs = [
+        { name: 'AD SPEND', fib: costFib, growth: costGrowth, color: '#ff4757', prefix: '$', inv: true },
+        { name: 'CLICKS', fib: clickFib, growth: clickGrowth, color: '#4285f4', prefix: '' },
+        { name: 'CONVERSIONS', fib: convFib, growth: convGrowth, color: '#00ff66', prefix: '' },
+        { name: 'AVG CPC', fib: cpcFib, growth: cpcGrowth, color: '#a855f7', prefix: '$', inv: true },
+        { name: 'ROAS', fib: roasFib, growth: roasGrowth, color: '#ffd700', prefix: '', suffix: 'x' },
+        { name: 'CTR', fib: ctrFib, growth: gadsGrowthMetrics(monthlyCTR), color: '#55f7d8', prefix: '', suffix: '%' },
+      ];
+
+      adsFibs.forEach(function(af) {
+        html += '<div class="fib-card">';
+        html += '<div class="fib-title"><span style="color:' + af.color + ';">' + af.name + '</span>';
+        var tIcon = af.growth.mom > 0 ? '▲' : af.growth.mom < 0 ? '▼' : '►';
+        var tColor = af.inv ? (af.growth.mom > 0 ? '#ff4757' : '#00ff66') : (af.growth.mom > 0 ? '#00ff66' : '#ff4757');
+        html += '<span style="color:' + tColor + ';">' + tIcon + ' ' + (af.growth.mom >= 0 ? '+' : '') + af.growth.mom + '%</span></div>';
+
+        var fibArr = [
+          { label: '161.8% EXT', val: af.fib['161.8'], c: '#a855f7' },
+          { label: '100% HIGH', val: af.fib.high, c: '#00ff66' },
+          { label: '61.8%', val: af.fib['61.8'], c: '#00ff66' },
+          { label: '50%', val: af.fib['50.0'], c: '#ffd700' },
+          { label: '38.2%', val: af.fib['38.2'], c: '#ff4757' },
+          { label: '0% LOW', val: af.fib.low, c: '#ff4757' },
+        ];
+        fibArr.forEach(function(fl) {
+          var pct = af.fib.high > 0 ? Math.min(100, Math.round(fl.val / af.fib.high * 100)) : 0;
+          html += '<div class="fib-level"><span class="pct">' + fl.label.split(' ')[0] + '</span>';
+          html += '<div class="bar"><div class="fill" style="width:' + pct + '%;background:' + fl.c + '40;"></div></div>';
+          html += '<span class="val" style="color:' + fl.c + ';">' + af.prefix + (typeof fl.val === 'number' ? (fl.val >= 1000 ? Math.round(fl.val).toLocaleString() : fl.val) : fl.val) + (af.suffix || '') + '</span></div>';
+        });
+
+        var curPos = af.fib.range > 0 ? Math.round((af.fib.current - af.fib.low) / af.fib.range * 100) : 50;
+        html += '<div style="margin-top:8px;display:flex;justify-content:space-between;font-size:0.75em;">';
+        html += '<span style="color:#4a6a8a;">Now: <strong style="color:' + af.color + ';">' + af.prefix + (typeof af.fib.current === 'number' ? af.fib.current : 0) + (af.suffix || '') + '</strong></span>';
+        html += '<span style="color:' + (curPos > 61.8 ? '#00ff66' : curPos > 38.2 ? '#ffd700' : '#ff4757') + ';font-family:Orbitron;font-size:0.7em;">' + curPos + '% RET</span>';
+        html += '</div></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== SECTION 4: 3-MONTH FORECAST ======
+    if (ads.monthlyPerformance.length >= 3) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>3-MONTH FORECAST (LINEAR REGRESSION)</div>';
+      html += '<div class="forecast-grid">';
+      var fLabels = ['MONTH +1', 'MONTH +2', 'MONTH +3'];
+      for (var fi = 0; fi < 3; fi++) {
+        html += '<div class="forecast-card"><div class="forecast-label">SPEND ' + fLabels[fi] + '</div><div class="forecast-val" style="color:#ff4757;">$' + (costForecast[fi] || 0).toLocaleString() + '</div></div>';
+      }
+      for (var fi2 = 0; fi2 < 3; fi2++) {
+        html += '<div class="forecast-card"><div class="forecast-label">CLICKS ' + fLabels[fi2] + '</div><div class="forecast-val" style="color:#4285f4;">' + (clickForecast[fi2] || 0).toLocaleString() + '</div></div>';
+      }
+      for (var fi3 = 0; fi3 < 3; fi3++) {
+        html += '<div class="forecast-card"><div class="forecast-label">CONVERSIONS ' + fLabels[fi3] + '</div><div class="forecast-val" style="color:#00ff66;">' + (convForecast[fi3] || 0) + '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // ====== SECTION 5: CAMPAIGN TABLE ======
+    if (ads.campaigns.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#4285f4;--gc:#4285f4;"><span class="dot" style="background:#4285f4;"></span>CAMPAIGN PERFORMANCE</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Campaign</th><th>Status</th><th>Spend</th><th>Clicks</th><th>CTR</th><th>CPC</th><th>Conv</th><th>Cost/Conv</th><th>ROAS</th><th>Impr Share</th></tr></thead><tbody>';
+      ads.campaigns.forEach(function(c) {
+        var statusPill = c.status === 'ENABLED' ? '<span class="pill pill-green">ACTIVE</span>' : c.status === 'PAUSED' ? '<span class="pill pill-orange">PAUSED</span>' : '<span class="pill pill-red">' + c.status + '</span>';
+        html += '<tr><td style="color:#c0d8f0;font-weight:700;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + c.name + '</td>';
+        html += '<td>' + statusPill + '</td>';
+        html += '<td style="color:#ff4757;">$' + c.cost.toLocaleString() + '</td>';
+        html += '<td style="color:#4285f4;">' + c.clicks.toLocaleString() + '</td>';
+        html += '<td>' + (c.ctr * 100).toFixed(2) + '%</td>';
+        html += '<td style="color:#a855f7;">$' + c.avgCPC.toFixed(2) + '</td>';
+        html += '<td style="color:#00ff66;">' + c.conversions + '</td>';
+        html += '<td style="color:#ff9f43;">$' + c.costPerConv.toFixed(2) + '</td>';
+        var roas = c.cost > 0 ? (c.convValue / c.cost).toFixed(2) : '0';
+        html += '<td style="color:#ffd700;">' + roas + 'x</td>';
+        html += '<td>' + (c.impressionShare * 100).toFixed(1) + '%</td></tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    // ====== SECTION 6: TOP KEYWORDS ======
+    if (ads.keywords.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#a855f7;--gc:#a855f7;"><span class="dot" style="background:#a855f7;"></span>TOP KEYWORDS — ' + ads.keywords.length + ' TRACKED</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Keyword</th><th>Match</th><th>QS</th><th>Clicks</th><th>Cost</th><th>CTR</th><th>CPC</th><th>Conv</th><th>Cost/Conv</th></tr></thead><tbody>';
+      ads.keywords.slice(0, 50).forEach(function(kw) {
+        var qsColor = kw.qualityScore >= 7 ? '#00ff66' : kw.qualityScore >= 5 ? '#ff9f43' : '#ff4757';
+        html += '<tr><td style="color:#c0d8f0;font-weight:600;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + kw.text + '</td>';
+        html += '<td style="color:#4a6a8a;font-size:0.8em;">' + (kw.matchType || '').replace('_', ' ') + '</td>';
+        html += '<td style="color:' + qsColor + ';font-weight:700;">' + (kw.qualityScore || '-') + '</td>';
+        html += '<td style="color:#4285f4;">' + kw.clicks.toLocaleString() + '</td>';
+        html += '<td style="color:#ff4757;">$' + kw.cost.toFixed(2) + '</td>';
+        html += '<td>' + (kw.ctr * 100).toFixed(2) + '%</td>';
+        html += '<td style="color:#a855f7;">$' + kw.avgCPC.toFixed(2) + '</td>';
+        html += '<td style="color:#00ff66;">' + kw.conversions + '</td>';
+        html += '<td style="color:#ff9f43;">' + (kw.costPerConv > 0 ? '$' + kw.costPerConv.toFixed(2) : '-') + '</td></tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    // ====== SECTION 7: SEARCH TERMS ======
+    if (ads.searchTerms.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#55f7d8;--gc:#55f7d8;"><span class="dot" style="background:#55f7d8;"></span>SEARCH TERMS — WHAT PEOPLE ACTUALLY SEARCHED</div>';
+      html += '<div style="overflow-x:auto;"><table class="data-table">';
+      html += '<thead><tr><th>Search Term</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Cost</th><th>CPC</th><th>Conv</th></tr></thead><tbody>';
+      ads.searchTerms.slice(0, 50).forEach(function(st) {
+        html += '<tr><td style="color:#c0d8f0;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + st.term + '</td>';
+        html += '<td>' + st.impressions.toLocaleString() + '</td>';
+        html += '<td style="color:#4285f4;">' + st.clicks.toLocaleString() + '</td>';
+        html += '<td>' + (st.ctr * 100).toFixed(2) + '%</td>';
+        html += '<td style="color:#ff4757;">$' + st.cost.toFixed(2) + '</td>';
+        html += '<td style="color:#a855f7;">$' + st.avgCPC.toFixed(2) + '</td>';
+        html += '<td style="color:#00ff66;">' + st.conversions + '</td></tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    // ====== SECTION 8: DEVICE PERFORMANCE ======
+    if (ads.devicePerformance.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#ff9f43;--gc:#ff9f43;"><span class="dot" style="background:#ff9f43;"></span>DEVICE BREAKDOWN</div>';
+      html += '<div class="kpi-row">';
+      ads.devicePerformance.forEach(function(d) {
+        html += '<div class="kpi" style="--c:#ff9f43;"><div class="kpi-label">' + d.device + '</div><div class="kpi-val">' + d.clicks.toLocaleString() + '</div><div class="kpi-sub">$' + d.cost.toLocaleString() + ' spent &bull; ' + d.ctr + '% CTR &bull; $' + d.avgCPC + ' CPC</div></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ====== SECTION 9: HOURLY + DOW ======
+    if (ads.hourlyPerformance.length > 0) {
+      html += '<div class="section">';
+      html += '<div class="section-head" style="color:#00d4ff;--gc:#00d4ff;"><span class="dot" style="background:#00d4ff;"></span>TIME-BASED PERFORMANCE</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
+
+      html += '<div class="chart-box"><div class="chart-title" style="color:#00d4ff;">CLICKS BY HOUR</div>';
+      var maxHrClicks = Math.max.apply(null, ads.hourlyPerformance.map(function(h){return h.clicks;}));
+      html += '<div style="display:flex;align-items:flex-end;gap:2px;height:100px;">';
+      ads.hourlyPerformance.forEach(function(h) {
+        var ht = maxHrClicks > 0 ? Math.max(1, Math.round(h.clicks / maxHrClicks * 100)) : 1;
+        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
+        html += '<div style="width:90%;height:' + ht + '%;background:#00d4ff40;border-top:1px solid #00d4ff;"></div>';
+        html += '<div style="font-size:0.35em;color:#4a6a8a;margin-top:2px;">' + h.hour + '</div></div>';
+      });
+      html += '</div></div>';
+
+      if (ads.dayOfWeekPerformance.length > 0) {
+        html += '<div class="chart-box"><div class="chart-title" style="color:#ff9f43;">CLICKS BY DAY OF WEEK</div>';
+        var maxDowClicks = Math.max.apply(null, ads.dayOfWeekPerformance.map(function(d){return d.clicks;}));
+        html += '<div style="display:flex;align-items:flex-end;gap:6px;height:100px;">';
+        ads.dayOfWeekPerformance.forEach(function(d) {
+          var dt2 = maxDowClicks > 0 ? Math.max(3, Math.round(d.clicks / maxDowClicks * 100)) : 3;
+          html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;">';
+          html += '<div style="color:#c0d8f0;font-size:0.55em;">' + d.clicks.toLocaleString() + '</div>';
+          html += '<div style="width:80%;height:' + dt2 + '%;background:#ff9f4340;border-top:2px solid #ff9f43;"></div>';
+          html += '<div style="font-family:Orbitron;font-size:0.4em;color:#4a6a8a;margin-top:4px;">' + d.day.substring(0, 3) + '</div></div>';
+        });
+        html += '</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // ====== SECTION 10: AI STRATEGY SIGNALS ======
+    html += '<div class="section">';
+    html += '<div class="section-head" style="color:#ffd700;--gc:#ffd700;"><span class="dot" style="background:#ffd700;"></span>AI STRATEGY SIGNALS</div>';
+    var signals = [];
+    if (as.avgCPC > cpcFib['61.8'] && cpcFib['61.8'] > 0) signals.push('CPC above 61.8% Fibonacci resistance ($' + cpcFib['61.8'] + '). Review bids and quality scores.');
+    if (as.avgCPC < cpcFib['38.2'] && cpcFib['38.2'] > 0) signals.push('CPC below 38.2% support ($' + cpcFib['38.2'] + '). Efficiency is strong.');
+    if (convGrowth.mom > 10) signals.push('Conversions up ' + convGrowth.mom + '% MoM — scale budget!');
+    if (convGrowth.mom < -10) signals.push('Conversions down ' + convGrowth.mom + '% MoM — check landing pages and ad copy.');
+    if (costGrowth.mom > 20 && convGrowth.mom < 5) signals.push('Spend growing (' + costGrowth.mom + '%) faster than conversions (' + convGrowth.mom + '%). Reduce waste.');
+    if (as.roas > 5) signals.push('ROAS is ' + as.roas + 'x — ads are highly profitable. Consider scaling budget.');
+    if (as.roas > 0 && as.roas < 2) signals.push('ROAS is ' + as.roas + 'x — below break-even zone. Optimize or pause underperformers.');
+    if (ads.keywords.filter(function(k){return k.qualityScore > 0 && k.qualityScore < 5;}).length > 5) signals.push(ads.keywords.filter(function(k){return k.qualityScore > 0 && k.qualityScore < 5;}).length + ' keywords with Quality Score < 5. Improve ad relevance and landing pages.');
+    if (signals.length === 0) signals.push('Connect Google Ads and allow data to accumulate for AI strategy recommendations.');
+
+    signals.forEach(function(s) {
+      var sColor = s.indexOf('strong') > -1 || s.indexOf('profitable') > -1 || s.indexOf('scale') > -1 ? '#00ff66' : s.indexOf('waste') > -1 || s.indexOf('resistance') > -1 || s.indexOf('down') > -1 || s.indexOf('below break') > -1 ? '#ff4757' : '#ff9f43';
+      html += '<div class="signal-box" style="border-color:' + sColor + '30;background:' + sColor + '05;color:' + sColor + ';margin-bottom:6px;">' + s + '</div>';
+    });
+    html += '</div>';
+
+    // Footer
+    html += '<div style="text-align:center;padding:30px;font-family:Orbitron;font-size:0.5em;letter-spacing:3px;color:#1a2a3a;border-top:1px solid #0a1520;">GOOGLE ADS DASHBOARD // ' + ads.campaigns.length + ' campaigns &bull; ' + ads.keywords.length + ' keywords &bull; ' + ads.dailyPerformance.length + ' daily records</div>';
+
+    // ====== JAVASCRIPT — Interactive Charts ======
+    html += '<script>';
+    html += 'var dailyData=' + JSON.stringify(ads.dailyPerformance) + ';';
+    html += 'var allCampaigns=' + JSON.stringify(ads.campaigns.map(function(c){return{name:c.name,status:c.status};})) + ';';
+
+    html += 'var currentMetric="cost";';
+    html += 'function filterByRange(){';
+    html += '  var rangeVal=document.getElementById("adsRange").value;';
+    html += '  var cutoff="0000";';
+    html += '  if(rangeVal==="thismonth"){var d=new Date();cutoff=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-01";}';
+    html += '  else if(rangeVal==="thisyear"){cutoff=new Date().getFullYear()+"-01-01";}';
+    html += '  else{var range=parseInt(rangeVal)||0;if(range>0)cutoff=new Date(Date.now()-range*86400000).toISOString().substring(0,10);}';
+    html += '  var fd=dailyData.filter(function(d){return d.date>=cutoff;});';
+    html += '  var ts=0,tc=0,ti=0,tv=0,tvv=0;';
+    html += '  fd.forEach(function(d){ts+=d.cost||0;tc+=d.clicks||0;ti+=d.impressions||0;tv+=d.conversions||0;tvv+=d.convValue||0;});';
+    html += '  var actr=ti>0?(tc/ti*100):0;';
+    html += '  var acpc=tc>0?(ts/tc):0;';
+    html += '  var acpconv=tv>0?(ts/tv):0;';
+    html += '  var aroas=ts>0?(tvv/ts):0;';
+    html += '  var activeCamp=allCampaigns.filter(function(c){return c.status==="ENABLED";}).length;';
+    html += '  var kpis=[';
+    html += '    {label:"TOTAL SPEND",val:"$"+Math.round(ts).toLocaleString(),sub:activeCamp+" active campaigns",c:"#ff4757"},';
+    html += '    {label:"TOTAL CLICKS",val:tc.toLocaleString(),sub:actr.toFixed(2)+"% CTR",c:"#4285f4"},';
+    html += '    {label:"IMPRESSIONS",val:ti.toLocaleString(),sub:"Across all campaigns",c:"#00d4ff"},';
+    html += '    {label:"CONVERSIONS",val:Math.round(tv*100)/100,sub:"$"+acpconv.toFixed(2)+" per conversion",c:"#00ff66"},';
+    html += '    {label:"CONV. VALUE",val:"$"+Math.round(tvv).toLocaleString(),sub:aroas.toFixed(2)+"x ROAS",c:"#ffd700"},';
+    html += '    {label:"AVG CPC",val:"$"+acpc.toFixed(2),sub:"Cost per click",c:"#a855f7"},';
+    html += '    {label:"AVG CTR",val:actr.toFixed(2)+"%",sub:"Click-through rate",c:"#55f7d8"},';
+    html += '    {label:"COST/CONVERSION",val:"$"+acpconv.toFixed(2),sub:"Avg acquisition cost",c:"#ff9f43"},';
+    html += '  ];';
+    html += '  var h="";kpis.forEach(function(k){';
+    html += '    h+="<div class=\\"kpi\\" style=\\"--c:"+k.c+";\\"><div class=\\"kpi-label\\">"+k.label+"</div><div class=\\"kpi-val\\">"+k.val+"</div><div class=\\"kpi-sub\\">"+k.sub+"</div></div>";';
+    html += '  });';
+    html += '  document.getElementById("kpi-row").innerHTML=h;';
+    html += '  if(typeof switchMetric==="function")switchMetric(currentMetric);';
+    html += '}';
+
+    html += 'window.addEventListener("load",function(){';
+    html += 'if(dailyData.length < 2) return;';
+    html += 'var chartOpts={layout:{background:{color:"#050d18"},textColor:"#4a6a8a",fontSize:11},grid:{vertLines:{color:"#0a1520"},horzLines:{color:"#0a1520"}},crosshair:{mode:0},timeScale:{borderColor:"#1a2a3a",timeVisible:false},rightPriceScale:{borderColor:"#1a2a3a"}};';
+    html += 'var el=document.getElementById("gads-daily-chart");';
+    html += 'if(!el)return;';
+    html += 'var chart=LightweightCharts.createChart(el,Object.assign({},chartOpts,{width:el.offsetWidth,height:350}));';
+    html += 'var series=chart.addLineSeries({color:"#4285f4",lineWidth:2});';
+
+    html += 'window.switchMetric=function(metric){';
+    html += 'currentMetric=metric;';
+    html += 'var rangeVal=document.getElementById("adsRange").value;';
+    html += 'var cutoff="0000";';
+    html += 'if(rangeVal==="thismonth"){var d2=new Date();cutoff=d2.getFullYear()+"-"+String(d2.getMonth()+1).padStart(2,"0")+"-01";}';
+    html += 'else if(rangeVal==="thisyear"){cutoff=new Date().getFullYear()+"-01-01";}';
+    html += 'else{var range=parseInt(rangeVal)||0;if(range>0)cutoff=new Date(Date.now()-range*86400000).toISOString().substring(0,10);}';
+    html += 'var filtered=dailyData.filter(function(r){return r.date>=cutoff;});';
+    html += 'var d=filtered.map(function(r){return{time:r.date,value:r[metric]||0};});';
+    html += 'series.setData(d);chart.timeScale().fitContent();';
+    html += 'var colors={cost:"#ff4757",clicks:"#4285f4",conversions:"#00ff66",ctr:"#55f7d8",avgCPC:"#a855f7",roas:"#ffd700"};';
+    html += 'series.applyOptions({color:colors[metric]||"#4285f4"});';
+    html += 'document.querySelectorAll(".mbtn").forEach(function(b){b.style.background="#0a1520";b.style.color="#4a6a8a";b.style.borderColor="#1a2a3a";});';
+    html += 'var btnMap={cost:"btn-m-cost",clicks:"btn-m-clicks",conversions:"btn-m-conv",ctr:"btn-m-ctr",avgCPC:"btn-m-cpc",roas:"btn-m-roas"};';
+    html += 'var btn=document.getElementById(btnMap[metric]);';
+    html += 'if(btn){btn.style.background="rgba(66,133,244,0.15)";btn.style.color="#4285f4";btn.style.borderColor="#4285f440";}';
+    html += '};';
+
+    html += 'switchMetric("cost");';
+    html += 'filterByRange();';
+
+    html += 'window.addEventListener("resize",function(){chart.applyOptions({width:el.offsetWidth});});';
+    html += '});';
+    html += '<\/script>';
+
+    html += '</div></body></html>';
+    res.send(html);
+  } catch (err) {
+    console.error("Google-ads dashboard error:", err.stack || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/tookan/json', async function(req, res) {
   try {
     var tk = await buildTookanContext();
