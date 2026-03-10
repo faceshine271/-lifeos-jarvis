@@ -7348,6 +7348,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
 
     // ====== LIGHTWEIGHT CHARTS SCRIPT ======
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></' + 'script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}</' + 'script>';
     html += '<script>';
     html += '(function(){';
     html += 'var md=' + lcMain + ',bbU=' + lcBBU + ',bbM=' + lcBBM + ',bbL=' + lcBBL + ',s3=' + lcS3 + ',s6=' + lcS6 + ';';
@@ -11730,6 +11731,7 @@ app.get('/business/chart', requireAuth('owner'), async function(req, res) {
     html += '<title>ATHENA — Call Volume Technical Analysis</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">';
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}<\/script>';
     html += '<style>';
     html += 'body{margin:0;background:#050d18;color:#c0d8f0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;}';
     html += '.wrap{max-width:1500px;margin:0 auto;padding:20px 30px;}';
@@ -12521,6 +12523,7 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += '<title>WILDWOOD — Predictive Analytics Engine</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}<\/script>';
     html += '<style>';
     html += '*{margin:0;padding:0;box-sizing:border-box;}';
     html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
@@ -12654,7 +12657,7 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += '<button onclick="toggleOverlay(\'ema\')" id="btn-ema2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">EMA</button>';
     html += '<button onclick="toggleOverlay(\'fib\')" id="btn-fib2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(0,255,102,0.1);color:#00ff66;border:1px solid #00ff6640;cursor:pointer;">FIB</button>';
     html += '<button onclick="toggleOverlay(\'ext\')" id="btn-ext2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:#0a1520;color:#4a6a8a;border:1px solid #1a2a3a;cursor:pointer;">FIB EXT</button>';
-    html += '<button onclick="toggleOverlay(\'forecast\')" id="btn-fore2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4340;cursor:pointer;">FORECAST</button>';
+    html += '<button onclick="toggleOverlay(\'forecast\')" id="btn-forecast2" style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:6px 14px;background:rgba(255,159,67,0.1);color:#ff9f43;border:1px solid #ff9f4340;cursor:pointer;">FORECAST</button>';
     html += '</div>';
 
     html += '<div id="call-chart" style="border:1px solid #1a2a3a;min-height:350px;width:100%;"></div>';
@@ -13280,9 +13283,11 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
 
     // Chart creation - wrapped in load handler
     html += 'window.addEventListener("load",function(){';
+    html += 'if(typeof LightweightCharts==="undefined"){document.getElementById("call-chart").innerHTML="<div style=\\"color:#ef4444;padding:20px;font-family:Orbitron;font-size:0.7em;\\">Chart library failed to load. Check internet connection and refresh.</div>";return;}';
     html += 'var chartOpts={layout:{background:{color:"#050d18"},textColor:"#4a6a8a",fontSize:11},grid:{vertLines:{color:"#0a1520"},horzLines:{color:"#0a1520"}},crosshair:{mode:0},timeScale:{borderColor:"#1a2a3a",timeVisible:false},rightPriceScale:{borderColor:"#1a2a3a"}};';
 
     // Call Volume Interactive Chart
+    html += 'try{';
     html += 'var cEl=document.getElementById("call-chart");';
     html += 'var cW=cEl.offsetWidth;';
     html += 'var mainC=LightweightCharts.createChart(cEl,Object.assign({},chartOpts,{width:cW,height:350}));';
@@ -13334,8 +13339,8 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += 'var overlays={bb:false,sma:false,ema:false,fib:true,ext:false,forecast:true};';
     html += 'window.toggleOverlay=function(id){overlays[id]=!overlays[id];';
     html += 'var el=document.getElementById("btn-"+id+"2");';
-    html += 'if(overlays[id]){el.style.background="rgba(0,212,255,0.15)";el.style.color="#00d4ff";el.style.borderColor="#00d4ff40";}';
-    html += 'else{el.style.background="#0a1520";el.style.color="#4a6a8a";el.style.borderColor="#1a2a3a";}';
+    html += 'if(el){if(overlays[id]){el.style.background="rgba(0,212,255,0.15)";el.style.color="#00d4ff";el.style.borderColor="#00d4ff40";}';
+    html += 'else{el.style.background="#0a1520";el.style.color="#4a6a8a";el.style.borderColor="#1a2a3a";}}';
     html += 'bbUp.applyOptions({visible:overlays.bb});bbLo.applyOptions({visible:overlays.bb});bbMd.applyOptions({visible:overlays.bb});';
     html += 'smaS.applyOptions({visible:overlays.sma});emaS.applyOptions({visible:overlays.ema});';
     html += 'showFib2=overlays.fib;drawFibLines();';
@@ -13343,18 +13348,24 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += 'foreS.applyOptions({visible:overlays.forecast});foreUpperS.applyOptions({visible:overlays.forecast});foreLowerS.applyOptions({visible:overlays.forecast});';
     html += '}';
 
+    html += '}catch(e){console.error("Main chart error:",e);document.getElementById("call-chart").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">Main chart error: "+e.message+"</div>";}';
+
     // RSI chart
+    html += 'try{';
     html += 'var rsiEl=document.getElementById("call-rsi");';
     html += 'var rsiC=LightweightCharts.createChart(rsiEl,Object.assign({},chartOpts,{width:cW,height:100}));';
     html += 'var rsiS=rsiC.addLineSeries({color:"#a855f7",lineWidth:1.5});';
-    html += 'var rsiData=callData.slice(' + Math.min(6, monthVals.length) + ').map(function(d,i){return{time:d.time,value:' + JSON.stringify(callRSI) + '[i]||50};});';
+    html += 'var rsiArr=' + JSON.stringify(callRSI) + ';';
+    html += 'var rsiData=callData.slice(' + Math.min(6, monthVals.length) + ').map(function(d,i){return{time:d.time,value:rsiArr[i]||50};});';
     html += 'rsiS.setData(rsiData);';
     // RSI levels
     html += 'rsiS.createPriceLine({price:70,color:"#ff475740",lineWidth:1,lineStyle:2,title:"Overbought"});';
     html += 'rsiS.createPriceLine({price:30,color:"#00ff6640",lineWidth:1,lineStyle:2,title:"Oversold"});';
     html += 'rsiS.createPriceLine({price:50,color:"#ffd70020",lineWidth:1,lineStyle:1,title:""});';
+    html += '}catch(e){console.error("RSI chart error:",e);document.getElementById("call-rsi").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">RSI error: "+e.message+"</div>";}';
 
     // MACD chart
+    html += 'try{';
     html += 'var macdEl=document.getElementById("call-macd");';
     html += 'var macdC=LightweightCharts.createChart(macdEl,Object.assign({},chartOpts,{width:cW,height:100}));';
     html += 'var macdLS=macdC.addLineSeries({color:"#00d4ff",lineWidth:1.5,title:"MACD"});';
@@ -13367,27 +13378,33 @@ app.get('/analytics', requireAuth('owner'), async function(req, res) {
     html += 'var sigD=callData.map(function(d,i){return{time:d.time,value:macdSig2[i]||0};});';
     html += 'var histD=callData.map(function(d,i){return{time:d.time,value:macdHist2[i]||0,color:(macdHist2[i]||0)>=0?"#26a69a80":"#ef535080"};});';
     html += 'macdLS.setData(macdD);macdSS.setData(sigD);macdHS.setData(histD);';
+    html += '}catch(e){console.error("MACD chart error:",e);document.getElementById("call-macd").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">MACD error: "+e.message+"</div>";}';
 
     // Revenue chart
+    html += 'var revC;';
+    html += 'try{';
     html += 'if(revChartData.length>1){';
     html += 'var rEl=document.getElementById("rev-chart");';
-    html += 'var revC=LightweightCharts.createChart(rEl,Object.assign({},chartOpts,{width:rEl.offsetWidth,height:300}));';
+    html += 'revC=LightweightCharts.createChart(rEl,Object.assign({},chartOpts,{width:rEl.offsetWidth,height:300}));';
     html += 'var revS=revC.addLineSeries({color:"#00ff66",lineWidth:2,title:"Revenue"});';
     html += 'var profS=revC.addLineSeries({color:"#ffd700",lineWidth:2,title:"Profit"});';
     html += 'revS.setData(revChartData);profS.setData(profChartData);';
     // Rev fib lines
     html += '["38.2","50.0","61.8"].forEach(function(k){if(revFib[k]){revS.createPriceLine({price:revFib[k],color:k==="38.2"?"#ff475730":k==="50.0"?"#ffd70030":"#00ff6630",lineWidth:1,lineStyle:2,axisLabelVisible:true,title:"Fib "+k+"%"});}});';
     html += 'revC.timeScale().fitContent();}';
+    html += '}catch(e){console.error("Revenue chart error:",e);document.getElementById("rev-chart").innerHTML="<div style=\\"color:#ef4444;padding:10px;\\">Revenue chart error: "+e.message+"</div>";}';
 
     // Sync crosshairs
-    html += 'mainC.timeScale().fitContent();rsiC.timeScale().fitContent();macdC.timeScale().fitContent();';
+    html += 'try{mainC.timeScale().fitContent();}catch(e){}';
+    html += 'try{rsiC.timeScale().fitContent();}catch(e){}';
+    html += 'try{macdC.timeScale().fitContent();}catch(e){}';
 
     // Resize handler
     html += 'window.addEventListener("resize",function(){';
-    html += 'var w=document.getElementById("call-chart").offsetWidth;';
-    html += 'mainC.applyOptions({width:w});rsiC.applyOptions({width:w});macdC.applyOptions({width:w});';
-    html += 'if(typeof revC!=="undefined"){revC.applyOptions({width:document.getElementById("rev-chart").offsetWidth});}';
-    html += '});'; // close resize handler
+    html += 'try{var w=document.getElementById("call-chart").offsetWidth;';
+    html += 'if(mainC)mainC.applyOptions({width:w});if(rsiC)rsiC.applyOptions({width:w});if(macdC)macdC.applyOptions({width:w});';
+    html += 'if(revC){revC.applyOptions({width:document.getElementById("rev-chart").offsetWidth});}';
+    html += '}catch(e){}});'; // close resize handler
     html += '});'; // close window load handler
 
     html += '<\/script>';
@@ -14127,6 +14144,7 @@ app.get('/ads', function(req, res, next) {
     html += '<title>WILDWOOD — Google Ads Intelligence</title>';
     html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">';
     html += '<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\/script>';
+    html += '<script>if(typeof LightweightCharts==="undefined"){document.write(\'<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"><\\/script>\');}<\/script>';
     html += '<style>';
     html += '*{margin:0;padding:0;box-sizing:border-box;}';
     html += 'body{background:#050d18;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden;}';
