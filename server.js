@@ -1151,6 +1151,7 @@ var voiceUsers = [
   { name: 'Trace', passphrase: 'jarvis activate', role: 'owner', access: 'all' },
   { name: 'Rubait', passphrase: 'discord open', role: 'manager', access: 'discord' },
   { name: 'SEO Team', passphrase: 'seo activate', role: 'seo', access: 'seo' },
+  { name: 'Tucker', passphrase: 'tucker', role: 'ads', access: 'ads' },
 ];
 var voiceSessions = {};
 
@@ -3186,6 +3187,7 @@ app.get('/', function(req, res) {
   if (session.access === 'all') return res.redirect('/dashboard');
   if (session.access === 'discord') return res.redirect('/discord');
   if (session.access === 'seo') return res.redirect('/seo');
+  if (session.access === 'ads') return res.redirect('/ads');
   return res.redirect('/dashboard');
 });
 
@@ -3239,6 +3241,7 @@ app.get('/login', function(req, res) {
     if (session.access === 'all') return res.redirect(redirect || '/dashboard');
     if (session.access === 'discord') return res.redirect('/discord');
     if (session.access === 'seo') return res.redirect(redirect || '/seo');
+    if (session.access === 'ads') return res.redirect('/ads');
     return res.redirect(redirect || '/dashboard');
   }
 
@@ -13979,8 +13982,8 @@ app.get('/ads', function(req, res, next) {
   var gadsToken = req.query.gads_token || (req.headers.cookie || '').split(';').map(function(c){return c.trim();}).filter(function(c){return c.startsWith('gads_token=');})[0];
   if (gadsToken && gadsToken.startsWith('gads_token=')) gadsToken = gadsToken.substring(11);
   if (gadsToken && googleAdsSessions[gadsToken] && (Date.now() - googleAdsSessions[gadsToken].created < 86400000)) return next();
-  // Fall back to normal owner auth
-  requireAuth('owner')(req, res, next);
+  // Fall back to normal auth (owner or ads role)
+  requireAuth(['owner', 'ads'])(req, res, next);
 }, async function(req, res) {
   try {
     await buildBusinessContext();
