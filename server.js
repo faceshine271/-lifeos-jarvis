@@ -19338,9 +19338,31 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
       stateCities[st] = d[0].map(function(c) { return { name: c[0], pop: c[1] }; });
     });
 
-    // Current business metrics for context
+    // Pull real Google Ads + Square metrics for accurate forecasting
+    var ads = null;
+    try { ads = await buildAdsContext(); } catch(e) { ads = global.adsData || null; }
+    var adsCTR = 0.05; // default 5% if no ads data
+    var adsCostPerLead = 45;
+    var adsConvRate = 0.35; // default 35% lead-to-booking
+    var adsAvgCPC = 8;
+    var adsTotalConversions = 0;
+    var adsTotalClicks = 0;
+    var adsTotalImpressions = 0;
+    if (ads && ads.accountSummary) {
+      var as = ads.accountSummary;
+      adsCTR = as.avgCTR > 0 ? as.avgCTR / 100 : adsCTR;
+      adsAvgCPC = as.avgCPC > 0 ? as.avgCPC : adsAvgCPC;
+      adsCostPerLead = as.avgCostPerConv > 0 ? as.avgCostPerConv : adsCostPerLead;
+      adsTotalConversions = as.totalConversions || 0;
+      adsTotalClicks = as.totalClicks || 0;
+      adsTotalImpressions = as.totalImpressions || 0;
+      // Derive booking rate: conversions / clicks gives us real conversion rate
+      if (as.totalClicks > 0 && as.totalConversions > 0) {
+        adsConvRate = Math.min(0.95, as.totalConversions / as.totalClicks);
+      }
+    }
     var avgTicket = sqA ? sqA.revenue.avgTicket : 250;
-    var convRate = 0.9;
+    var convRate = adsConvRate > 0 ? adsConvRate : 0.35;
 
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>Market Forecast</title>';
@@ -19448,7 +19470,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     // Quick presets — Existing + 3 Tiers
     html += '<div class="box">';
     html += '<div class="box-title"><span class="dot" style="background:#10b981"></span>EXISTING MARKETS</div>';
-    html += '<div class="btn" onclick="loadPreset(\'existing\')" style="margin-bottom:6px;border-color:#10b98140;color:#10b981">EXISTING LOCATIONS (18)</div>';
+    html += '<div class="btn" onclick="loadPreset(\'existing\')" style="margin-bottom:6px;border-color:#10b98140;color:#10b981">EXISTING LOCATIONS (14)</div>';
     html += '</div>';
 
     html += '<div class="box">';
@@ -19463,14 +19485,14 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
 
     html += '<div class="box">';
     html += '<div class="box-title"><span class="dot" style="background:#a855f7"></span>TIER THREE — EXPANSION</div>';
-    html += '<div class="btn" onclick="loadPreset(\'tier3\')" style="margin-bottom:6px;border-color:#a855f740;color:#a855f7">ALL TIER 3 (36 cities)</div>';
+    html += '<div class="btn" onclick="loadPreset(\'tier3\')" style="margin-bottom:6px;border-color:#a855f740;color:#a855f7">ALL TIER 3 (37 cities)</div>';
     html += '</div>';
 
     html += '<div class="box">';
     html += '<div class="box-title"><span class="dot" style="background:#ff6b9d"></span>COMBOS</div>';
     html += '<div class="btn" onclick="loadPreset(\'existing+tier1\')" style="margin-bottom:6px">EXISTING + TIER 1</div>';
     html += '<div class="btn" onclick="loadPreset(\'existing+tier1+tier2\')" style="margin-bottom:6px">EXISTING + TIER 1 + 2</div>';
-    html += '<div class="btn" onclick="loadPreset(\'all\')" style="margin-bottom:6px">ALL MARKETS (105 cities)</div>';
+    html += '<div class="btn" onclick="loadPreset(\'all\')" style="margin-bottom:6px">ALL MARKETS (102 cities)</div>';
     html += '</div>';
 
     html += '</div>'; // end panel-left
@@ -19492,7 +19514,6 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += '<span><i style="background:#00d4ff"></i>Small Engine</span>';
     html += '<span><i style="background:#a855f7"></i>Snow Blowers</span>';
     html += '<span><i style="background:#ff9f43"></i>Generators</span>';
-    html += '<span><i style="background:#ff6b9d"></i>Motorcycle</span>';
     html += '</div>';
     html += '<div id="forecastChart" class="month-bar"></div>';
     html += '<div id="forecastCards" class="fc-grid"></div>';
@@ -19530,13 +19551,15 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'small_engine_repair:[0.6,0.65,0.9,1.2,1.4,1.5,1.4,1.3,1.0,0.8,0.6,0.5],';
     html += 'lawn_mower_repair:[0.2,0.3,0.8,1.5,1.8,1.9,1.6,1.4,1.0,0.5,0.2,0.1],';
     html += 'snow_blower_repair:[1.4,1.2,0.8,0.3,0.1,0.1,0.1,0.1,0.3,0.8,1.6,1.8],';
-    html += 'generator_repair:[0.8,0.7,0.7,0.8,0.9,1.1,1.3,1.4,1.5,1.2,0.9,0.7],';
-    html += 'motorcycle_repair:[0.3,0.4,0.8,1.3,1.6,1.7,1.6,1.5,1.2,0.8,0.4,0.2]};';
+    html += 'generator_repair:[0.8,0.7,0.7,0.8,0.9,1.1,1.3,1.4,1.5,1.2,0.9,0.7]};';
     html += 'var AVG_TICKET=' + avgTicket + ',CONV_RATE=' + convRate + ';';
+    // Inject real Google Ads metrics
+    html += 'var ADS_CTR=' + adsCTR + ',ADS_CPC=' + adsAvgCPC + ',ADS_COST_PER_LEAD=' + adsCostPerLead + ';';
+    html += 'var ADS_TOTAL_CONV=' + adsTotalConversions + ',ADS_TOTAL_CLICKS=' + adsTotalClicks + ',ADS_TOTAL_IMPR=' + adsTotalImpressions + ';';
     html += 'var MONTH_NAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];';
-    html += 'var SVC_COLORS={lawn_mower_repair:"#00ff66",small_engine_repair:"#00d4ff",snow_blower_repair:"#a855f7",generator_repair:"#ff9f43",motorcycle_repair:"#ff6b9d"};';
-    html += 'var SVC_LABELS={small_engine_repair:"Small Engine",lawn_mower_repair:"Lawn Mower",snow_blower_repair:"Snow Blower",generator_repair:"Generator",motorcycle_repair:"Motorcycle"};';
-    html += 'var SVC_ICONS={small_engine_repair:"🔧",lawn_mower_repair:"🌿",snow_blower_repair:"❄️",generator_repair:"⚡",motorcycle_repair:"🏍️"};';
+    html += 'var SVC_COLORS={lawn_mower_repair:"#00ff66",small_engine_repair:"#00d4ff",snow_blower_repair:"#a855f7",generator_repair:"#ff9f43"};';
+    html += 'var SVC_LABELS={small_engine_repair:"Small Engine",lawn_mower_repair:"Lawn Mower",snow_blower_repair:"Snow Blower",generator_repair:"Generator"};';
+    html += 'var SVC_ICONS={small_engine_repair:"🔧",lawn_mower_repair:"🌿",snow_blower_repair:"❄️",generator_repair:"⚡"};';
 
     // State
     html += 'var selectedLocs=[];';
@@ -19651,7 +19674,11 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'selectedLocs.forEach(function(l){svcKeys.forEach(function(sk){';
     html += 'if(l.services&&l.services[sk]&&l.services[sk].vol>0){';
     html += 'var mult=SEO_SEASONAL[sk][mi];var predVol=Math.round(l.services[sk].vol*mult);';
-    html += 'var kd=l.services[sk].kd||0.3;var ctr=kd<0.15?0.35:kd<0.3?0.25:kd<0.5?0.18:0.12;';
+    html += 'var kd=l.services[sk].kd||0.3;';
+    // Use Google Ads real CTR as baseline, adjust by keyword difficulty
+    html += 'var baseCtr=ADS_CTR>0?ADS_CTR:0.08;';
+    html += 'var ctr=kd<0.15?baseCtr*3.5:kd<0.3?baseCtr*2.5:kd<0.5?baseCtr*1.8:baseCtr*1.2;';
+    html += 'ctr=Math.min(ctr,0.45);';
     html += 'var leads=Math.round(predVol*ctr);';
     html += 'svcs[sk].vol+=predVol;svcs[sk].leads+=leads;svcs[sk].rev+=Math.round(leads*CONV_RATE*AVG_TICKET);}});});';
     html += 'var totalVol=0,totalLeads=0,totalRev=0,totalBookings=0,dominant="";var maxV=0;';
@@ -19675,7 +19702,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'h+="<div class=\\"month-col\\">";';
     html += 'h+="<div style=\\"color:#c0d8f0;font-size:0.75em;font-weight:700;margin-bottom:2px\\">"+fmtMetric(total)+"</div>";';
     html += 'h+="<div class=\\"month-stack\\" style=\\"height:"+totalH+"px\\">";';
-    html += '["lawn_mower_repair","small_engine_repair","snow_blower_repair","generator_repair","motorcycle_repair"].forEach(function(sk){';
+    html += '["lawn_mower_repair","small_engine_repair","snow_blower_repair","generator_repair"].forEach(function(sk){';
     html += 'var sv=m.services[sk];if(sv){var val=getMetricVal(m,sk);if(val>0){var sh=Math.max(2,Math.round((val/maxV)*180));';
     html += 'h+="<div style=\\"width:100%;height:"+sh+"px;background:"+SVC_COLORS[sk]+";opacity:0.75\\" title=\\""+SVC_LABELS[sk]+": "+sv.vol+" searches · "+sv.leads+" leads · "+(sv.bookings||0)+" bookings · $"+sv.rev.toLocaleString()+"\\"></div>";}}});';
     html += 'h+="</div><div class=\\"month-label\\">"+m.label.split(" ")[0]+"</div></div>";});';
@@ -19710,13 +19737,25 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'h+="<div style=\\"flex:1;min-width:120px;text-align:center;padding:12px;background:rgba(10,20,35,0.8);border:1px solid #00ff6615\\"><div style=\\"color:#4a6a8a;font-size:0.7em\\">PEAK MONTH</div><div style=\\"color:#00ff66;font-size:1.2em;font-weight:900\\">"+peakM.label+"</div><div style=\\"color:#4a6a8a;font-size:0.8em\\">"+peakM.totalVol+" searches</div></div>";';
     html += 'h+="<div style=\\"flex:1;min-width:120px;text-align:center;padding:12px;background:rgba(10,20,35,0.8);border:1px solid #ff475715\\"><div style=\\"color:#4a6a8a;font-size:0.7em\\">LOW MONTH</div><div style=\\"color:#ff4757;font-size:1.2em;font-weight:900\\">"+lowM.label+"</div><div style=\\"color:#4a6a8a;font-size:0.8em\\">"+lowM.totalVol+" searches</div></div>";';
     html += 'h+="<div style=\\"flex:1;min-width:120px;text-align:center;padding:12px;background:rgba(10,20,35,0.8);border:1px solid #c084fc15\\"><div style=\\"color:#4a6a8a;font-size:0.7em\\">MARKETS</div><div style=\\"color:#c084fc;font-size:1.8em;font-weight:900\\">"+selectedLocs.length+"</div></div>";';
-    html += 'h+="</div>";el.innerHTML=h;}';
+    html += 'h+="</div>";';
+    // Google Ads KPI strip
+    html += 'h+="<div style=\\"display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding:10px;background:rgba(66,133,244,0.05);border:1px solid #4285f420\\">";';
+    html += 'h+="<div style=\\"color:#4285f4;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;width:100%;margin-bottom:4px\\">GOOGLE ADS DATA DRIVING FORECAST</div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">REAL CTR</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+(ADS_CTR*100).toFixed(1)+"%</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">AVG CPC</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">$"+ADS_CPC.toFixed(2)+"</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">COST/LEAD</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">$"+ADS_COST_PER_LEAD.toFixed(2)+"</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">BOOKING RATE</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+(CONV_RATE*100).toFixed(0)+"%</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">AVG TICKET</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">$"+AVG_TICKET.toFixed(0)+"</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">ADS CLICKS</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+ADS_TOTAL_CLICKS.toLocaleString()+"</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">ADS CONV</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+ADS_TOTAL_CONV.toLocaleString()+"</div></div>";';
+    html += 'h+="</div>";';
+    html += 'el.innerHTML=h;}';
 
     // Render per-location breakdown
     html += 'function renderLocBreakdown(){var el=document.getElementById("locBreakdown");';
     html += 'if(selectedLocs.length===0){el.innerHTML="<div style=\\"color:#4a6a8a\\">Add locations to see per-city forecasts...</div>";return;}';
     html += 'var h="";selectedLocs.forEach(function(l,i){';
-    html += 'var estLeads=0;Object.keys(l.services||{}).forEach(function(sk){var s=l.services[sk];if(s.vol>0){var ctr=s.kd<0.15?0.35:s.kd<0.3?0.25:s.kd<0.5?0.18:0.12;estLeads+=Math.round(s.vol*ctr);}});';
+    html += 'var estLeads=0;Object.keys(l.services||{}).forEach(function(sk){var s=l.services[sk];if(s.vol>0){var bc=ADS_CTR>0?ADS_CTR:0.08;var ctr=s.kd<0.15?bc*3.5:s.kd<0.3?bc*2.5:s.kd<0.5?bc*1.8:bc*1.2;ctr=Math.min(ctr,0.45);estLeads+=Math.round(s.vol*ctr);}});';
     html += 'var estRev=Math.round(estLeads*CONV_RATE*AVG_TICKET);';
     html += 'h+="<div style=\\"display:flex;align-items:center;gap:8px;margin-bottom:4px;padding:6px 0;border-bottom:1px solid #ffffff05\\">";';
     html += 'h+="<div style=\\"width:22px;color:#55f7d8;font-family:Orbitron;font-size:0.7em\\">"+(i+1)+"</div>";';
