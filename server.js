@@ -17135,7 +17135,7 @@ app.get('/seo', requireAuth(['owner','seo']), async function(req, res) {
       html += '<a href="/seo" class="active">SEO</a>';
       html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
     } else {
-      html += '<a href="/">JARVIS</a><a href="/athena">ATHENA</a><a href="/tookan">TOOKAN</a>';
+      html += '<a href="/">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a>';
       html += '<a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a>';
       html += '<a href="/google-ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
       html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
@@ -19426,7 +19426,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
 
     // Nav
     html += '<div class="nav">';
-    html += '<a href="/">JARVIS</a><a href="/athena">ATHENA</a><a href="/tookan">TOOKAN</a>';
+    html += '<a href="/">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a>';
     html += '<a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a>';
     html += '<a href="/google-ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
     html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
