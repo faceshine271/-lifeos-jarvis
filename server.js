@@ -5921,6 +5921,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
     html += '<a href="/seo">SEO</a>';
     html += '<a href="/tasks">TASKS</a>';
     html += '<a href="/audit">AUDIT</a>';
+    html += '<a href="/weather-dashboard">WEATHER</a>';
     html += '<div class="nav-divider"></div>';
     html += '<a href="/auth/logout" class="logout">LOGOUT</a>';
     html += '</div>';
@@ -8772,7 +8773,7 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/tasks" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/tasks" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/weather-dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">WEATHER</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
@@ -11315,7 +11316,7 @@ app.get('/tookan', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
     html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
     html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/tasks" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/tasks" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/weather-dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">WEATHER</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
     html += '</div>';
 
     // Status overview cards
@@ -19338,23 +19339,31 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
       stateCities[st] = d[0].map(function(c) { return { name: c[0], pop: c[1] }; });
     });
 
-    // Pull real Google Ads metrics for display + Square for avg ticket
+    // Pull real Google Ads + Square metrics for accurate forecasting
     var ads = null;
     try { ads = await buildAdsContext(); } catch(e) { ads = global.adsData || null; }
-    var adsAvgCPC = 8, adsCostPerLead = 45, adsGoogleCTR = 0;
-    var adsTotalConversions = 0, adsTotalClicks = 0, adsTotalImpressions = 0;
+    var adsCTR = 0.05; // default 5% if no ads data
+    var adsCostPerLead = 45;
+    var adsConvRate = 0.35; // default 35% lead-to-booking
+    var adsAvgCPC = 8;
+    var adsTotalConversions = 0;
+    var adsTotalClicks = 0;
+    var adsTotalImpressions = 0;
     if (ads && ads.accountSummary) {
       var as = ads.accountSummary;
-      adsGoogleCTR = as.avgCTR > 0 ? as.avgCTR : 0;
+      adsCTR = as.avgCTR > 0 ? as.avgCTR / 100 : adsCTR;
       adsAvgCPC = as.avgCPC > 0 ? as.avgCPC : adsAvgCPC;
       adsCostPerLead = as.avgCostPerConv > 0 ? as.avgCostPerConv : adsCostPerLead;
       adsTotalConversions = as.totalConversions || 0;
       adsTotalClicks = as.totalClicks || 0;
       adsTotalImpressions = as.totalImpressions || 0;
+      // Derive booking rate: conversions / clicks gives us real conversion rate
+      if (as.totalClicks > 0 && as.totalConversions > 0) {
+        adsConvRate = Math.min(0.95, as.totalConversions / as.totalClicks);
+      }
     }
     var avgTicket = sqA ? sqA.revenue.avgTicket : 250;
-    // Booking rate: 90% from actual business data (calls → booked jobs)
-    var bookingRate = 0.90;
+    var convRate = adsConvRate > 0 ? adsConvRate : 0.35;
 
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>Market Forecast</title>';
@@ -19544,9 +19553,9 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'lawn_mower_repair:[0.2,0.3,0.8,1.5,1.8,1.9,1.6,1.4,1.0,0.5,0.2,0.1],';
     html += 'snow_blower_repair:[1.4,1.2,0.8,0.3,0.1,0.1,0.1,0.1,0.3,0.8,1.6,1.8],';
     html += 'generator_repair:[0.8,0.7,0.7,0.8,0.9,1.1,1.3,1.4,1.5,1.2,0.9,0.7]};';
-    html += 'var AVG_TICKET=' + avgTicket + ',BOOKING_RATE=' + bookingRate + ';';
-    // Google Ads metrics for reference display
-    html += 'var ADS_GOOGLE_CTR=' + adsGoogleCTR + ',ADS_CPC=' + adsAvgCPC + ',ADS_COST_PER_LEAD=' + adsCostPerLead + ';';
+    html += 'var AVG_TICKET=' + avgTicket + ',CONV_RATE=' + convRate + ';';
+    // Inject real Google Ads metrics
+    html += 'var ADS_CTR=' + adsCTR + ',ADS_CPC=' + adsAvgCPC + ',ADS_COST_PER_LEAD=' + adsCostPerLead + ';';
     html += 'var ADS_TOTAL_CONV=' + adsTotalConversions + ',ADS_TOTAL_CLICKS=' + adsTotalClicks + ',ADS_TOTAL_IMPR=' + adsTotalImpressions + ';';
     html += 'var MONTH_NAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];';
     html += 'var SVC_COLORS={lawn_mower_repair:"#00ff66",small_engine_repair:"#00d4ff",snow_blower_repair:"#a855f7",generator_repair:"#ff9f43"};';
@@ -19587,7 +19596,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'var xhr=new XMLHttpRequest();xhr.open("GET","/api/seo?state="+encodeURIComponent(state),false);xhr.send();';
     html += 'if(xhr.status!==200)return{pop:pop,totalVol:0,avgKd:0.3,score:0,services:{}};';
     html += 'var data=JSON.parse(xhr.responseText);var services={};var totalVol=0,totalKd=0,cnt=0;';
-    html += 'var svcKeys=Object.keys(data.services||{}).filter(function(k){return k!=="motorcycle_repair";});';
+    html += 'var svcKeys=Object.keys(data.services||{});';
     html += 'svcKeys.forEach(function(sk){(data.services[sk]||[]).forEach(function(c){';
     html += 'if(c[0]===city){var kd=c[2]>1?c[2]/100:c[2];services[sk]={vol:c[1],kd:kd,cpc:c[3]};totalVol+=c[1];totalKd+=kd;cnt++;}});});';
     html += 'var avgKd=cnt>0?totalKd/cnt:0.3;var score=Math.round(totalVol*(1-avgKd)*(pop>100000?1.2:pop>50000?1:0.8));';
@@ -19667,14 +19676,14 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'if(l.services&&l.services[sk]&&l.services[sk].vol>0){';
     html += 'var mult=SEO_SEASONAL[sk][mi];var predVol=Math.round(l.services[sk].vol*mult);';
     html += 'var kd=l.services[sk].kd||0.3;';
-    // SEO organic CTR based on keyword difficulty → estimated ranking position
-    // KD<15: likely rank 1-3 (28-35% CTR), KD<30: rank 3-5 (15-22% CTR)
-    // KD<50: rank 5-10 (8-12% CTR), KD>=50: rank 10+ (3-6% CTR)
-    html += 'var ctr=kd<0.15?0.32:kd<0.30?0.18:kd<0.50?0.10:0.04;';
+    // Use Google Ads real CTR as baseline, adjust by keyword difficulty
+    html += 'var baseCtr=ADS_CTR>0?ADS_CTR:0.08;';
+    html += 'var ctr=kd<0.15?baseCtr*3.5:kd<0.3?baseCtr*2.5:kd<0.5?baseCtr*1.8:baseCtr*1.2;';
+    html += 'ctr=Math.min(ctr,0.45);';
     html += 'var leads=Math.round(predVol*ctr);';
-    html += 'svcs[sk].vol+=predVol;svcs[sk].leads+=leads;svcs[sk].rev+=Math.round(leads*BOOKING_RATE*AVG_TICKET);}});});';
+    html += 'svcs[sk].vol+=predVol;svcs[sk].leads+=leads;svcs[sk].rev+=Math.round(leads*CONV_RATE*AVG_TICKET);}});});';
     html += 'var totalVol=0,totalLeads=0,totalRev=0,totalBookings=0,dominant="";var maxV=0;';
-    html += 'svcKeys.forEach(function(sk){totalVol+=svcs[sk].vol;totalLeads+=svcs[sk].leads;totalRev+=svcs[sk].rev;svcs[sk].bookings=Math.round(svcs[sk].leads*BOOKING_RATE);totalBookings+=svcs[sk].bookings;if(svcs[sk].vol>maxV){maxV=svcs[sk].vol;dominant=SVC_LABELS[sk];}});';
+    html += 'svcKeys.forEach(function(sk){totalVol+=svcs[sk].vol;totalLeads+=svcs[sk].leads;totalRev+=svcs[sk].rev;svcs[sk].bookings=Math.round(svcs[sk].leads*CONV_RATE);totalBookings+=svcs[sk].bookings;if(svcs[sk].vol>maxV){maxV=svcs[sk].vol;dominant=SVC_LABELS[sk];}});';
     html += 'months.push({label:MONTH_NAMES[mi]+" "+yr,mi:mi,totalVol:totalVol,totalLeads:totalLeads,totalRev:totalRev,totalBookings:totalBookings,dominant:dominant,services:svcs});}';
     html += 'return months;}';
     // Active metric state
@@ -19730,16 +19739,16 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'h+="<div style=\\"flex:1;min-width:120px;text-align:center;padding:12px;background:rgba(10,20,35,0.8);border:1px solid #ff475715\\"><div style=\\"color:#4a6a8a;font-size:0.7em\\">LOW MONTH</div><div style=\\"color:#ff4757;font-size:1.2em;font-weight:900\\">"+lowM.label+"</div><div style=\\"color:#4a6a8a;font-size:0.8em\\">"+lowM.totalVol+" searches</div></div>";';
     html += 'h+="<div style=\\"flex:1;min-width:120px;text-align:center;padding:12px;background:rgba(10,20,35,0.8);border:1px solid #c084fc15\\"><div style=\\"color:#4a6a8a;font-size:0.7em\\">MARKETS</div><div style=\\"color:#c084fc;font-size:1.8em;font-weight:900\\">"+selectedLocs.length+"</div></div>";';
     html += 'h+="</div>";';
-    // Data sources KPI strip
+    // Google Ads KPI strip
     html += 'h+="<div style=\\"display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding:10px;background:rgba(66,133,244,0.05);border:1px solid #4285f420\\">";';
-    html += 'h+="<div style=\\"color:#4285f4;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;width:100%;margin-bottom:4px\\">FORECAST DATA SOURCES — SEO Sheet + Square + Google Ads + Call Data</div>";';
-    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#10b981;font-size:0.65em\\">SEO SHEET</div><div style=\\"color:#10b981;font-size:0.9em;font-weight:700\\">Search Vol + KD + CPC</div></div>";';
-    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">BOOKING RATE</div><div style=\\"color:#c084fc;font-size:1.2em;font-weight:700\\">"+(BOOKING_RATE*100).toFixed(0)+"%</div></div>";';
-    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">AVG TICKET</div><div style=\\"color:#ff9f43;font-size:1.2em;font-weight:700\\">$"+AVG_TICKET.toFixed(0)+"</div></div>";';
-    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">ADS CTR</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+ADS_GOOGLE_CTR.toFixed(1)+"%</div></div>";';
-    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">ADS CPC</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">$"+ADS_CPC.toFixed(2)+"</div></div>";';
+    html += 'h+="<div style=\\"color:#4285f4;font-family:Orbitron;font-size:0.55em;letter-spacing:2px;width:100%;margin-bottom:4px\\">GOOGLE ADS DATA DRIVING FORECAST</div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">REAL CTR</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+(ADS_CTR*100).toFixed(1)+"%</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">AVG CPC</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">$"+ADS_CPC.toFixed(2)+"</div></div>";';
     html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">COST/LEAD</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">$"+ADS_COST_PER_LEAD.toFixed(2)+"</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">BOOKING RATE</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+(CONV_RATE*100).toFixed(0)+"%</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">AVG TICKET</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">$"+AVG_TICKET.toFixed(0)+"</div></div>";';
     html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">ADS CLICKS</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+ADS_TOTAL_CLICKS.toLocaleString()+"</div></div>";';
+    html += 'h+="<div style=\\"flex:1;min-width:80px;text-align:center\\"><div style=\\"color:#4a6a8a;font-size:0.65em\\">ADS CONV</div><div style=\\"color:#4285f4;font-size:1.2em;font-weight:700\\">"+ADS_TOTAL_CONV.toLocaleString()+"</div></div>";';
     html += 'h+="</div>";';
     html += 'el.innerHTML=h;}';
 
@@ -19747,7 +19756,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += 'function renderLocBreakdown(){var el=document.getElementById("locBreakdown");';
     html += 'if(selectedLocs.length===0){el.innerHTML="<div style=\\"color:#4a6a8a\\">Add locations to see per-city forecasts...</div>";return;}';
     html += 'var h="";selectedLocs.forEach(function(l,i){';
-    html += 'var estLeads=0;Object.keys(l.services||{}).forEach(function(sk){var s=l.services[sk];if(s.vol>0){var ctr=s.kd<0.15?0.32:s.kd<0.30?0.18:s.kd<0.50?0.10:0.04;estLeads+=Math.round(s.vol*ctr);}});';
+    html += 'var estLeads=0;Object.keys(l.services||{}).forEach(function(sk){var s=l.services[sk];if(s.vol>0){var bc=ADS_CTR>0?ADS_CTR:0.08;var ctr=s.kd<0.15?bc*3.5:s.kd<0.3?bc*2.5:s.kd<0.5?bc*1.8:bc*1.2;ctr=Math.min(ctr,0.45);estLeads+=Math.round(s.vol*ctr);}});';
     html += 'var estRev=Math.round(estLeads*CONV_RATE*AVG_TICKET);';
     html += 'h+="<div style=\\"display:flex;align-items:center;gap:8px;margin-bottom:4px;padding:6px 0;border-bottom:1px solid #ffffff05\\">";';
     html += 'h+="<div style=\\"width:22px;color:#55f7d8;font-family:Orbitron;font-size:0.7em\\">"+(i+1)+"</div>";';
@@ -22283,867 +22292,1802 @@ app.get('/followup', async function(req, res) {
 });
 
 /* ===========================
-   WEATHER OPS DASHBOARD
-   Real-time weather + call volume predictions + historical correlation
-   Uses: OpenWeatherMap (current/forecast), Open-Meteo (historical, free), NWS (alerts, free)
+   WEATHER DASHBOARD — Call Volume Impact
+   Uses OpenWeatherMap free API (geocoding + current + 5-day forecast)
+   Predicts call volume changes per market based on weather conditions
 =========================== */
 
-// Geocoding cache for market cities
-var MARKET_COORDS = {
-  'Kansas City, MO': {lat:39.0997,lon:-94.5786}, 'Loveland, CO': {lat:40.3978,lon:-105.0750},
-  'Detroit, MI': {lat:42.3314,lon:-83.0458}, 'Houston, TX': {lat:29.7604,lon:-95.3698},
-  'Wilmington, NC': {lat:34.2257,lon:-77.9447}, 'Tampa, FL': {lat:27.9506,lon:-82.4572},
-  'Poinciana, FL': {lat:28.1403,lon:-81.4584}, 'Brownsville, TX': {lat:25.9017,lon:-97.4975},
-  'Elkhart, IN': {lat:41.6820,lon:-85.9767}, 'Sioux Falls, SD': {lat:43.5446,lon:-96.7311},
-  'San Antonio, TX': {lat:29.4241,lon:-98.4936}, 'Cape Coral, FL': {lat:26.5629,lon:-81.9495},
-  'Lehigh Acres, FL': {lat:26.6254,lon:-81.6248}, 'Fort Wayne, IN': {lat:41.0793,lon:-85.1394},
-  'Sarasota, FL': {lat:27.3364,lon:-82.5307}, 'Reno, NV': {lat:39.5296,lon:-119.8138}
-};
+var OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY || '';
 
-var weatherCache = { data: null, time: 0, TTL: 30 * 60 * 1000 }; // 30 min
-var historicalWeatherCache = { data: null, time: 0, TTL: 6 * 60 * 60 * 1000 }; // 6 hours
+// Weather impact rules for small engine repair business
+function getWeatherCallImpact(weather, temp, windSpeed, isForecasted) {
+  // weather: {id, main, description}, temp in °F, windSpeed in mph
+  var id = weather.id;
+  var main = (weather.main || '').toLowerCase();
+  var impact = { direction: 'neutral', percent: 0, reason: '', color: '#4a6a8a', icon: '' };
 
-// Fetch current weather + 5-day forecast from OpenWeatherMap
-function fetchWeatherData(city, lat, lon) {
-  var apiKey = process.env.OPENWEATHER_API_KEY;
-  if (!apiKey) return Promise.resolve(null);
-  var url = 'https://api.openweathermap.org/data/2.5/forecast?lat=' + lat + '&lon=' + lon + '&appid=' + apiKey + '&units=imperial';
-  var currentUrl = 'https://api.openweathermap.org/data/2.5/weather?lat=' + lat + '&lon=' + lon + '&appid=' + apiKey + '&units=imperial';
-  return Promise.all([
-    fetch(currentUrl).then(function(r) { return r.json(); }),
-    fetch(url).then(function(r) { return r.json(); })
-  ]).then(function(results) {
-    return { current: results[0], forecast: results[1] };
-  }).catch(function() { return null; });
+  // Thunderstorms (200-232)
+  if (id >= 200 && id < 300) {
+    impact = { direction: 'down', percent: -35, reason: 'Storms keep people inside — fewer calls', color: '#ff4757', icon: '' };
+  }
+  // Drizzle/Light rain (300-321)
+  else if (id >= 300 && id < 400) {
+    impact = { direction: 'down', percent: -10, reason: 'Light rain — slight dip in calls', color: '#ff9f43', icon: '' };
+  }
+  // Heavy rain (500-531)
+  else if (id >= 500 && id < 600) {
+    if (id >= 502) {
+      impact = { direction: 'down', percent: -30, reason: 'Heavy rain — significant call drop', color: '#ff4757', icon: '' };
+    } else {
+      impact = { direction: 'down', percent: -15, reason: 'Rain — people delay mowing/repairs', color: '#ff9f43', icon: '' };
+    }
+  }
+  // Snow (600-622)
+  else if (id >= 600 && id < 700) {
+    var month = new Date().getMonth();
+    if (month >= 9 || month <= 2) {
+      impact = { direction: 'up', percent: 25, reason: 'Snow season — snow blower repair surge', color: '#00ff66', icon: '' };
+    } else {
+      impact = { direction: 'down', percent: -20, reason: 'Unexpected snow — everything stops', color: '#ff4757', icon: '' };
+    }
+  }
+  // Fog/Mist (700-781)
+  else if (id >= 700 && id < 800) {
+    impact = { direction: 'neutral', percent: -5, reason: 'Poor visibility — minor impact', color: '#4a6a8a', icon: '' };
+  }
+  // Clear sky (800)
+  else if (id === 800) {
+    if (temp >= 75 && temp <= 95) {
+      impact = { direction: 'up', percent: 20, reason: 'Perfect mowing weather — peak call volume', color: '#00ff66', icon: '' };
+    } else if (temp > 95) {
+      impact = { direction: 'up', percent: 30, reason: 'Extreme heat — equipment overheating, AC generators running hard', color: '#00ff66', icon: '' };
+    } else if (temp < 32) {
+      impact = { direction: 'up', percent: 15, reason: 'Freezing temps — snow blower & generator demand', color: '#00ff66', icon: '' };
+    } else {
+      impact = { direction: 'up', percent: 10, reason: 'Clear skies — good day for yard work', color: '#00ff66', icon: '' };
+    }
+  }
+  // Clouds (801-804)
+  else if (id > 800 && id < 900) {
+    if (temp >= 60 && temp <= 90) {
+      impact = { direction: 'up', percent: 10, reason: 'Overcast but warm — people still mow', color: '#00ff66', icon: '' };
+    } else {
+      impact = { direction: 'neutral', percent: 0, reason: 'Cloudy — average call volume expected', color: '#4a6a8a', icon: '' };
+    }
+  }
+
+  // Wind modifier
+  if (windSpeed > 25) {
+    impact.percent -= 10;
+    impact.reason += ' | High winds';
+    if (impact.percent < 0) { impact.direction = 'down'; impact.color = '#ff4757'; }
+  }
+
+  // Extreme cold modifier
+  if (temp < 10) {
+    impact.percent += 15;
+    impact.direction = 'up';
+    impact.reason = 'Extreme cold — generator & snow blower emergencies';
+    impact.color = '#00ff66';
+  }
+
+  return impact;
 }
 
-// Fetch NWS alerts (free, no API key)
-function fetchNWSAlerts(lat, lon) {
-  var url = 'https://api.weather.gov/alerts/active?point=' + lat.toFixed(4) + ',' + lon.toFixed(4);
-  return fetch(url, { headers: { 'User-Agent': 'LifeOS-Jarvis/1.0' } })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (!data.features) return [];
-      return data.features.map(function(f) {
+// Geocode a city,state to lat/lon using OpenWeatherMap geocoding API
+var geoCache = {};
+async function geocodeCity(cityState) {
+  if (geoCache[cityState]) return geoCache[cityState];
+  try {
+    var resp = await fetch('https://api.openweathermap.org/geo/1.0/direct?q=' + encodeURIComponent(cityState + ',US') + '&limit=1&appid=' + OPENWEATHER_API_KEY);
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    if (data && data.length > 0) {
+      geoCache[cityState] = { lat: data[0].lat, lon: data[0].lon, name: data[0].name, state: data[0].state };
+      return geoCache[cityState];
+    }
+  } catch(e) { console.log('Geocode error for ' + cityState + ':', e.message); }
+  return null;
+}
+
+// Fetch current weather + 5-day forecast for a lat/lon
+var weatherCache = {};
+var WEATHER_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+async function fetchWeatherData(lat, lon, cacheKey) {
+  var now = Date.now();
+  if (weatherCache[cacheKey] && (now - weatherCache[cacheKey].time) < WEATHER_CACHE_TTL) {
+    return weatherCache[cacheKey].data;
+  }
+  try {
+    var [currentResp, forecastResp] = await Promise.all([
+      fetch('https://api.openweathermap.org/data/2.5/weather?lat=' + lat + '&lon=' + lon + '&units=imperial&appid=' + OPENWEATHER_API_KEY),
+      fetch('https://api.openweathermap.org/data/2.5/forecast?lat=' + lat + '&lon=' + lon + '&units=imperial&appid=' + OPENWEATHER_API_KEY)
+    ]);
+    if (!currentResp.ok || !forecastResp.ok) return null;
+    var current = await currentResp.json();
+    var forecast = await forecastResp.json();
+    var result = { current: current, forecast: forecast };
+    weatherCache[cacheKey] = { data: result, time: now };
+    return result;
+  } catch(e) { console.log('Weather fetch error:', e.message); return null; }
+}
+
+// ---- NWS ALERTS: Free, no API key — real-time severe weather alerts from National Weather Service ----
+var nwsAlertCache = {};
+var NWS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function fetchNWSAlerts(lat, lon, cacheKey) {
+  var now = Date.now();
+  var ck = cacheKey + '_nws';
+  if (nwsAlertCache[ck] && (now - nwsAlertCache[ck].time) < NWS_CACHE_TTL) {
+    return nwsAlertCache[ck].data;
+  }
+  try {
+    // NWS API requires point format with 4 decimal precision
+    var pointLat = parseFloat(lat).toFixed(4);
+    var pointLon = parseFloat(lon).toFixed(4);
+    var resp = await fetch('https://api.weather.gov/alerts/active?point=' + pointLat + ',' + pointLon, {
+      headers: { 'User-Agent': 'LifeOS-Jarvis/1.0 (weather-dashboard)', 'Accept': 'application/geo+json' }
+    });
+    if (!resp.ok) { nwsAlertCache[ck] = { data: [], time: now }; return []; }
+    var data = await resp.json();
+    var alerts = [];
+    if (data && data.features) {
+      data.features.forEach(function(f) {
         var p = f.properties;
-        return {
+        alerts.push({
           event: p.event || 'Unknown',
-          severity: p.severity || 'Unknown',
+          severity: p.severity || 'Unknown', // Extreme, Severe, Moderate, Minor
+          urgency: p.urgency || 'Unknown', // Immediate, Expected, Future
+          certainty: p.certainty || 'Unknown',
           headline: p.headline || '',
-          description: (p.description || '').substring(0, 300),
+          description: (p.description || '').substring(0, 500),
+          instruction: (p.instruction || '').substring(0, 300),
           onset: p.onset,
           expires: p.expires,
-          urgency: p.urgency
-        };
+          sender: p.senderName || 'NWS',
+          // Categorize for business impact
+          category: categorizeAlert(p.event || '')
+        });
       });
-    }).catch(function() { return []; });
-}
-
-// Fetch historical weather from Open-Meteo (completely free, no key)
-function fetchHistoricalWeather(lat, lon) {
-  var end = new Date();
-  var start = new Date(); start.setMonth(start.getMonth() - 18);
-  var startStr = start.toISOString().split('T')[0];
-  var endStr = end.toISOString().split('T')[0];
-  var url = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon
-    + '&start_date=' + startStr + '&end_date=' + endStr
-    + '&daily=temperature_2m_max,temperature_2m_min,temperature_2m_mean,precipitation_sum,snowfall_sum,windspeed_10m_max,weathercode'
-    + '&timezone=America/Chicago';
-  return fetch(url).then(function(r) { return r.json(); }).then(function(data) {
-    if (!data.daily) return { monthly: {}, severeEvents: [] };
-    var monthly = {};
-    var severeEvents = [];
-    var days = data.daily.time || [];
-    for (var i = 0; i < days.length; i++) {
-      var month = days[i].substring(0, 7);
-      if (!monthly[month]) monthly[month] = { temps: [], rain: 0, snow: 0, rainDays: 0, stormDays: 0, count: 0 };
-      var temp = data.daily.temperature_2m_mean[i];
-      var rain = data.daily.precipitation_sum[i] || 0;
-      var snow = data.daily.snowfall_sum[i] || 0;
-      var wind = data.daily.windspeed_10m_max[i] || 0;
-      var code = data.daily.weathercode[i] || 0;
-      if (temp !== null) monthly[month].temps.push(temp);
-      monthly[month].rain += rain;
-      monthly[month].snow += snow;
-      if (rain > 0.1) monthly[month].rainDays++;
-      if (code >= 95) monthly[month].stormDays++;
-      monthly[month].count++;
-      // Detect severe events
-      var maxTemp = data.daily.temperature_2m_max[i] || 0;
-      var minTemp = data.daily.temperature_2m_min[i] || 0;
-      if (wind > 74 && rain > 25) severeEvents.push({ date: days[i], type: 'Hurricane-Force', icon: '\ud83c\udf00', detail: 'Wind ' + Math.round(wind) + 'mph, rain ' + rain.toFixed(1) + 'mm' });
-      else if (snow > 150) severeEvents.push({ date: days[i], type: 'Major Snowstorm', icon: '\u2744\ufe0f', detail: snow.toFixed(0) + 'mm snow, wind ' + Math.round(wind) + 'mph' });
-      else if (wind > 58 && rain > 15 && code >= 95) severeEvents.push({ date: days[i], type: 'Severe Storm', icon: '\u26c8\ufe0f', detail: 'Wind ' + Math.round(wind) + 'mph, thunder + heavy rain' });
-      else if (rain > 76) severeEvents.push({ date: days[i], type: 'Extreme Flooding', icon: '\ud83c\udf0a', detail: rain.toFixed(0) + 'mm rain in one day' });
-      else if (maxTemp > 43.3) severeEvents.push({ date: days[i], type: 'Dangerous Heat', icon: '\ud83d\udd25', detail: 'High of ' + Math.round(maxTemp * 9/5 + 32) + '\u00b0F' });
-      else if (minTemp < -23.3) severeEvents.push({ date: days[i], type: 'Extreme Cold', icon: '\ud83e\udd76', detail: 'Low of ' + Math.round(minTemp * 9/5 + 32) + '\u00b0F' });
     }
-    // Compute monthly averages
-    Object.keys(monthly).forEach(function(m) {
-      var d = monthly[m];
-      d.avgTemp = d.temps.length > 0 ? d.temps.reduce(function(a,b){return a+b;},0) / d.temps.length : 0;
-      d.avgTempF = d.avgTemp * 9/5 + 32;
-    });
-    return { monthly: monthly, severeEvents: severeEvents };
-  }).catch(function() { return { monthly: {}, severeEvents: [] }; });
+    nwsAlertCache[ck] = { data: alerts, time: now };
+    return alerts;
+  } catch(e) { console.log('NWS alert error for ' + cacheKey + ':', e.message); return []; }
 }
 
-// Calculate weather impact on call volume for small engine repair
-function calcWeatherImpact(weather) {
-  if (!weather) return { pct: 0, label: 'Unknown', color: '#4a6a8a' };
-  var temp = weather.main ? weather.main.temp : (weather.temp || 70);
-  var code = weather.weather ? weather.weather[0].id : (weather.weatherCode || 800);
-  var wind = weather.wind ? weather.wind.speed : (weather.windSpeed || 5);
-  var pct = 0; var label = ''; var color = '';
-  // Thunderstorms
-  if (code >= 200 && code < 300) { pct = -35; label = 'Storms \u2014 Calls Drop'; color = '#ff4757'; }
-  // Heavy rain
-  else if (code >= 500 && code < 600) { pct = code >= 502 ? -30 : -15; label = 'Rain \u2014 Slower Day'; color = '#ffa502'; }
-  // Snow
-  else if (code >= 600 && code < 700) { pct = 25; label = 'Snow \u2014 Blower Surge'; color = '#00d4ff'; }
-  // Clear skies
-  else if (code >= 800) {
-    if (temp >= 75 && temp <= 95) { pct = 20; label = 'Peak Mowing Weather'; color = '#00ff66'; }
-    else if (temp > 95) { pct = 30; label = 'Extreme Heat \u2014 Equipment Stress'; color = '#ff6348'; }
-    else if (temp > 60) { pct = 10; label = 'Good Conditions'; color = '#00ff66'; }
-    else if (temp > 32) { pct = -5; label = 'Cool \u2014 Slight Slowdown'; color = '#ffa502'; }
-    else if (temp > 10) { pct = 15; label = 'Cold \u2014 Generator Demand'; color = '#00d4ff'; }
-    else { pct = 20; label = 'Extreme Cold \u2014 Emergency Calls'; color = '#ff4757'; }
+function categorizeAlert(eventName) {
+  var e = eventName.toLowerCase();
+  // Hurricane / Tropical
+  if (e.includes('hurricane') || e.includes('tropical')) {
+    return { type: 'hurricane', icon: '🌀', color: '#ff0066', callImpact: -80, label: 'HURRICANE',
+      bizNote: 'Operations shut down. Expect massive generator & cleanup demand AFTER storm passes.' };
   }
-  // Fog/mist
-  else { pct = -10; label = 'Low Visibility'; color = '#ffa502'; }
-  // Wind modifier
-  if (wind > 30) { pct -= 15; label += ' + High Wind'; }
-  return { pct: pct, label: label, color: color };
-}
-
-// Correlate historical weather with actual CRM call data
-function correlateWeatherCalls(monthlyWeather, monthlyCallsByCity, city) {
-  var weatherMonths = Object.keys(monthlyWeather).sort();
-  var callData = monthlyCallsByCity || {};
-  var cityCallData = null;
-  // Find matching city in call data
-  Object.keys(callData).forEach(function(k) {
-    if (k.toLowerCase().includes(city.split(',')[0].toLowerCase().trim())) cityCallData = callData[k];
-  });
-  if (!cityCallData) return { correlation: 0, rainCorrelation: 0, months: [] };
-  var paired = [];
-  weatherMonths.forEach(function(m) {
-    var w = monthlyWeather[m];
-    var calls = cityCallData[m] || 0;
-    if (calls > 0 && w.avgTempF) paired.push({ month: m, temp: w.avgTempF, rain: w.rainDays, calls: calls });
-  });
-  if (paired.length < 3) return { correlation: 0, rainCorrelation: 0, months: paired };
-  // Pearson correlation
-  function pearson(xs, ys) {
-    var n = xs.length;
-    var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
-    for (var i = 0; i < n; i++) { sumX += xs[i]; sumY += ys[i]; sumXY += xs[i]*ys[i]; sumX2 += xs[i]*xs[i]; sumY2 += ys[i]*ys[i]; }
-    var denom = Math.sqrt((n*sumX2-sumX*sumX)*(n*sumY2-sumY*sumY));
-    return denom === 0 ? 0 : (n*sumXY - sumX*sumY) / denom;
+  // Tornado
+  if (e.includes('tornado')) {
+    return { type: 'tornado', icon: '🌪️', color: '#ff0066', callImpact: -60, label: 'TORNADO',
+      bizNote: 'Immediate safety priority. Post-tornado: chainsaw & generator surge expected.' };
   }
-  var temps = paired.map(function(p){return p.temp;});
-  var calls = paired.map(function(p){return p.calls;});
-  var rains = paired.map(function(p){return p.rain;});
-  return { correlation: pearson(temps, calls), rainCorrelation: pearson(rains, calls), months: paired };
+  // Blizzard / Winter Storm
+  if (e.includes('blizzard')) {
+    return { type: 'blizzard', icon: '🌨️', color: '#00d4ff', callImpact: 40, label: 'BLIZZARD',
+      bizNote: 'Snow blower demand will SPIKE. Pre-position parts. Expect 2-3x normal call volume post-storm.' };
+  }
+  if (e.includes('winter storm') || e.includes('ice storm')) {
+    return { type: 'winter_storm', icon: '❄️', color: '#00d4ff', callImpact: 30, label: 'WINTER STORM',
+      bizNote: 'Snow blower repairs incoming. Stock carb kits, belts, auger shear pins.' };
+  }
+  if (e.includes('winter') && e.includes('advisory')) {
+    return { type: 'winter_advisory', icon: '❄️', color: '#55f7d8', callImpact: 15, label: 'WINTER ADVISORY',
+      bizNote: 'Moderate snow expected — some snow blower calls likely.' };
+  }
+  // Severe Thunderstorm
+  if (e.includes('severe thunderstorm')) {
+    return { type: 'severe_storm', icon: '⛈️', color: '#ff9f43', callImpact: -40, label: 'SEVERE STORM',
+      bizNote: 'Calls drop during storm, but generator & chainsaw demand rises after.' };
+  }
+  // Flood
+  if (e.includes('flood') || e.includes('flash flood')) {
+    return { type: 'flood', icon: '🌊', color: '#ff4757', callImpact: -50, label: 'FLOOD',
+      bizNote: 'No outdoor work possible. Expect water-damaged equipment calls afterward.' };
+  }
+  // Extreme Heat
+  if (e.includes('excessive heat') || e.includes('heat advisory') || e.includes('heat warning')) {
+    return { type: 'heat', icon: '🔥', color: '#ffd700', callImpact: 25, label: 'EXTREME HEAT',
+      bizNote: 'Equipment overheating. Mowers & generators running hard — higher failure rate.' };
+  }
+  // High Wind
+  if (e.includes('high wind') || e.includes('wind advisory')) {
+    return { type: 'wind', icon: '💨', color: '#ff9f43', callImpact: -15, label: 'HIGH WIND',
+      bizNote: 'Outdoor work risky. Some downed tree/chainsaw jobs after.' };
+  }
+  // Freeze / Frost
+  if (e.includes('freeze') || e.includes('frost') || e.includes('wind chill')) {
+    return { type: 'freeze', icon: '🥶', color: '#55f7d8', callImpact: 10, label: 'FREEZE',
+      bizNote: 'Winterization demand. Generator checks increase.' };
+  }
+  // Fire weather
+  if (e.includes('fire') || e.includes('red flag')) {
+    return { type: 'fire', icon: '🔥', color: '#ff4757', callImpact: -20, label: 'FIRE WEATHER',
+      bizNote: 'No mowing — fire risk. Some generator demand for evacuation areas.' };
+  }
+  // Dense fog
+  if (e.includes('fog')) {
+    return { type: 'fog', icon: '🌫️', color: '#4a6a8a', callImpact: -5, label: 'FOG',
+      bizNote: 'Minor impact — tech dispatch delays possible.' };
+  }
+  // Default
+  return { type: 'other', icon: '⚠️', color: '#ff9f43', callImpact: -10, label: eventName.toUpperCase().substring(0, 20),
+    bizNote: 'Monitor conditions — may impact scheduling.' };
 }
 
-// Pattern matching: find historical days with similar weather and return avg call volume
-function findSimilarWeatherDays(currentTemp, currentCode, monthlyWeather, monthlyCallsByCity, city) {
-  var callData = monthlyCallsByCity || {};
-  var cityCallData = null;
-  Object.keys(callData).forEach(function(k) {
-    if (k.toLowerCase().includes(city.split(',')[0].toLowerCase().trim())) cityCallData = callData[k];
-  });
-  if (!cityCallData) return null;
-  var months = Object.keys(monthlyWeather).sort();
-  var matchingMonthCalls = [];
-  months.forEach(function(m) {
-    var w = monthlyWeather[m];
-    if (Math.abs(w.avgTempF - currentTemp) < 15) {
-      var calls = cityCallData[m] || 0;
-      if (calls > 0) {
-        var daysInMonth = w.count || 30;
-        matchingMonthCalls.push(calls / daysInMonth);
-      }
+// Detect severe historical events from Open-Meteo daily data
+function detectHistoricalSevereEvents(dailyData) {
+  if (!dailyData || !dailyData.time) return [];
+  var events = [];
+  var daily = dailyData;
+
+  for (var i = 0; i < daily.time.length; i++) {
+    var date = daily.time[i];
+    var maxTemp = daily.temperature_2m_max[i];
+    var minTemp = daily.temperature_2m_min[i];
+    var precip = daily.precipitation_sum[i] || 0;
+    var snow = daily.snowfall_sum[i] || 0;
+    var wind = daily.windspeed_10m_max[i] || 0;
+    var wCode = daily.weathercode[i];
+
+    // Hurricane-force conditions: wind > 74mph + heavy rain
+    if (wind >= 74 && precip > 2) {
+      events.push({ date: date, type: 'hurricane', icon: '🌀', label: 'Hurricane-Force Conditions',
+        detail: 'Wind ' + Math.round(wind) + ' mph, ' + precip.toFixed(1) + '" rain',
+        color: '#ff0066' });
     }
-  });
-  if (matchingMonthCalls.length === 0) return null;
-  var avg = matchingMonthCalls.reduce(function(a,b){return a+b;},0) / matchingMonthCalls.length;
-  return Math.round(avg * 10) / 10;
+    // Major snow storm: > 6 inches
+    else if (snow > 6) {
+      events.push({ date: date, type: 'blizzard', icon: '🌨️', label: 'Major Snow Storm',
+        detail: snow.toFixed(1) + '" snowfall, wind ' + Math.round(wind) + ' mph',
+        color: '#00d4ff' });
+    }
+    // Significant snow: > 3 inches
+    else if (snow > 3) {
+      events.push({ date: date, type: 'snow_storm', icon: '❄️', label: 'Snow Storm',
+        detail: snow.toFixed(1) + '" snowfall',
+        color: '#55f7d8' });
+    }
+    // Severe thunderstorm proxy: high wind + heavy rain (WMO 95-99)
+    else if (wCode >= 95 && wind > 40) {
+      events.push({ date: date, type: 'severe_storm', icon: '⛈️', label: 'Severe Storm',
+        detail: 'Wind ' + Math.round(wind) + ' mph, ' + precip.toFixed(1) + '" rain',
+        color: '#ff9f43' });
+    }
+    // Extreme flooding rain: > 3 inches in a day
+    else if (precip > 3) {
+      events.push({ date: date, type: 'flood', icon: '🌊', label: 'Extreme Rainfall / Flood Risk',
+        detail: precip.toFixed(1) + '" rain in one day',
+        color: '#ff4757' });
+    }
+    // Dangerous heat: > 110°F
+    else if (maxTemp > 110) {
+      events.push({ date: date, type: 'extreme_heat', icon: '🔥', label: 'Dangerous Heat',
+        detail: Math.round(maxTemp) + '°F high',
+        color: '#ffd700' });
+    }
+    // Extreme cold: < -10°F
+    else if (minTemp < -10) {
+      events.push({ date: date, type: 'extreme_cold', icon: '🥶', label: 'Extreme Cold',
+        detail: Math.round(minTemp) + '°F low',
+        color: '#00d4ff' });
+    }
+    // Tropical storm force: wind 39-73 mph + heavy rain
+    else if (wind >= 39 && wind < 74 && precip > 1.5) {
+      events.push({ date: date, type: 'tropical_storm', icon: '🌀', label: 'Tropical Storm Conditions',
+        detail: 'Wind ' + Math.round(wind) + ' mph, ' + precip.toFixed(1) + '" rain',
+        color: '#ff9f43' });
+    }
+  }
+  return events;
 }
 
-// ===== WEATHER DASHBOARD ROUTE =====
-app.get('/weather-dashboard', requireAuth('owner'), function(req, res) {
+// ---- OPEN-METEO: Free historical weather (no API key needed) ----
+var histWeatherCache = {};
+var HIST_CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours — historical data doesn't change
+
+async function fetchHistoricalWeather(lat, lon, cacheKey, months) {
+  var now = Date.now();
+  var ck = cacheKey + '_hist_' + (months || 18);
+  if (histWeatherCache[ck] && (now - histWeatherCache[ck].time) < HIST_CACHE_TTL) {
+    return histWeatherCache[ck].data;
+  }
   try {
-    var bm = global.bizMetrics;
-    if (!bm) return res.status(503).send('Business data not loaded yet. Try again in a minute.');
+    var endDate = new Date();
+    endDate.setDate(endDate.getDate() - 1); // yesterday (today may not be complete)
+    var startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - (months || 18));
+    var startStr = startDate.toISOString().split('T')[0];
+    var endStr = endDate.toISOString().split('T')[0];
 
-    // Get top markets by call volume
-    var locStats = bm.locationStats || {};
-    var markets = Object.keys(locStats).map(function(k) {
-      return { city: k, total: locStats[k].total, booked: locStats[k].booked, completed: locStats[k].completed, cancelled: locStats[k].cancelled };
-    }).filter(function(m) { return m.total >= 3 && MARKET_COORDS[m.city]; })
-      .sort(function(a, b) { return b.total - a.total; })
+    var url = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon
+      + '&start_date=' + startStr + '&end_date=' + endStr
+      + '&daily=temperature_2m_max,temperature_2m_min,temperature_2m_mean,precipitation_sum,snowfall_sum,rain_sum,windspeed_10m_max,weathercode'
+      + '&temperature_unit=fahrenheit&windspeed_unit=mph&precipitation_unit=inch&timezone=America%2FChicago';
+
+    var resp = await fetch(url);
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    if (!data || !data.daily) return null;
+
+    // Aggregate daily data into monthly summaries
+    var monthly = {};
+    var daily = data.daily;
+    for (var i = 0; i < daily.time.length; i++) {
+      var mKey = daily.time[i].substring(0, 7); // "2025-03"
+      if (!monthly[mKey]) {
+        monthly[mKey] = {
+          month: mKey, days: 0,
+          tempSum: 0, tempMax: -999, tempMin: 999,
+          precipTotal: 0, snowTotal: 0, rainTotal: 0,
+          windMax: 0, stormDays: 0, rainDays: 0, snowDays: 0,
+          clearDays: 0, hotDays: 0, coldDays: 0
+        };
+      }
+      var m = monthly[mKey];
+      m.days++;
+      var avgTemp = daily.temperature_2m_mean[i];
+      var maxTemp = daily.temperature_2m_max[i];
+      var minTemp = daily.temperature_2m_min[i];
+      var precip = daily.precipitation_sum[i] || 0;
+      var snow = daily.snowfall_sum[i] || 0;
+      var rain = daily.rain_sum[i] || 0;
+      var wind = daily.windspeed_10m_max[i] || 0;
+      var wCode = daily.weathercode[i]; // WMO weather code
+
+      if (avgTemp != null) m.tempSum += avgTemp;
+      if (maxTemp != null && maxTemp > m.tempMax) m.tempMax = maxTemp;
+      if (minTemp != null && minTemp < m.tempMin) m.tempMin = minTemp;
+      m.precipTotal += precip;
+      m.snowTotal += snow;
+      m.rainTotal += rain;
+      if (wind > m.windMax) m.windMax = wind;
+
+      // WMO weather codes: 0-3=clear/cloudy, 45-48=fog, 51-67=drizzle/rain, 71-77=snow, 80-82=showers, 85-86=snow showers, 95-99=thunderstorm
+      if (wCode >= 95) m.stormDays++;
+      if (precip > 0.1) m.rainDays++;
+      if (snow > 0) m.snowDays++;
+      if (wCode <= 1 && maxTemp != null) m.clearDays++;
+      if (maxTemp != null && maxTemp > 95) m.hotDays++;
+      if (minTemp != null && minTemp < 32) m.coldDays++;
+    }
+
+    // Finalize averages
+    Object.values(monthly).forEach(function(m) {
+      m.avgTemp = m.days > 0 ? Math.round(m.tempSum / m.days) : null;
+      if (m.tempMax === -999) m.tempMax = null;
+      if (m.tempMin === 999) m.tempMin = null;
+      m.precipTotal = Math.round(m.precipTotal * 100) / 100;
+      m.snowTotal = Math.round(m.snowTotal * 100) / 100;
+      m.rainTotal = Math.round(m.rainTotal * 100) / 100;
+      m.windMax = Math.round(m.windMax);
+    });
+
+    // Detect severe historical events from raw daily data
+    var severeEvents = detectHistoricalSevereEvents(daily);
+
+    var result = { monthly: monthly, severeEvents: severeEvents };
+    histWeatherCache[ck] = { data: result, time: now };
+    return result;
+  } catch(e) { console.log('Historical weather error for ' + cacheKey + ':', e.message); return null; }
+}
+
+// Correlate historical weather with call volume
+function correlateWeatherCalls(histData, callsByMonth) {
+  if (!histData || !callsByMonth) return null;
+  var histWeather = histData.monthly || histData; // support both old and new format
+  var months = Object.keys(histWeather).sort();
+  var dataPoints = [];
+  var totalCalls = 0;
+  var totalMonths = 0;
+
+  months.forEach(function(mKey) {
+    var w = histWeather[mKey];
+    var calls = callsByMonth[mKey] || 0;
+    if (w && w.days >= 15) { // only include months with enough weather data
+      dataPoints.push({ month: mKey, weather: w, calls: calls });
+      totalCalls += calls;
+      totalMonths++;
+    }
+  });
+
+  if (dataPoints.length < 3) return null;
+  var avgCalls = totalCalls / totalMonths;
+
+  // Calculate Pearson correlation between temperature and calls
+  var tempCallCorr = pearsonCorrelation(
+    dataPoints.map(function(d) { return d.weather.avgTemp || 0; }),
+    dataPoints.map(function(d) { return d.calls; })
+  );
+
+  // Precipitation vs calls correlation
+  var precipCallCorr = pearsonCorrelation(
+    dataPoints.map(function(d) { return d.weather.rainDays; }),
+    dataPoints.map(function(d) { return d.calls; })
+  );
+
+  // Find best and worst weather months
+  var sorted = dataPoints.filter(function(d) { return d.calls > 0; }).sort(function(a, b) { return b.calls - a.calls; });
+  var bestMonths = sorted.slice(0, 3);
+  var worstMonths = sorted.slice(-3).reverse();
+
+  // Weather pattern insights
+  var insights = [];
+  if (tempCallCorr > 0.4) insights.push('Higher temperatures strongly correlate with more calls (+' + Math.round(tempCallCorr * 100) + '% correlation)');
+  else if (tempCallCorr < -0.4) insights.push('Colder months drive more calls (' + Math.round(tempCallCorr * 100) + '% inverse correlation)');
+  if (precipCallCorr < -0.3) insights.push('Rainy days reduce call volume (' + Math.round(Math.abs(precipCallCorr) * 100) + '% negative correlation)');
+  else if (precipCallCorr > 0.3) insights.push('Rain actually increases calls — emergency repairs? (+' + Math.round(precipCallCorr * 100) + '%)');
+
+  // Seasonal pattern
+  var seasonalAvg = { spring: { calls: 0, n: 0 }, summer: { calls: 0, n: 0 }, fall: { calls: 0, n: 0 }, winter: { calls: 0, n: 0 } };
+  dataPoints.forEach(function(d) {
+    var m = parseInt(d.month.split('-')[1]);
+    if (m >= 3 && m <= 5) { seasonalAvg.spring.calls += d.calls; seasonalAvg.spring.n++; }
+    else if (m >= 6 && m <= 8) { seasonalAvg.summer.calls += d.calls; seasonalAvg.summer.n++; }
+    else if (m >= 9 && m <= 11) { seasonalAvg.fall.calls += d.calls; seasonalAvg.fall.n++; }
+    else { seasonalAvg.winter.calls += d.calls; seasonalAvg.winter.n++; }
+  });
+  Object.keys(seasonalAvg).forEach(function(s) {
+    seasonalAvg[s].avg = seasonalAvg[s].n > 0 ? Math.round(seasonalAvg[s].calls / seasonalAvg[s].n) : 0;
+  });
+
+  return {
+    dataPoints: dataPoints,
+    avgCalls: Math.round(avgCalls),
+    tempCorrelation: Math.round(tempCallCorr * 100) / 100,
+    precipCorrelation: Math.round(precipCallCorr * 100) / 100,
+    bestMonths: bestMonths,
+    worstMonths: worstMonths,
+    insights: insights,
+    seasonal: seasonalAvg
+  };
+}
+
+function pearsonCorrelation(x, y) {
+  var n = x.length;
+  if (n < 3) return 0;
+  var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+  for (var i = 0; i < n; i++) {
+    sumX += x[i]; sumY += y[i];
+    sumXY += x[i] * y[i];
+    sumX2 += x[i] * x[i];
+    sumY2 += y[i] * y[i];
+  }
+  var denom = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  if (denom === 0) return 0;
+  return (n * sumXY - sumX * sumY) / denom;
+}
+
+// Historical pattern matching: find months with similar weather and return call volume
+function findSimilarWeatherPattern(histData, currentTemp, currentIsRainy, currentIsSnowy) {
+  if (!histData || !histData.monthly) return null;
+  var monthly = histData.monthly;
+  var matches = [];
+  Object.values(monthly).forEach(function(m) {
+    if (!m.avgTemp || m.days < 20) return;
+    var tempDiff = Math.abs(m.avgTemp - currentTemp);
+    var rainMatch = currentIsRainy ? m.rainDays > 8 : m.rainDays <= 8;
+    var snowMatch = currentIsSnowy ? m.snowDays > 2 : m.snowDays <= 2;
+    if (tempDiff < 12 && rainMatch && snowMatch) {
+      matches.push({ month: m.month, avgTemp: m.avgTemp, rainDays: m.rainDays, snowDays: m.snowDays, similarity: 100 - tempDiff * 3 - (rainMatch ? 0 : 15) - (snowMatch ? 0 : 15) });
+    }
+  });
+  matches.sort(function(a, b) { return b.similarity - a.similarity; });
+  return matches.slice(0, 3);
+}
+
+// Generate morning ops briefing text
+function generateMorningBriefing(validResults, totalAdjustedCalls, totalDailyRevenue, totalTechsNeeded, allActiveAlerts, partsPrep) {
+  var lines = [];
+  var now = new Date();
+  lines.push('WEATHER OPS BRIEFING — ' + now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }));
+  lines.push('');
+
+  // Alerts first
+  if (allActiveAlerts.length > 0) {
+    lines.push('⚠️ ACTIVE ALERTS (' + allActiveAlerts.length + '):');
+    allActiveAlerts.slice(0, 5).forEach(function(a) {
+      lines.push('  ' + a.alert.category.icon + ' ' + a.market + ': ' + a.alert.event + ' (' + a.alert.severity + ')');
+    });
+    lines.push('');
+  }
+
+  // Summary
+  lines.push('📊 TODAY\'S FORECAST:');
+  lines.push('  Est. ' + totalAdjustedCalls + ' calls across all markets');
+  lines.push('  Est. revenue: $' + totalDailyRevenue.toLocaleString());
+  lines.push('  Techs needed: ' + totalTechsNeeded);
+  lines.push('');
+
+  // Hot markets (staff up)
+  var hot = validResults.filter(function(r) { return !r.error && r.impact.percent >= 15; }).sort(function(a,b) { return b.impact.percent - a.impact.percent; });
+  if (hot.length > 0) {
+    lines.push('🔥 STAFF UP (high demand):');
+    hot.slice(0, 5).forEach(function(r) {
+      lines.push('  ' + r.market + ': ' + r.current.temp + '°F ' + r.current.weather.description + ' → +' + r.impact.percent + '% (~' + r._estAdjustedCalls + ' calls, ' + r._estTechsNeeded + ' techs)');
+    });
+    lines.push('');
+  }
+
+  // Dead markets (reassign)
+  var dead = validResults.filter(function(r) { return !r.error && r.impact.percent <= -15; }).sort(function(a,b) { return a.impact.percent - b.impact.percent; });
+  if (dead.length > 0) {
+    lines.push('❄️ LOW DEMAND (consider reassigning):');
+    dead.slice(0, 5).forEach(function(r) {
+      lines.push('  ' + r.market + ': ' + r.current.temp + '°F ' + r.current.weather.description + ' → ' + r.impact.percent + '% (~' + r._estAdjustedCalls + ' calls)');
+    });
+    lines.push('');
+  }
+
+  // Parts prep
+  var partsNeeded = [];
+  if (partsPrep.snowBlower.length > 0) partsNeeded.push('Snow blower parts (' + partsPrep.snowBlower.length + ' markets)');
+  if (partsPrep.generator.length > 0) partsNeeded.push('Generator parts (' + partsPrep.generator.length + ' markets)');
+  if (partsPrep.chainsaw.length > 0) partsNeeded.push('Chainsaw parts (' + partsPrep.chainsaw.length + ' markets)');
+  if (partsNeeded.length > 0) {
+    lines.push('🔧 STOCK UP: ' + partsNeeded.join(', '));
+    lines.push('');
+  }
+
+  // Dispatch optimization
+  if (hot.length > 0 && dead.length > 0) {
+    lines.push('🚛 DISPATCH TIP: Move techs from ' + dead.slice(0, 2).map(function(r) { return r.market; }).join(', ') + ' → ' + hot.slice(0, 2).map(function(r) { return r.market; }).join(', '));
+  }
+
+  return lines.join('\n');
+}
+
+app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
+  try {
+    if (!OPENWEATHER_API_KEY) {
+      return res.send('<html><body style="background:#020810;color:#ff4757;font-family:monospace;padding:60px;text-align:center;"><h1>Weather Dashboard</h1><p>Set OPENWEATHER_API_KEY in your .env file.</p><p style="color:#4a6a8a;">Get a free key at <a href="https://openweathermap.org/api" style="color:#00d4ff;">openweathermap.org/api</a></p></body></html>');
+    }
+
+    // Build business context if not loaded
+    if (!global.bizMetrics) {
+      try { await buildBusinessContext(); } catch(e) {}
+    }
+    var bm = global.bizMetrics || {};
+    var locationStats = bm.locationStats || {};
+    var monthlyCalls = bm.monthlyCalls || {};
+    var monthlyCallsByCity = bm.monthlyCallsByCity || {};
+
+    // Get top markets sorted by call volume
+    var markets = Object.entries(locationStats)
+      .filter(function(l) { return l[0] && l[0].length > 3 && l[0].includes(','); })
+      .sort(function(a, b) { return b[1].total - a[1].total; })
       .slice(0, 30);
 
-    if (markets.length === 0) return res.send('No markets with coordinates found. Check MARKET_COORDS mapping.');
+    // Fetch weather for all markets in parallel (rate-limited batches)
+    var weatherResults = [];
+    var BATCH_SIZE = 5;
+    for (var bi = 0; bi < markets.length; bi += BATCH_SIZE) {
+      var batch = markets.slice(bi, bi + BATCH_SIZE);
+      var batchResults = await Promise.all(batch.map(async function(m) {
+        var cityState = m[0];
+        var stats = m[1];
+        var geo = await geocodeCity(cityState);
+        if (!geo) return { market: cityState, stats: stats, error: 'geocode_failed' };
+        var weather = await fetchWeatherData(geo.lat, geo.lon, cityState);
+        if (!weather) return { market: cityState, stats: stats, error: 'weather_failed' };
 
-    // Fetch all weather data in parallel
-    var weatherPromises = markets.map(function(m) {
-      var coords = MARKET_COORDS[m.city];
-      return Promise.all([
-        fetchWeatherData(m.city, coords.lat, coords.lon),
-        fetchNWSAlerts(coords.lat, coords.lon),
-        fetchHistoricalWeather(coords.lat, coords.lon)
-      ]).then(function(results) {
-        var weather = results[0];
-        var alerts = results[1];
-        var historical = results[2];
-        var impact = calcWeatherImpact(weather ? weather.current : null);
-        var callsByCity = bm.monthlyCallsByCity || {};
-        var correlation = correlateWeatherCalls(historical.monthly, callsByCity, m.city);
-        var baselineDailyCalls = m.total / 180; // avg over ~6 months
-        var predictedCalls = Math.round(baselineDailyCalls * (1 + impact.pct / 100) * 10) / 10;
-        var patternMatch = weather && weather.current ? findSimilarWeatherDays(weather.current.main.temp, weather.current.weather[0].id, historical.monthly, callsByCity, m.city) : null;
-        // Forecast daily impacts
-        var forecastDays = [];
-        if (weather && weather.forecast && weather.forecast.list) {
-          var dayMap = {};
-          weather.forecast.list.forEach(function(f) {
+        var current = weather.current;
+        var forecast = weather.forecast;
+        var currentImpact = getWeatherCallImpact(
+          current.weather[0],
+          current.main.temp,
+          current.wind ? current.wind.speed : 0,
+          false
+        );
+
+        // Process 5-day forecast into daily summaries
+        var dailyForecast = [];
+        var dayMap = {};
+        if (forecast && forecast.list) {
+          forecast.list.forEach(function(f) {
             var day = f.dt_txt.split(' ')[0];
-            if (!dayMap[day]) dayMap[day] = [];
-            dayMap[day].push(f);
+            if (!dayMap[day]) {
+              dayMap[day] = { temps: [], weather: [], wind: [], dt: day };
+            }
+            dayMap[day].temps.push(f.main.temp);
+            dayMap[day].weather.push(f.weather[0]);
+            dayMap[day].wind.push(f.wind ? f.wind.speed : 0);
           });
-          Object.keys(dayMap).sort().slice(0, 7).forEach(function(day) {
-            var entries = dayMap[day];
-            var midday = entries[Math.floor(entries.length/2)];
-            var dayImpact = calcWeatherImpact(midday);
-            var hi = Math.max.apply(null, entries.map(function(e){return e.main.temp_max;}));
-            var lo = Math.min.apply(null, entries.map(function(e){return e.main.temp_min;}));
-            forecastDays.push({
-              date: day, hi: Math.round(hi), lo: Math.round(lo),
-              icon: midday.weather[0].icon, desc: midday.weather[0].description,
-              code: midday.weather[0].id, impact: dayImpact,
-              predictedCalls: Math.round(baselineDailyCalls * (1 + dayImpact.pct / 100) * 10) / 10
+          Object.values(dayMap).forEach(function(d) {
+            var avgTemp = d.temps.reduce(function(a,b){return a+b;}, 0) / d.temps.length;
+            var maxWind = Math.max.apply(null, d.wind);
+            // Use the most severe weather condition of the day
+            var worstWeather = d.weather.reduce(function(worst, w) {
+              return (w.id < worst.id || (w.id >= 200 && w.id < 700 && worst.id >= 700)) ? w : worst;
+            }, d.weather[0]);
+            var dayImpact = getWeatherCallImpact(worstWeather, avgTemp, maxWind, true);
+            dailyForecast.push({
+              date: d.dt,
+              high: Math.round(Math.max.apply(null, d.temps)),
+              low: Math.round(Math.min.apply(null, d.temps)),
+              weather: worstWeather,
+              wind: Math.round(maxWind),
+              impact: dayImpact
             });
           });
         }
+
+        // Historical monthly calls for this market
+        var cityHistory = monthlyCallsByCity[cityState] || {};
+
+        // Fetch historical weather from Open-Meteo (free, no key)
+        var histData = await fetchHistoricalWeather(geo.lat, geo.lon, cityState, 18);
+        var correlation = correlateWeatherCalls(histData, cityHistory);
+        var severeEvents = histData ? (histData.severeEvents || []) : [];
+
+        // Fetch NWS active alerts (free, no key)
+        var nwsAlerts = await fetchNWSAlerts(geo.lat, geo.lon, cityState);
+
         return {
-          city: m.city, total: m.total, booked: m.booked, completed: m.completed,
-          coords: coords, weather: weather, alerts: alerts, historical: historical,
-          impact: impact, correlation: correlation, baselineDailyCalls: baselineDailyCalls,
-          predictedCalls: predictedCalls, patternMatch: patternMatch,
-          forecastDays: forecastDays, severeEvents: historical.severeEvents || [],
-          techsNeeded: Math.ceil(predictedCalls / 4), // 4 jobs per tech per day
-          dailyRevenue: Math.round(predictedCalls * 185) // $185 avg ticket
+          market: cityState,
+          stats: stats,
+          geo: geo,
+          current: {
+            temp: Math.round(current.main.temp),
+            feels_like: Math.round(current.main.feels_like),
+            humidity: current.main.humidity,
+            weather: current.weather[0],
+            wind: current.wind ? Math.round(current.wind.speed) : 0,
+            icon: current.weather[0].icon
+          },
+          impact: currentImpact,
+          forecast: dailyForecast.slice(0, 5),
+          history: cityHistory,
+          histWeather: histData ? histData.monthly : null,
+          correlation: correlation,
+          severeEvents: severeEvents,
+          nwsAlerts: nwsAlerts,
+          // Pattern matching: find historical months with similar weather
+          similarPatterns: findSimilarWeatherPattern(histData, current.main.temp, current.weather[0].id >= 300 && current.weather[0].id < 600, current.weather[0].id >= 600 && current.weather[0].id < 700)
         };
-      }).catch(function(err) {
-        return { city: m.city, total: m.total, error: err.message };
+      }));
+      weatherResults = weatherResults.concat(batchResults);
+    }
+
+    // Calculate aggregate impact
+    var totalUp = 0, totalDown = 0, totalNeutral = 0;
+    var overallImpactSum = 0;
+    var validResults = weatherResults.filter(function(r) { return !r.error; });
+    validResults.forEach(function(r) {
+      if (r.impact.direction === 'up') totalUp++;
+      else if (r.impact.direction === 'down') totalDown++;
+      else totalNeutral++;
+      overallImpactSum += r.impact.percent;
+    });
+    var avgImpact = validResults.length > 0 ? Math.round(overallImpactSum / validResults.length) : 0;
+
+    // ====== COMPUTE: Revenue impact, staffing, parts prep ======
+    var AVG_TICKET = 185; // avg revenue per job
+    var AVG_CALLS_PER_TECH_DAY = 4; // avg jobs a tech can handle per day
+    var totalAvgDailyCalls = 0;
+    validResults.forEach(function(r) {
+      // Estimate daily calls from monthly: use this month's data or fallback to avg
+      var thisM = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0');
+      var lastM = new Date().getMonth() === 0 ? (new Date().getFullYear() - 1) + '-12' : new Date().getFullYear() + '-' + String(new Date().getMonth()).padStart(2, '0');
+      var mCalls = r.history[thisM] || r.history[lastM] || Math.round(r.stats.total / 18);
+      r._estDailyCalls = Math.round(mCalls / 22); // ~22 working days
+      r._estAdjustedCalls = Math.round(r._estDailyCalls * (1 + r.impact.percent / 100));
+      r._estDailyRevenue = r._estAdjustedCalls * AVG_TICKET;
+      r._estTechsNeeded = Math.max(1, Math.ceil(r._estAdjustedCalls / AVG_CALLS_PER_TECH_DAY));
+      totalAvgDailyCalls += r._estDailyCalls;
+    });
+    var totalAdjustedCalls = 0, totalDailyRevenue = 0, totalTechsNeeded = 0;
+    validResults.forEach(function(r) {
+      totalAdjustedCalls += r._estAdjustedCalls;
+      totalDailyRevenue += r._estDailyRevenue;
+      totalTechsNeeded += r._estTechsNeeded;
+    });
+    var revenueImpactDollar = (totalAdjustedCalls - totalAvgDailyCalls) * AVG_TICKET;
+
+    // Parts prep analysis based on forecasts
+    var partsPrep = { snowBlower: [], generator: [], chainsaw: [], mower: [], general: [] };
+    validResults.forEach(function(r) {
+      (r.forecast || []).forEach(function(f) {
+        if (f.weather.id >= 600 && f.weather.id < 700) partsPrep.snowBlower.push({ market: r.market, date: f.date, detail: f.high + '/' + f.low + 'F, ' + f.weather.description });
+        if (f.low < 20 || f.high > 100 || (f.weather.id >= 200 && f.weather.id < 300)) partsPrep.generator.push({ market: r.market, date: f.date, detail: f.high + '/' + f.low + 'F, ' + f.weather.description });
+        if (f.wind > 35 || (f.weather.id >= 200 && f.weather.id < 300)) partsPrep.chainsaw.push({ market: r.market, date: f.date, detail: 'Wind ' + f.wind + ' mph, ' + f.weather.description });
+        if (f.weather.id === 800 && f.high >= 70 && f.high <= 95) partsPrep.mower.push({ market: r.market, date: f.date, detail: f.high + 'F, clear' });
+      });
+      (r.nwsAlerts || []).forEach(function(a) {
+        var t = a.category.type;
+        if (t === 'blizzard' || t === 'winter_storm' || t === 'winter_advisory') partsPrep.snowBlower.push({ market: r.market, date: 'NOW', detail: a.event });
+        if (t === 'hurricane' || t === 'tornado' || t === 'severe_storm' || t === 'heat') partsPrep.generator.push({ market: r.market, date: 'NOW', detail: a.event });
+        if (t === 'tornado' || t === 'severe_storm') partsPrep.chainsaw.push({ market: r.market, date: 'NOW', detail: a.event });
       });
     });
 
-    Promise.all(weatherPromises).then(function(results) {
-      var validResults = results.filter(function(r) { return !r.error && r.weather; });
-      var errorResults = results.filter(function(r) { return r.error || !r.weather; });
-
-      // Aggregate stats
-      var totalPredictedCalls = 0, totalTechs = 0, totalRevenue = 0, totalAlerts = 0;
-      var upMarkets = 0, downMarkets = 0;
-      validResults.forEach(function(r) {
-        totalPredictedCalls += r.predictedCalls;
-        totalTechs += r.techsNeeded;
-        totalRevenue += r.dailyRevenue;
-        totalAlerts += r.alerts.length;
-        if (r.impact.pct > 0) upMarkets++;
-        else if (r.impact.pct < 0) downMarkets++;
+    // Pattern-matched call predictions per market
+    validResults.forEach(function(r) {
+      if (r.error || !r.similarPatterns || r.similarPatterns.length === 0) return;
+      // Find actual call volume for similar weather months
+      var matchedCalls = [];
+      r.similarPatterns.forEach(function(sp) {
+        var calls = r.history[sp.month];
+        if (calls) matchedCalls.push({ month: sp.month, calls: calls, temp: sp.avgTemp, rain: sp.rainDays });
       });
-      var avgImpact = validResults.length > 0 ? validResults.reduce(function(s,r){return s+r.impact.pct;},0) / validResults.length : 0;
+      r._patternPrediction = matchedCalls.length > 0 ? Math.round(matchedCalls.reduce(function(s, m) { return s + m.calls; }, 0) / matchedCalls.length) : null;
+      r._patternMatches = matchedCalls;
+    });
 
-      // Build morning briefing text
-      var briefingLines = [];
-      briefingLines.push('WEATHER OPS BRIEFING - ' + new Date().toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'}));
-      briefingLines.push('');
-      briefingLines.push('OVERALL: ' + (avgImpact >= 0 ? '+' : '') + Math.round(avgImpact) + '% call volume impact | Est. ' + Math.round(totalPredictedCalls) + ' calls | $' + totalRevenue.toLocaleString() + ' revenue | ' + totalTechs + ' techs needed');
-      briefingLines.push('');
-      if (totalAlerts > 0) {
-        briefingLines.push('ACTIVE ALERTS: ' + totalAlerts);
-        validResults.forEach(function(r) {
-          r.alerts.forEach(function(a) { briefingLines.push('  ' + r.city + ': ' + a.event + ' - ' + a.severity); });
+    // Generate morning briefing
+    var morningBriefing = generateMorningBriefing(validResults, totalAdjustedCalls, totalDailyRevenue, totalTechsNeeded, allActiveAlerts, partsPrep);
+
+    // Dispatch optimization: find markets to move techs FROM → TO
+    var hotMarkets = validResults.filter(function(r) { return !r.error && r.impact.percent >= 10; }).sort(function(a,b) { return b._estAdjustedCalls - a._estAdjustedCalls; });
+    var coldMarkets = validResults.filter(function(r) { return !r.error && r.impact.percent <= -10; }).sort(function(a,b) { return a.impact.percent - b.impact.percent; });
+    var dispatchMoves = [];
+    for (var di = 0; di < Math.min(coldMarkets.length, hotMarkets.length, 5); di++) {
+      dispatchMoves.push({ from: coldMarkets[di].market, fromImpact: coldMarkets[di].impact.percent, to: hotMarkets[di].market, toImpact: hotMarkets[di].impact.percent, toEst: hotMarkets[di]._estAdjustedCalls, revGain: hotMarkets[di]._estDailyRevenue - coldMarkets[di]._estDailyRevenue });
+    }
+
+    // Build HTML
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>Weather Dashboard — Call Volume Impact</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">';
+    // Leaflet CSS + Chart.js
+    html += '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>';
+    html += '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>';
+    html += '<style>';
+    html += '* { margin:0; padding:0; box-sizing:border-box; }';
+    html += 'body { background:#020810; color:#c0d8f0; font-family:Rajdhani,sans-serif; min-height:100vh; }';
+    html += '.container { max-width:1500px; margin:0 auto; padding:20px 30px; }';
+    html += '.header { text-align:center; padding:40px 20px 30px; }';
+    html += '.header h1 { font-family:Orbitron; font-size:2.5em; font-weight:900; letter-spacing:12px; background:linear-gradient(135deg,#00d4ff,#55f7d8,#00ff66); -webkit-background-clip:text; -webkit-text-fill-color:transparent; filter:drop-shadow(0 0 30px rgba(0,212,255,0.3)); }';
+    html += '.header .sub { font-size:1em; letter-spacing:6px; color:#3a5a7a; margin-top:8px; text-transform:uppercase; }';
+    html += '.summary-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:15px; margin-bottom:30px; }';
+    html += '.summary-card { background:rgba(10,20,35,0.7); border:1px solid rgba(255,255,255,0.05); padding:20px; text-align:center; }';
+    html += '.summary-card .label { font-family:Orbitron; font-size:0.6em; letter-spacing:3px; color:#4a6a8a; margin-bottom:8px; }';
+    html += '.summary-card .value { font-size:2em; font-weight:900; }';
+    html += '.summary-card .sub { font-size:0.8em; color:#4a6a8a; margin-top:4px; }';
+    html += '.section-title { font-family:Orbitron; font-size:0.8em; letter-spacing:5px; text-transform:uppercase; margin-bottom:15px; display:flex; align-items:center; gap:10px; }';
+    html += '.section-title .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }';
+    html += '.market-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:15px; margin-bottom:30px; }';
+    html += '.market-card { background:rgba(10,20,35,0.7); border:1px solid rgba(255,255,255,0.05); padding:20px; transition:border-color 0.3s; }';
+    html += '.market-card:hover { border-color:rgba(0,212,255,0.2); }';
+    html += '.market-name { font-family:Orbitron; font-size:0.85em; letter-spacing:3px; color:#00d4ff; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }';
+    html += '.market-name .calls { font-family:Rajdhani; font-size:0.9em; color:#4a6a8a; letter-spacing:0; }';
+    html += '.weather-current { display:flex; align-items:center; gap:15px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.03); }';
+    html += '.weather-icon { width:50px; height:50px; }';
+    html += '.weather-temp { font-size:2.2em; font-weight:900; color:#c0d8f0; line-height:1; }';
+    html += '.weather-desc { font-size:0.85em; color:#4a6a8a; text-transform:capitalize; }';
+    html += '.weather-details { font-size:0.8em; color:#3a5a7a; }';
+    html += '.impact-badge { display:inline-block; padding:4px 12px; font-family:Orbitron; font-size:0.6em; letter-spacing:2px; font-weight:700; border-radius:2px; }';
+    html += '.forecast-row { display:flex; gap:6px; margin-top:10px; }';
+    html += '.forecast-day { flex:1; background:rgba(5,15,25,0.6); padding:8px 6px; text-align:center; font-size:0.75em; }';
+    html += '.forecast-day .day-name { font-family:Orbitron; font-size:0.8em; letter-spacing:1px; color:#4a6a8a; margin-bottom:4px; }';
+    html += '.forecast-day .day-temp { color:#c0d8f0; font-weight:700; }';
+    html += '.forecast-day .day-impact { font-size:0.85em; margin-top:3px; }';
+    html += '.impact-up { color:#00ff66; }';
+    html += '.impact-down { color:#ff4757; }';
+    html += '.impact-neutral { color:#4a6a8a; }';
+    html += '.overall-bar { height:6px; background:#0a1520; margin:8px 0; position:relative; }';
+    html += '.overall-bar .fill { height:100%; transition:width 0.5s; }';
+    html += '.no-key-msg { text-align:center; padding:60px; color:#4a6a8a; }';
+    html += '.filter-bar { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; align-items:center; }';
+    html += '.filter-btn { background:rgba(10,20,35,0.8); border:1px solid #1a2a3a; color:#4a6a8a; font-family:Orbitron; font-size:0.55em; letter-spacing:2px; padding:8px 16px; cursor:pointer; transition:all 0.3s; }';
+    html += '.filter-btn:hover, .filter-btn.active { border-color:#00d4ff; color:#00d4ff; background:rgba(0,212,255,0.05); }';
+    html += '.back-link { display:inline-block; margin-bottom:20px; color:#4a6a8a; text-decoration:none; font-family:Orbitron; font-size:0.6em; letter-spacing:3px; border:1px solid #1a2a3a; padding:8px 16px; transition:all 0.3s; }';
+    html += '.back-link:hover { border-color:#00d4ff; color:#00d4ff; }';
+    html += '.hist-section { margin-top:40px; padding-top:30px; border-top:1px solid #0a1520; }';
+    html += '.corr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(450px,1fr)); gap:20px; margin-bottom:30px; }';
+    html += '.corr-card { background:rgba(10,20,35,0.7); border:1px solid rgba(255,255,255,0.05); padding:20px; }';
+    html += '.corr-card .market-label { font-family:Orbitron; font-size:0.7em; letter-spacing:3px; color:#c084fc; margin-bottom:12px; }';
+    html += '.corr-bar { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:0.8em; }';
+    html += '.corr-bar .bar-label { width:55px; color:#4a6a8a; font-size:0.85em; text-align:right; flex-shrink:0; }';
+    html += '.corr-bar .bar-track { flex:1; height:18px; background:#0a1520; position:relative; overflow:hidden; }';
+    html += '.corr-bar .bar-fill-w { height:100%; position:absolute; top:0; left:0; opacity:0.3; }';
+    html += '.corr-bar .bar-fill-c { height:100%; position:absolute; top:0; left:0; }';
+    html += '.corr-bar .bar-val { width:40px; font-weight:700; text-align:right; flex-shrink:0; }';
+    html += '.insight-tag { display:inline-block; padding:4px 10px; margin:3px; font-size:0.75em; background:rgba(192,132,252,0.08); border:1px solid #c084fc20; color:#c084fc; }';
+    html += '.season-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:10px; }';
+    html += '.season-box { background:rgba(5,15,25,0.6); padding:10px; text-align:center; }';
+    html += '.season-box .s-name { font-family:Orbitron; font-size:0.6em; letter-spacing:2px; color:#4a6a8a; }';
+    html += '.season-box .s-val { font-size:1.4em; font-weight:900; margin:4px 0; }';
+    html += '.season-box .s-sub { font-size:0.7em; color:#3a5a7a; }';
+    html += '.agg-chart { margin:20px 0; }';
+    html += '.agg-row { display:flex; align-items:center; gap:6px; margin:3px 0; }';
+    html += '.agg-month { width:60px; font-family:Orbitron; font-size:0.55em; letter-spacing:1px; color:#4a6a8a; text-align:right; flex-shrink:0; }';
+    html += '.agg-bars { flex:1; display:flex; height:22px; gap:2px; }';
+    html += '.agg-temp-bar { height:100%; }';
+    html += '.agg-call-bar { height:100%; }';
+    html += '.agg-vals { width:120px; font-size:0.7em; color:#4a6a8a; flex-shrink:0; display:flex; gap:8px; }';
+    html += '.corr-meter { display:flex; align-items:center; gap:10px; margin:8px 0; }';
+    html += '.corr-meter-track { flex:1; height:8px; background:linear-gradient(90deg,#ff4757,#ff4757 20%,#ff9f43 30%,#4a6a8a 45%,#4a6a8a 55%,#55f7d8 70%,#00ff66 80%,#00ff66); border-radius:4px; position:relative; }';
+    html += '.corr-meter-dot { width:14px; height:14px; background:#fff; border-radius:50%; position:absolute; top:-3px; box-shadow:0 0 6px rgba(255,255,255,0.5); transition:left 0.3s; }';
+    html += '#weather-map { height:450px; width:100%; background:#0a1520; border:1px solid #1a2a3a; margin-bottom:25px; z-index:1; }';
+    html += '.briefing-box { background:rgba(10,20,35,0.9); border:1px solid #00d4ff20; padding:20px; font-family:monospace; font-size:0.82em; white-space:pre-wrap; line-height:1.6; color:#c0d8f0; max-height:500px; overflow-y:auto; margin-bottom:15px; }';
+    html += '.sms-btn { background:rgba(0,212,255,0.1); border:1px solid #00d4ff40; color:#00d4ff; font-family:Orbitron; font-size:0.6em; letter-spacing:2px; padding:10px 24px; cursor:pointer; transition:all 0.3s; display:inline-block; }';
+    html += '.sms-btn:hover { background:rgba(0,212,255,0.2); border-color:#00d4ff; box-shadow:0 0 15px rgba(0,212,255,0.2); }';
+    html += '.sms-btn:disabled { opacity:0.4; cursor:not-allowed; }';
+    html += '.dispatch-card { background:rgba(10,20,35,0.7); border:1px solid #0a1520; padding:14px; display:flex; align-items:center; gap:12px; margin-bottom:6px; }';
+    html += '.dispatch-arrow { color:#ffd700; font-size:1.5em; flex-shrink:0; }';
+    html += '.refresh-bar { position:fixed; top:0; left:0; height:3px; background:linear-gradient(90deg,#00d4ff,#00ff66); z-index:9999; transition:width 1s linear; }';
+    html += '.chart-container { position:relative; height:300px; margin-bottom:20px; }';
+    html += '.heatmap-grid { display:grid; gap:2px; margin-bottom:25px; }';
+    html += '.hm-cell { padding:8px 4px; text-align:center; font-size:0.75em; transition:transform 0.2s; cursor:default; }';
+    html += '.hm-cell:hover { transform:scale(1.05); z-index:2; }';
+    html += '.predicted-calls { font-family:Orbitron; font-size:1.1em; font-weight:900; }';
+    html += '.ops-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:2px; margin-bottom:25px; }';
+    html += '.ops-cell { background:rgba(10,20,35,0.8); padding:10px; text-align:center; font-size:0.8em; border:1px solid #0a1520; }';
+    html += '.ops-cell .ops-day { font-family:Orbitron; font-size:0.65em; letter-spacing:2px; color:#4a6a8a; }';
+    html += '.ops-cell .ops-temp { font-size:1.3em; font-weight:900; margin:2px 0; }';
+    html += '.ops-cell .ops-detail { font-size:0.75em; color:#4a6a8a; }';
+    html += '.prep-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; margin-bottom:25px; }';
+    html += '.prep-card { background:rgba(10,20,35,0.7); border:1px solid rgba(255,255,255,0.05); padding:16px; }';
+    html += '.prep-card .prep-title { font-family:Orbitron; font-size:0.65em; letter-spacing:2px; margin-bottom:8px; display:flex; align-items:center; gap:8px; }';
+    html += '.prep-card .prep-item { font-size:0.78em; padding:3px 0; border-bottom:1px solid #0a1520; display:flex; justify-content:space-between; }';
+    html += '.staff-table { width:100%; border-collapse:collapse; margin-bottom:25px; }';
+    html += '.staff-table th { font-family:Orbitron; font-size:0.55em; letter-spacing:2px; color:#4a6a8a; text-align:left; padding:10px 12px; border-bottom:2px solid #1a2a3a; }';
+    html += '.staff-table td { padding:8px 12px; border-bottom:1px solid #0a1520; font-size:0.85em; }';
+    html += '.staff-table tr:hover { background:rgba(0,212,255,0.03); }';
+    html += '.tab-bar { display:flex; gap:0; margin-bottom:20px; border-bottom:2px solid #0a1520; }';
+    html += '.tab-btn { background:transparent; border:none; color:#4a6a8a; font-family:Orbitron; font-size:0.55em; letter-spacing:2px; padding:10px 20px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:all 0.3s; }';
+    html += '.tab-btn:hover { color:#00d4ff; }';
+    html += '.tab-btn.active { color:#00d4ff; border-bottom-color:#00d4ff; }';
+    html += '.tab-content { display:none; }';
+    html += '.tab-content.active { display:block; }';
+    html += '@media(max-width:768px) { .market-grid { grid-template-columns:1fr; } .corr-grid { grid-template-columns:1fr; } .summary-grid { grid-template-columns:repeat(2,1fr); } .header h1 { font-size:1.5em; letter-spacing:6px; } .season-grid { grid-template-columns:repeat(2,1fr); } .ops-grid { grid-template-columns:repeat(3,1fr); } #weather-map { height:300px; } }';
+    html += '</style></head><body>';
+
+    html += '<div class="container">';
+
+    // Auto-refresh progress bar
+    html += '<div class="refresh-bar" id="refresh-bar" style="width:0%;"></div>';
+
+    // Back link
+    html += '<a href="/dashboard" class="back-link">&larr; DASHBOARD</a>';
+
+    // Header
+    html += '<div class="header">';
+    html += '<h1>WEATHER OPS</h1>';
+    html += '<div class="sub">Real-Time Weather Impact on Call Volume — ' + markets.length + ' Markets</div>';
+    var now = new Date();
+    html += '<div style="font-size:0.85em;color:#3a5a7a;margin-top:5px;">' + now.toLocaleDateString('en-US', {weekday:'long',year:'numeric',month:'long',day:'numeric'}) + ' // ' + now.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit'}) + ' // <span id="refresh-timer" style="color:#00d4ff;">Auto-refresh in 15:00</span></div>';
+    html += '</div>';
+
+    // Summary cards — enhanced with revenue + staffing
+    html += '<div class="summary-grid">';
+    html += '<div class="summary-card"><div class="label">MARKETS TRACKED</div><div class="value" style="color:#00d4ff;">' + validResults.length + '</div><div class="sub">of ' + markets.length + ' total</div></div>';
+    html += '<div class="summary-card"><div class="label">CALL VOLUME OUTLOOK</div><div class="value" style="color:' + (avgImpact >= 0 ? '#00ff66' : '#ff4757') + ';">' + (avgImpact >= 0 ? '+' : '') + avgImpact + '%</div><div class="sub">Weather-adjusted across all markets</div></div>';
+    html += '<div class="summary-card"><div class="label">EST. DAILY REVENUE</div><div class="value" style="color:#ffd700;">$' + totalDailyRevenue.toLocaleString() + '</div><div class="sub">' + totalAdjustedCalls + ' calls &times; $' + AVG_TICKET + ' avg ticket</div></div>';
+    html += '<div class="summary-card"><div class="label">REVENUE IMPACT</div><div class="value" style="color:' + (revenueImpactDollar >= 0 ? '#00ff66' : '#ff4757') + ';">' + (revenueImpactDollar >= 0 ? '+$' : '-$') + Math.abs(revenueImpactDollar).toLocaleString() + '</div><div class="sub">Daily weather impact vs normal</div></div>';
+    html += '<div class="summary-card"><div class="label">TECHS NEEDED TODAY</div><div class="value" style="color:#c084fc;">' + totalTechsNeeded + '</div><div class="sub">' + totalAdjustedCalls + ' calls &divide; ' + AVG_CALLS_PER_TECH_DAY + ' per tech</div></div>';
+    html += '<div class="summary-card"><div class="label">MARKETS UP</div><div class="value" style="color:#00ff66;">' + totalUp + '</div><div class="sub">Expecting more calls</div></div>';
+    html += '<div class="summary-card"><div class="label">MARKETS DOWN</div><div class="value" style="color:#ff4757;">' + totalDown + '</div><div class="sub">Expecting fewer calls</div></div>';
+    // Count active alerts
+    var allActiveAlerts = [];
+    validResults.forEach(function(r) {
+      if (r.nwsAlerts && r.nwsAlerts.length > 0) {
+        r.nwsAlerts.forEach(function(a) {
+          allActiveAlerts.push({ market: r.market, alert: a });
         });
-        briefingLines.push('');
       }
-      briefingLines.push('HOT MARKETS (staff up):');
-      validResults.filter(function(r){return r.impact.pct >= 15;}).sort(function(a,b){return b.impact.pct-a.impact.pct;}).forEach(function(r) {
-        briefingLines.push('  ' + r.city + ': +' + r.impact.pct + '% (' + r.impact.label + ') ~' + r.predictedCalls + ' calls');
-      });
-      briefingLines.push('');
-      briefingLines.push('SLOW MARKETS (reassign techs):');
-      validResults.filter(function(r){return r.impact.pct <= -15;}).sort(function(a,b){return a.impact.pct-b.impact.pct;}).forEach(function(r) {
-        briefingLines.push('  ' + r.city + ': ' + r.impact.pct + '% (' + r.impact.label + ') ~' + r.predictedCalls + ' calls');
-      });
-      var briefingText = briefingLines.join('\n');
+    });
+    var severeAlertCount = allActiveAlerts.filter(function(a) { return a.alert.severity === 'Extreme' || a.alert.severity === 'Severe'; }).length;
 
-      // Generate parts prep data
-      var partsPrep = { snowBlower: [], generator: [], chainsaw: [], mower: [] };
-      validResults.forEach(function(r) {
-        r.forecastDays.forEach(function(fd) {
-          if (fd.code >= 600 && fd.code < 700) partsPrep.snowBlower.push(r.city);
-          if (fd.impact.pct >= 25 || r.alerts.some(function(a){return a.event.toLowerCase().includes('hurricane') || a.event.toLowerCase().includes('storm');})) partsPrep.generator.push(r.city);
-          if (r.alerts.some(function(a){return a.event.toLowerCase().includes('wind') || a.event.toLowerCase().includes('tornado');})) partsPrep.chainsaw.push(r.city);
-          if (fd.code >= 800 && fd.hi >= 70 && fd.hi <= 95) partsPrep.mower.push(r.city);
-        });
-      });
-      // Deduplicate
-      Object.keys(partsPrep).forEach(function(k) { partsPrep[k] = Array.from(new Set(partsPrep[k])); });
+    html += '<div class="summary-card"><div class="label">NEUTRAL</div><div class="value" style="color:#4a6a8a;">' + totalNeutral + '</div><div class="sub">Normal volume expected</div></div>';
+    html += '<div class="summary-card"><div class="label">ACTIVE ALERTS</div><div class="value" style="color:' + (allActiveAlerts.length > 0 ? '#ff0066' : '#00ff66') + ';">' + allActiveAlerts.length + '</div><div class="sub">' + (severeAlertCount > 0 ? severeAlertCount + ' severe/extreme' : 'No severe alerts') + '</div></div>';
+    html += '</div>';
 
-      // ===== BUILD HTML =====
-      var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
-      html += '<title>Weather Ops Dashboard | JARVIS</title>';
-      html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">';
-      html += '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>';
-      html += '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>';
-      html += '<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>';
-      html += '<style>';
-      html += '* { margin:0; padding:0; box-sizing:border-box; }';
-      html += 'body { background:#020810; color:#c0d8f0; font-family:Rajdhani,sans-serif; }';
-      html += '.header { background:linear-gradient(135deg,#0a1628,#0d2040); border-bottom:1px solid #0a2a4a; padding:16px 24px; display:flex; align-items:center; justify-content:space-between; }';
-      html += '.header h1 { font-family:Orbitron; font-size:22px; color:#00d4ff; letter-spacing:2px; }';
-      html += '.header .subtitle { font-size:13px; color:#4a6a8a; }';
-      html += '.refresh-bar { height:3px; background:#0a2a4a; position:relative; }';
-      html += '.refresh-bar .progress { height:100%; background:linear-gradient(90deg,#00d4ff,#a855f7); width:0%; transition:width 1s linear; }';
-      html += '.summary-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; padding:16px 24px; }';
-      html += '.sum-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:8px; padding:14px; text-align:center; }';
-      html += '.sum-card .val { font-family:Orbitron; font-size:28px; font-weight:700; }';
-      html += '.sum-card .lbl { font-size:12px; color:#4a6a8a; text-transform:uppercase; letter-spacing:1px; margin-top:4px; }';
-      html += '.sum-card.up .val { color:#00ff66; }';
-      html += '.sum-card.down .val { color:#ff4757; }';
-      html += '.sum-card.neutral .val { color:#00d4ff; }';
-      html += '.sum-card.alert .val { color:#ffd700; }';
-      // Alert banner
-      html += '.alert-banner { margin:0 24px 12px; padding:14px 20px; background:linear-gradient(135deg,#2d1a0a,#1a0a0a); border:1px solid #ff4757; border-radius:8px; display:' + (totalAlerts > 0 ? 'block' : 'none') + '; }';
-      html += '.alert-banner h3 { color:#ff4757; font-family:Orbitron; font-size:14px; margin-bottom:8px; }';
-      html += '.alert-item { padding:6px 0; border-bottom:1px solid rgba(255,71,87,0.2); font-size:14px; }';
-      html += '.alert-item .severity { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; margin-left:8px; }';
-      html += '.severity-extreme { background:#ff4757; color:#fff; }';
-      html += '.severity-severe { background:#ff6348; color:#fff; }';
-      html += '.severity-moderate { background:#ffa502; color:#000; }';
-      // Tabs
-      html += '.tab-bar { display:flex; gap:4px; padding:0 24px; border-bottom:1px solid #0a2a4a; overflow-x:auto; }';
-      html += '.tab-btn { padding:10px 18px; background:none; border:none; color:#4a6a8a; font-family:Rajdhani; font-size:14px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; }';
-      html += '.tab-btn.active { color:#00d4ff; border-bottom-color:#00d4ff; }';
-      html += '.tab-btn:hover { color:#c0d8f0; }';
-      html += '.tab-content { display:none; padding:16px 24px; }';
-      html += '.tab-content.active { display:block; }';
-      // Map
-      html += '#weatherMap { height:500px; border-radius:8px; border:1px solid #0a2a4a; }';
-      // Market grid
-      html += '.market-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }';
-      html += '.market-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:10px; padding:16px; transition:all 0.2s; position:relative; overflow:hidden; }';
-      html += '.market-card:hover { border-color:#00d4ff; box-shadow:0 0 20px rgba(0,212,255,0.15); }';
-      html += '.market-card.has-alert { border-color:#ff4757; }';
-      html += '.mc-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }';
-      html += '.mc-city { font-family:Orbitron; font-size:14px; color:#00d4ff; }';
-      html += '.mc-impact { font-family:Share Tech Mono; font-size:20px; font-weight:700; }';
-      html += '.mc-weather { display:flex; align-items:center; gap:10px; margin-bottom:10px; }';
-      html += '.mc-weather img { width:50px; height:50px; }';
-      html += '.mc-temp { font-family:Orbitron; font-size:32px; font-weight:700; color:#fff; }';
-      html += '.mc-desc { font-size:13px; color:#4a6a8a; text-transform:capitalize; }';
-      html += '.mc-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }';
-      html += '.mc-stat { text-align:center; padding:6px; background:#050d18; border-radius:6px; }';
-      html += '.mc-stat .v { font-family:Share Tech Mono; font-size:16px; color:#fff; }';
-      html += '.mc-stat .l { font-size:10px; color:#4a6a8a; text-transform:uppercase; }';
-      html += '.mc-forecast { display:flex; gap:6px; margin-top:10px; overflow-x:auto; }';
-      html += '.mc-fday { flex:0 0 60px; text-align:center; padding:6px 4px; background:#050d18; border-radius:6px; font-size:11px; }';
-      html += '.mc-fday img { width:30px; height:30px; }';
-      html += '.mc-fday .fpct { font-family:Share Tech Mono; font-weight:700; }';
-      html += '.mc-alert-badge { position:absolute; top:8px; right:8px; background:#ff4757; color:#fff; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; font-family:Orbitron; }';
-      // Ops grid
-      html += '.ops-table { width:100%; border-collapse:collapse; font-size:13px; }';
-      html += '.ops-table th { background:#0a1628; padding:10px 8px; text-align:left; font-family:Orbitron; font-size:11px; color:#4a6a8a; border-bottom:1px solid #0a2a4a; position:sticky; top:0; }';
-      html += '.ops-table td { padding:8px; border-bottom:1px solid #050d18; }';
-      html += '.ops-table tr:hover { background:#0d1a2d; }';
-      html += '.ops-cell { text-align:center; border-radius:4px; padding:6px; min-width:80px; }';
-      html += '.ops-cell .pct { font-family:Share Tech Mono; font-weight:700; font-size:14px; }';
-      html += '.ops-cell .calls { font-size:11px; color:#c0d8f0; }';
-      html += '.ops-cell .tmp { font-size:10px; color:#4a6a8a; }';
-      // Staffing table
-      html += '.staff-table { width:100%; border-collapse:collapse; font-size:13px; }';
-      html += '.staff-table th { background:#0a1628; padding:10px 8px; text-align:left; font-family:Orbitron; font-size:11px; color:#4a6a8a; border-bottom:1px solid #0a2a4a; }';
-      html += '.staff-table td { padding:8px; border-bottom:1px solid #050d18; }';
-      html += '.staff-table tr:hover { background:#0d1a2d; }';
-      html += '.priority-high { color:#ff4757; font-weight:700; }';
-      html += '.priority-med { color:#ffa502; font-weight:700; }';
-      html += '.priority-low { color:#00ff66; font-weight:700; }';
-      // Parts prep
-      html += '.parts-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }';
-      html += '.parts-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:10px; padding:16px; }';
-      html += '.parts-card h3 { font-family:Orbitron; font-size:14px; margin-bottom:10px; }';
-      html += '.parts-card .parts-list { font-size:13px; line-height:1.8; }';
-      html += '.parts-card .parts-markets { font-size:12px; color:#4a6a8a; margin-top:8px; }';
-      // Historical
-      html += '.hist-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr)); gap:14px; }';
-      html += '.hist-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:10px; padding:16px; }';
-      html += '.hist-card h3 { font-family:Orbitron; font-size:13px; color:#00d4ff; margin-bottom:10px; }';
-      html += '.corr-meter { height:8px; background:#050d18; border-radius:4px; margin:6px 0; position:relative; overflow:hidden; }';
-      html += '.corr-fill { height:100%; border-radius:4px; transition:width 0.5s; }';
-      html += '.month-bar { display:flex; align-items:flex-end; gap:2px; height:80px; margin-top:10px; }';
-      html += '.month-bar .bar { flex:1; min-width:4px; border-radius:2px 2px 0 0; position:relative; }';
-      // Briefing
-      html += '.briefing-box { background:#050d18; border:1px solid #0a2a4a; border-radius:8px; padding:20px; font-family:Share Tech Mono; font-size:13px; line-height:1.8; white-space:pre-wrap; max-height:500px; overflow-y:auto; }';
-      html += '.briefing-actions { display:flex; gap:10px; margin-top:12px; }';
-      html += '.btn { padding:10px 20px; border:1px solid #0a2a4a; border-radius:6px; background:#0a1628; color:#00d4ff; font-family:Rajdhani; font-weight:600; cursor:pointer; font-size:14px; }';
-      html += '.btn:hover { background:#0d2040; border-color:#00d4ff; }';
-      html += '.btn-primary { background:linear-gradient(135deg,#00d4ff,#a855f7); color:#fff; border:none; }';
-      // Severe events timeline
-      html += '.timeline { position:relative; padding-left:30px; }';
-      html += '.timeline::before { content:""; position:absolute; left:10px; top:0; bottom:0; width:2px; background:#0a2a4a; }';
-      html += '.tl-item { position:relative; margin-bottom:16px; padding:10px 14px; background:#050d18; border-radius:8px; border:1px solid #0a2a4a; }';
-      html += '.tl-item::before { content:""; position:absolute; left:-24px; top:14px; width:10px; height:10px; border-radius:50%; background:#ff4757; border:2px solid #0a2a4a; }';
-      html += '.tl-date { font-family:Share Tech Mono; font-size:11px; color:#4a6a8a; }';
-      html += '.tl-event { font-size:14px; font-weight:600; margin-top:4px; }';
-      // Filter
-      html += '.filter-row { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }';
-      html += '.filter-btn { padding:6px 14px; border:1px solid #0a2a4a; border-radius:20px; background:none; color:#4a6a8a; font-family:Rajdhani; font-size:13px; cursor:pointer; }';
-      html += '.filter-btn.active { background:#00d4ff; color:#020810; border-color:#00d4ff; }';
-      html += '@media(max-width:768px) { .summary-row { grid-template-columns:repeat(2,1fr); } .market-grid { grid-template-columns:1fr; } }';
-      html += '</style></head><body>';
+    // ====== ACTIVE SEVERE WEATHER ALERTS ======
+    if (allActiveAlerts.length > 0) {
+      // Sort: Extreme first, then Severe, then others
+      var severityOrder = { 'Extreme': 0, 'Severe': 1, 'Moderate': 2, 'Minor': 3, 'Unknown': 4 };
+      allActiveAlerts.sort(function(a, b) { return (severityOrder[a.alert.severity] || 4) - (severityOrder[b.alert.severity] || 4); });
 
-      // Header
-      html += '<div class="header"><div><h1>WEATHER OPS CENTER</h1><div class="subtitle">Real-Time Weather Intelligence \u00b7 Call Volume Predictions \u00b7 ' + validResults.length + ' Markets</div></div>';
-      html += '<div style="text-align:right"><div style="font-family:Share Tech Mono;font-size:12px;color:#4a6a8a;">Auto-refresh in <span id="countdown">15:00</span></div>';
-      html += '<a href="/dashboard" style="color:#4a6a8a;font-size:12px;text-decoration:none;">\u2190 Back to JARVIS</a></div></div>';
-      html += '<div class="refresh-bar"><div class="progress" id="refreshBar"></div></div>';
+      html += '<div style="margin-bottom:25px;padding:20px;border:2px solid #ff006640;background:rgba(255,0,102,0.03);">';
+      html += '<div class="section-title" style="color:#ff0066;"><span class="dot" style="background:#ff0066;box-shadow:0 0 12px #ff0066;animation:pulse 1.5s infinite;"></span>ACTIVE WEATHER ALERTS — ' + allActiveAlerts.length + ' ACROSS YOUR MARKETS</div>';
+      html += '<style>@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 8px #ff0066;}50%{opacity:0.5;box-shadow:0 0 20px #ff0066;}}</style>';
 
-      // Summary cards
-      html += '<div class="summary-row">';
-      html += '<div class="sum-card ' + (avgImpact >= 0 ? 'up' : 'down') + '"><div class="val">' + (avgImpact >= 0 ? '+' : '') + Math.round(avgImpact) + '%</div><div class="lbl">Avg Impact</div></div>';
-      html += '<div class="sum-card neutral"><div class="val">' + Math.round(totalPredictedCalls) + '</div><div class="lbl">Est. Daily Calls</div></div>';
-      html += '<div class="sum-card up"><div class="val">$' + totalRevenue.toLocaleString() + '</div><div class="lbl">Est. Daily Revenue</div></div>';
-      html += '<div class="sum-card neutral"><div class="val">' + totalTechs + '</div><div class="lbl">Techs Needed</div></div>';
-      html += '<div class="sum-card ' + (upMarkets > downMarkets ? 'up' : 'down') + '"><div class="val">' + upMarkets + ' / ' + downMarkets + '</div><div class="lbl">Up / Down Markets</div></div>';
-      if (totalAlerts > 0) html += '<div class="sum-card alert"><div class="val">' + totalAlerts + '</div><div class="lbl">Active Alerts</div></div>';
-      html += '</div>';
+      allActiveAlerts.forEach(function(item) {
+        var a = item.alert;
+        var cat = a.category;
+        var severityColor = a.severity === 'Extreme' ? '#ff0066' : a.severity === 'Severe' ? '#ff4757' : a.severity === 'Moderate' ? '#ff9f43' : '#4a6a8a';
+        var borderGlow = a.severity === 'Extreme' ? '#ff006630' : a.severity === 'Severe' ? '#ff475720' : '#ff9f4310';
 
-      // Active alerts banner
-      if (totalAlerts > 0) {
-        html += '<div class="alert-banner"><h3>\u26a0\ufe0f ACTIVE SEVERE WEATHER ALERTS</h3>';
-        validResults.forEach(function(r) {
-          r.alerts.forEach(function(a) {
-            var sevClass = a.severity === 'Extreme' ? 'severity-extreme' : a.severity === 'Severe' ? 'severity-severe' : 'severity-moderate';
-            html += '<div class="alert-item"><strong>' + r.city + '</strong>: ' + a.event + '<span class="severity ' + sevClass + '">' + a.severity + '</span>';
-            if (a.headline) html += '<br><span style="font-size:12px;color:#4a6a8a;">' + a.headline.substring(0,120) + '</span>';
-            html += '</div>';
-          });
-        });
+        html += '<div style="background:rgba(10,20,35,0.8);border:1px solid ' + borderGlow + ';padding:15px;margin-bottom:8px;border-left:4px solid ' + cat.color + ';">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">';
+        html += '<div>';
+        html += '<span style="font-size:1.2em;">' + cat.icon + '</span> ';
+        html += '<span style="font-family:Orbitron;font-size:0.7em;letter-spacing:2px;color:' + cat.color + ';font-weight:700;">' + cat.label + '</span>';
+        html += ' <span style="font-family:Orbitron;font-size:0.55em;letter-spacing:1px;padding:2px 8px;background:' + severityColor + '20;color:' + severityColor + ';border:1px solid ' + severityColor + '40;">' + a.severity.toUpperCase() + '</span>';
+        html += ' <span style="color:#00d4ff;font-family:Orbitron;font-size:0.6em;letter-spacing:1px;margin-left:8px;">' + item.market + '</span>';
         html += '</div>';
-      }
-
-      // Tab bar
-      html += '<div class="tab-bar">';
-      html += '<button class="tab-btn active" onclick="switchTab(\'map\')">MAP</button>';
-      html += '<button class="tab-btn" onclick="switchTab(\'ops\')">7-DAY OPS GRID</button>';
-      html += '<button class="tab-btn" onclick="switchTab(\'staffing\')">STAFFING</button>';
-      html += '<button class="tab-btn" onclick="switchTab(\'parts\')">PARTS PREP</button>';
-      html += '<button class="tab-btn" onclick="switchTab(\'markets\')">ALL MARKETS</button>';
-      html += '<button class="tab-btn" onclick="switchTab(\'historical\')">HISTORICAL</button>';
-      html += '<button class="tab-btn" onclick="switchTab(\'briefing\')">BRIEFING</button>';
-      html += '</div>';
-
-      // ===== TAB: MAP =====
-      html += '<div class="tab-content active" id="tab-map">';
-      html += '<div id="weatherMap"></div>';
-      html += '</div>';
-
-      // ===== TAB: OPS GRID =====
-      html += '<div class="tab-content" id="tab-ops">';
-      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">7-Day Operations Planning Grid</h2>';
-      html += '<div style="overflow-x:auto;"><table class="ops-table"><thead><tr><th>Market</th><th>Today Calls</th>';
-      // Add forecast day headers
-      if (validResults.length > 0 && validResults[0].forecastDays) {
-        validResults[0].forecastDays.forEach(function(fd) {
-          var d = new Date(fd.date + 'T12:00:00');
-          html += '<th>' + d.toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric'}) + '</th>';
-        });
-      }
-      html += '<th>5-Day Avg</th><th>Action</th></tr></thead><tbody>';
-      validResults.sort(function(a,b){return b.predictedCalls-a.predictedCalls;}).forEach(function(r) {
-        html += '<tr><td style="font-family:Orbitron;font-size:12px;color:#00d4ff;white-space:nowrap;">' + r.city + '</td>';
-        // Today
-        var todayBg = r.impact.pct >= 15 ? 'rgba(0,255,102,0.15)' : r.impact.pct <= -15 ? 'rgba(255,71,87,0.15)' : 'rgba(0,212,255,0.08)';
-        html += '<td><div class="ops-cell" style="background:' + todayBg + '"><div class="pct" style="color:' + r.impact.color + '">' + (r.impact.pct >= 0 ? '+' : '') + r.impact.pct + '%</div><div class="calls">' + r.predictedCalls + ' calls</div>';
-        if (r.weather && r.weather.current) html += '<div class="tmp">' + Math.round(r.weather.current.main.temp) + '\u00b0F</div>';
-        html += '</div></td>';
-        // Forecast days
-        var sumPct = 0;
-        if (r.forecastDays) {
-          r.forecastDays.forEach(function(fd) {
-            sumPct += fd.impact.pct;
-            var bg = fd.impact.pct >= 15 ? 'rgba(0,255,102,0.15)' : fd.impact.pct <= -15 ? 'rgba(255,71,87,0.15)' : 'rgba(0,212,255,0.08)';
-            html += '<td><div class="ops-cell" style="background:' + bg + '"><div class="pct" style="color:' + fd.impact.color + '">' + (fd.impact.pct >= 0 ? '+' : '') + fd.impact.pct + '%</div><div class="calls">' + fd.predictedCalls + ' calls</div><div class="tmp">' + fd.hi + '/' + fd.lo + '\u00b0F</div></div></td>';
-          });
-        }
-        var avgPct = r.forecastDays && r.forecastDays.length > 0 ? Math.round(sumPct / r.forecastDays.length) : 0;
-        html += '<td style="text-align:center;font-family:Share Tech Mono;font-weight:700;color:' + (avgPct >= 0 ? '#00ff66' : '#ff4757') + '">' + (avgPct >= 0 ? '+' : '') + avgPct + '%</td>';
-        // Action recommendation
-        var action = avgPct >= 20 ? '<span style="color:#00ff66;font-weight:700;">STAFF UP</span>' : avgPct >= 5 ? '<span style="color:#00d4ff;">NORMAL+</span>' : avgPct >= -10 ? '<span style="color:#ffa502;">LIGHT DAY</span>' : '<span style="color:#ff4757;font-weight:700;">REDUCE / REASSIGN</span>';
-        html += '<td>' + action + '</td></tr>';
-      });
-      html += '</tbody></table></div></div>';
-
-      // ===== TAB: STAFFING =====
-      html += '<div class="tab-content" id="tab-staffing">';
-      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Staffing Recommendations</h2>';
-      html += '<table class="staff-table"><thead><tr><th>Market</th><th>Baseline/Day</th><th>Weather-Adjusted</th><th>Pattern Match</th><th>Techs Needed</th><th>Est. Revenue</th><th>Priority</th></tr></thead><tbody>';
-      validResults.sort(function(a,b){return b.dailyRevenue-a.dailyRevenue;}).forEach(function(r) {
-        var priority = r.impact.pct >= 20 ? 'high' : r.impact.pct >= 0 ? 'med' : 'low';
-        var prLabel = priority === 'high' ? 'HIGH' : priority === 'med' ? 'MEDIUM' : 'LOW';
-        html += '<tr><td style="font-family:Orbitron;font-size:12px;color:#00d4ff;">' + r.city + '</td>';
-        html += '<td style="font-family:Share Tech Mono;">' + r.baselineDailyCalls.toFixed(1) + '</td>';
-        html += '<td style="font-family:Share Tech Mono;font-weight:700;color:' + r.impact.color + '">' + r.predictedCalls + '</td>';
-        html += '<td style="font-family:Share Tech Mono;">' + (r.patternMatch ? r.patternMatch + '/day' : '-') + '</td>';
-        html += '<td style="font-family:Share Tech Mono;font-weight:700;">' + r.techsNeeded + '</td>';
-        html += '<td style="font-family:Share Tech Mono;color:#00ff66;">$' + r.dailyRevenue.toLocaleString() + '</td>';
-        html += '<td class="priority-' + priority + '">' + prLabel + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
-
-      // ===== TAB: PARTS PREP =====
-      html += '<div class="tab-content" id="tab-parts">';
-      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Parts Prep Alerts (Next 5 Days)</h2>';
-      html += '<div class="parts-grid">';
-      // Snow Blower
-      html += '<div class="parts-card" style="border-left:3px solid #00d4ff;"><h3>\u2744\ufe0f Snow Blower Parts</h3>';
-      html += '<div class="parts-list">\u2022 Carburetor rebuild kits<br>\u2022 Drive belts<br>\u2022 Auger shear pins<br>\u2022 Spark plugs<br>\u2022 Paddle sets</div>';
-      html += '<div class="parts-markets">Demand from: ' + (partsPrep.snowBlower.length > 0 ? partsPrep.snowBlower.join(', ') : 'No markets forecasting snow') + '</div></div>';
-      // Generator
-      html += '<div class="parts-card" style="border-left:3px solid #ffd700;"><h3>\u26a1 Generator Parts</h3>';
-      html += '<div class="parts-list">\u2022 Oil & air filters<br>\u2022 Voltage regulators<br>\u2022 Pull cord assemblies<br>\u2022 AVR modules<br>\u2022 Fuel system kits</div>';
-      html += '<div class="parts-markets">Demand from: ' + (partsPrep.generator.length > 0 ? partsPrep.generator.join(', ') : 'No storm-related generator demand') + '</div></div>';
-      // Chainsaw
-      html += '<div class="parts-card" style="border-left:3px solid #ff6348;"><h3>\ud83e\udeb5 Chainsaw Parts</h3>';
-      html += '<div class="parts-list">\u2022 Chains & bars<br>\u2022 Sprockets<br>\u2022 Clutch assemblies<br>\u2022 Air filters<br>\u2022 Chain brake bands</div>';
-      html += '<div class="parts-markets">Demand from: ' + (partsPrep.chainsaw.length > 0 ? partsPrep.chainsaw.join(', ') : 'No high-wind markets') + '</div></div>';
-      // Mower
-      html += '<div class="parts-card" style="border-left:3px solid #00ff66;"><h3>\ud83c\udfe1 Mower Parts</h3>';
-      html += '<div class="parts-list">\u2022 Blades<br>\u2022 Drive belts<br>\u2022 Spindle assemblies<br>\u2022 Air filters<br>\u2022 Carburetor kits</div>';
-      html += '<div class="parts-markets">Demand from: ' + (partsPrep.mower.length > 0 ? partsPrep.mower.join(', ') : 'No ideal mowing weather forecasted') + '</div></div>';
-      html += '</div></div>';
-
-      // ===== TAB: ALL MARKETS =====
-      html += '<div class="tab-content" id="tab-markets">';
-      html += '<div class="filter-row">';
-      html += '<button class="filter-btn active" onclick="filterMarkets(\'all\',this)">All (' + validResults.length + ')</button>';
-      html += '<button class="filter-btn" onclick="filterMarkets(\'up\',this)">Volume Up (' + upMarkets + ')</button>';
-      html += '<button class="filter-btn" onclick="filterMarkets(\'down\',this)">Volume Down (' + downMarkets + ')</button>';
-      html += '<button class="filter-btn" onclick="filterMarkets(\'alert\',this)">Severe (' + totalAlerts + ')</button>';
-      html += '</div>';
-      html += '<div class="market-grid">';
-      validResults.forEach(function(r) {
-        var hasAlert = r.alerts.length > 0;
-        html += '<div class="market-card' + (hasAlert ? ' has-alert' : '') + '" data-impact="' + (r.impact.pct >= 0 ? 'up' : 'down') + '" data-alert="' + (hasAlert ? 'yes' : 'no') + '">';
-        if (hasAlert) html += '<div class="mc-alert-badge">' + r.alerts.length + ' ALERT' + (r.alerts.length > 1 ? 'S' : '') + '</div>';
-        html += '<div class="mc-header"><div class="mc-city">' + r.city + '</div>';
-        html += '<div class="mc-impact" style="color:' + r.impact.color + '">' + (r.impact.pct >= 0 ? '+' : '') + r.impact.pct + '%</div></div>';
-        if (r.weather && r.weather.current) {
-          var cur = r.weather.current;
-          html += '<div class="mc-weather"><img src="https://openweathermap.org/img/wn/' + cur.weather[0].icon + '@2x.png" alt="">';
-          html += '<div><div class="mc-temp">' + Math.round(cur.main.temp) + '\u00b0</div>';
-          html += '<div class="mc-desc">' + cur.weather[0].description + '</div></div></div>';
-        }
-        html += '<div style="font-size:13px;color:' + r.impact.color + ';margin-bottom:8px;font-weight:600;">' + r.impact.label + '</div>';
-        html += '<div class="mc-stats">';
-        html += '<div class="mc-stat"><div class="v">' + r.predictedCalls + '</div><div class="l">Est. Calls</div></div>';
-        html += '<div class="mc-stat"><div class="v">' + r.techsNeeded + '</div><div class="l">Techs</div></div>';
-        html += '<div class="mc-stat"><div class="v">$' + r.dailyRevenue.toLocaleString() + '</div><div class="l">Revenue</div></div>';
+        // Call impact badge
+        html += '<div style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;padding:4px 12px;background:' + (cat.callImpact >= 0 ? 'rgba(0,255,102,0.1)' : 'rgba(255,71,87,0.1)') + ';color:' + (cat.callImpact >= 0 ? '#00ff66' : '#ff4757') + ';border:1px solid ' + (cat.callImpact >= 0 ? '#00ff6630' : '#ff475730') + ';">' + (cat.callImpact >= 0 ? '+' : '') + cat.callImpact + '% CALLS</div>';
         html += '</div>';
-        // Mini forecast
-        if (r.forecastDays && r.forecastDays.length > 0) {
-          html += '<div class="mc-forecast">';
-          r.forecastDays.slice(0, 5).forEach(function(fd) {
-            html += '<div class="mc-fday"><div style="color:#4a6a8a;">' + new Date(fd.date + 'T12:00:00').toLocaleDateString('en-US',{weekday:'short'}) + '</div>';
-            html += '<img src="https://openweathermap.org/img/wn/' + fd.icon + '.png" alt="">';
-            html += '<div class="fpct" style="color:' + fd.impact.color + '">' + (fd.impact.pct >= 0 ? '+' : '') + fd.impact.pct + '%</div>';
-            html += '<div style="color:#4a6a8a;">' + fd.hi + '\u00b0</div></div>';
-          });
-          html += '</div>';
+
+        // Headline
+        if (a.headline) {
+          html += '<div style="color:#c0d8f0;font-size:0.85em;margin:8px 0 4px;">' + a.headline + '</div>';
         }
-        // NWS alerts on card
-        if (hasAlert) {
-          html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,71,87,0.3);">';
-          r.alerts.forEach(function(a) {
-            html += '<div style="font-size:12px;color:#ff4757;margin-bottom:4px;">\u26a0 ' + a.event + ' (' + a.severity + ')</div>';
-          });
+
+        // Business note
+        html += '<div style="color:' + cat.color + ';font-size:0.8em;margin-top:6px;padding:6px 10px;background:' + cat.color + '08;border-left:2px solid ' + cat.color + '40;">' + cat.bizNote + '</div>';
+
+        // Timing
+        if (a.onset || a.expires) {
+          html += '<div style="font-size:0.7em;color:#3a5a7a;margin-top:6px;">';
+          if (a.onset) html += 'Onset: ' + new Date(a.onset).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+          if (a.expires) html += ' | Expires: ' + new Date(a.expires).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
           html += '</div>';
         }
         html += '</div>';
       });
-      // Error markets
-      errorResults.forEach(function(r) {
-        html += '<div class="market-card" style="opacity:0.5;"><div class="mc-header"><div class="mc-city">' + r.city + '</div><div style="color:#4a6a8a;font-size:12px;">No weather data</div></div>';
-        html += '<div style="font-size:12px;color:#4a6a8a;">' + (r.error || 'Missing API key') + '</div></div>';
+      html += '</div>';
+    }
+
+    // ====== TAB NAVIGATION ======
+    html += '<div class="tab-bar">';
+    html += '<div class="tab-btn active" onclick="switchTab(\'briefing\')">BRIEFING</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'map\')">MAP</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'ops\')">7-DAY OPS</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'dispatch\')">DISPATCH</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'heatmap\')">REVENUE MAP</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'staffing\')">STAFFING</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'parts\')">PARTS PREP</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'markets\')">ALL MARKETS</div>';
+    html += '<div class="tab-btn" onclick="switchTab(\'history\')">HISTORICAL</div>';
+    html += '</div>';
+
+    // ====== TAB 0: MORNING OPS BRIEFING ======
+    html += '<div class="tab-content active" id="tab-briefing">';
+    html += '<div class="section-title" style="color:#00d4ff;"><span class="dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff;"></span>MORNING OPS BRIEFING</div>';
+    html += '<div class="briefing-box" id="briefing-text">' + morningBriefing.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">';
+    html += '<div class="sms-btn" onclick="copyBriefing()">COPY TO CLIPBOARD</div>';
+    html += '<div class="sms-btn" onclick="smsBriefing()" id="sms-btn">SMS TO DISPATCH TEAM</div>';
+    html += '<div style="font-size:0.75em;color:#4a6a8a;display:flex;align-items:center;gap:6px;">Send via Twilio to your team leads</div>';
+    html += '</div>';
+
+    // Dispatch optimization moves
+    if (dispatchMoves.length > 0) {
+      html += '<div class="section-title" style="color:#ffd700;margin-top:20px;"><span class="dot" style="background:#ffd700;box-shadow:0 0 8px #ffd700;"></span>DISPATCH OPTIMIZATION — MOVE TECHS TO REVENUE</div>';
+      html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:12px;">Weather is killing demand in some markets and boosting others. Move techs to capture the revenue.</div>';
+      dispatchMoves.forEach(function(dm) {
+        html += '<div class="dispatch-card">';
+        html += '<div style="flex:1;text-align:center;"><div style="color:#ff4757;font-family:Orbitron;font-size:0.65em;letter-spacing:1px;">LOW DEMAND</div><div style="color:#c0d8f0;font-weight:600;">' + dm.from + '</div><div style="color:#ff4757;font-size:0.85em;">' + dm.fromImpact + '% calls</div></div>';
+        html += '<div class="dispatch-arrow">→</div>';
+        html += '<div style="flex:1;text-align:center;"><div style="color:#00ff66;font-family:Orbitron;font-size:0.65em;letter-spacing:1px;">HIGH DEMAND</div><div style="color:#c0d8f0;font-weight:600;">' + dm.to + '</div><div style="color:#00ff66;font-size:0.85em;">+' + dm.toImpact + '% (~' + dm.toEst + ' calls)</div></div>';
+        html += '<div style="flex-shrink:0;text-align:center;padding-left:12px;border-left:1px solid #1a2a3a;"><div style="color:#ffd700;font-family:Orbitron;font-size:0.6em;letter-spacing:1px;">REV GAIN</div><div style="color:#ffd700;font-size:1.2em;font-weight:900;">+$' + Math.max(0, dm.revGain).toLocaleString() + '</div><div style="color:#4a6a8a;font-size:0.7em;">per day</div></div>';
+        html += '</div>';
+      });
+    }
+
+    // Chart.js — All markets temp vs predicted calls
+    html += '<div style="margin-top:25px;">';
+    html += '<div class="section-title" style="color:#c084fc;"><span class="dot" style="background:#c084fc;box-shadow:0 0 8px #c084fc;"></span>TODAY\'S WEATHER vs PREDICTED CALLS — ALL MARKETS</div>';
+    html += '<div class="chart-container"><canvas id="weather-calls-chart"></canvas></div>';
+    html += '</div>';
+    html += '</div>'; // tab-briefing
+
+    // ====== TAB: DISPATCH OPTIMIZATION ======
+    html += '<div class="tab-content" id="tab-dispatch">';
+    html += '<div class="section-title" style="color:#ffd700;"><span class="dot" style="background:#ffd700;box-shadow:0 0 8px #ffd700;"></span>SMART DISPATCH — WEATHER-BASED TECH ROUTING</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:15px;">Move technicians from low-demand markets to high-demand markets to maximize daily revenue.</div>';
+
+    // Full dispatch table
+    html += '<table class="staff-table">';
+    html += '<thead><tr><th>MARKET</th><th>WEATHER</th><th>IMPACT</th><th>PREDICTED CALLS</th><th>PATTERN MATCH</th><th>TECHS</th><th>REVENUE</th><th>ACTION</th></tr></thead><tbody>';
+    validResults.sort(function(a,b) { return (b._estAdjustedCalls || 0) - (a._estAdjustedCalls || 0); }).forEach(function(r) {
+      if (r.error) return;
+      var act = r.impact.percent >= 15 ? '<span style="color:#00ff66;font-weight:700;">STAFF UP</span>' : r.impact.percent <= -15 ? '<span style="color:#ff4757;font-weight:700;">MOVE TECHS OUT</span>' : r.impact.percent >= 5 ? '<span style="color:#55f7d8;">NORMAL+</span>' : r.impact.percent <= -5 ? '<span style="color:#ff9f43;">LIGHT</span>' : '<span style="color:#4a6a8a;">NORMAL</span>';
+      var patternText = r._patternPrediction ? '<span style="color:#c084fc;">' + Math.round(r._patternPrediction / 22) + '/day</span> <span style="color:#4a6a8a;font-size:0.8em;">(' + r._patternMatches.length + ' matches)</span>' : '<span style="color:#4a6a8a;">—</span>';
+      html += '<tr>';
+      html += '<td style="color:#00d4ff;font-weight:600;">' + r.market + '</td>';
+      html += '<td><img src="https://openweathermap.org/img/wn/' + r.current.icon + '.png" style="width:24px;vertical-align:middle;"> ' + r.current.temp + '°F ' + r.current.weather.description + '</td>';
+      html += '<td style="color:' + r.impact.color + ';font-weight:700;">' + (r.impact.percent >= 0 ? '+' : '') + r.impact.percent + '%</td>';
+      html += '<td style="text-align:center;"><span class="predicted-calls" style="color:' + r.impact.color + ';">' + r._estAdjustedCalls + '</span><span style="color:#4a6a8a;font-size:0.8em;">/day</span></td>';
+      html += '<td>' + patternText + '</td>';
+      html += '<td style="text-align:center;font-weight:900;color:#c084fc;">' + r._estTechsNeeded + '</td>';
+      html += '<td style="color:#ffd700;font-weight:700;">$' + r._estDailyRevenue.toLocaleString() + '</td>';
+      html += '<td>' + act + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '</div>'; // tab-dispatch
+
+    // ====== TAB: REVENUE HEATMAP ======
+    html += '<div class="tab-content" id="tab-heatmap">';
+    html += '<div class="section-title" style="color:#ffd700;"><span class="dot" style="background:#ffd700;box-shadow:0 0 8px #ffd700;"></span>5-DAY REVENUE HEATMAP — DOLLAR PROJECTIONS PER MARKET</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:15px;">Darker green = more revenue opportunity. Each cell shows predicted calls and dollar amount. Based on weather-adjusted volume &times; $' + AVG_TICKET + ' avg ticket.</div>';
+
+    // Heatmap header
+    var hmCols = 1 + 1 + forecastDays.length; // market + today + forecast days
+    html += '<div class="heatmap-grid" style="grid-template-columns:180px repeat(' + (1 + forecastDays.length) + ', 1fr);">';
+    html += '<div class="hm-cell" style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:#4a6a8a;text-align:left;">MARKET</div>';
+    html += '<div class="hm-cell" style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:#ffd700;">TODAY</div>';
+    forecastDays.forEach(function(fd) {
+      html += '<div class="hm-cell" style="font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:#4a6a8a;">' + fd.dayName + ' ' + fd.dayNum + '</div>';
+    });
+
+    // Find max revenue for color scaling
+    var maxRev = 0;
+    validResults.forEach(function(r) {
+      if (r.error) return;
+      if (r._estDailyRevenue > maxRev) maxRev = r._estDailyRevenue;
+      (r.forecast || []).forEach(function(f) {
+        var fRev = Math.round(r._estDailyCalls * (1 + f.impact.percent / 100)) * AVG_TICKET;
+        if (fRev > maxRev) maxRev = fRev;
+      });
+    });
+
+    validResults.sort(function(a,b) { return (b._estDailyRevenue || 0) - (a._estDailyRevenue || 0); }).forEach(function(r) {
+      if (r.error) return;
+      html += '<div class="hm-cell" style="text-align:left;color:#00d4ff;font-weight:600;font-size:0.82em;">' + r.market + '</div>';
+
+      // Today cell
+      var todayIntensity = maxRev > 0 ? r._estDailyRevenue / maxRev : 0;
+      var todayBg = 'rgba(' + (r.impact.percent < 0 ? '255,71,87' : '0,255,102') + ',' + (0.05 + todayIntensity * 0.25) + ')';
+      html += '<div class="hm-cell" style="background:' + todayBg + ';"><div style="color:#ffd700;font-weight:900;">$' + r._estDailyRevenue.toLocaleString() + '</div><div style="font-size:0.85em;color:#c0d8f0;">' + r._estAdjustedCalls + ' calls</div><div style="font-size:0.75em;color:#4a6a8a;">' + r.current.temp + '°F</div></div>';
+
+      // Forecast days
+      (r.forecast || []).forEach(function(f) {
+        var fCalls = Math.max(0, Math.round(r._estDailyCalls * (1 + f.impact.percent / 100)));
+        var fRev = fCalls * AVG_TICKET;
+        var fIntensity = maxRev > 0 ? fRev / maxRev : 0;
+        var fBg = 'rgba(' + (f.impact.percent < 0 ? '255,71,87' : '0,255,102') + ',' + (0.05 + fIntensity * 0.25) + ')';
+        html += '<div class="hm-cell" style="background:' + fBg + ';"><div style="color:#ffd700;font-weight:700;">$' + fRev.toLocaleString() + '</div><div style="font-size:0.85em;color:#c0d8f0;">' + fCalls + '</div><div style="font-size:0.75em;color:#4a6a8a;">' + f.high + '/' + f.low + '°F</div></div>';
+      });
+    });
+    html += '</div>'; // heatmap-grid
+
+    // Total row
+    html += '<div style="display:flex;justify-content:space-between;padding:10px 15px;background:rgba(255,215,0,0.05);border:1px solid #ffd70020;margin-bottom:15px;">';
+    html += '<span style="font-family:Orbitron;font-size:0.65em;letter-spacing:2px;color:#ffd700;">5-DAY TOTAL REVENUE PROJECTION</span>';
+    var fiveDayTotal = totalDailyRevenue;
+    validResults.forEach(function(r) {
+      if (r.error) return;
+      (r.forecast || []).forEach(function(f) {
+        fiveDayTotal += Math.max(0, Math.round(r._estDailyCalls * (1 + f.impact.percent / 100))) * AVG_TICKET;
+      });
+    });
+    html += '<span style="color:#ffd700;font-size:1.3em;font-weight:900;">$' + fiveDayTotal.toLocaleString() + '</span>';
+    html += '</div>';
+    html += '</div>'; // tab-heatmap
+
+    // ====== TAB 1: INTERACTIVE MAP ======
+    html += '<div class="tab-content" id="tab-map">';
+    html += '<div class="section-title" style="color:#00d4ff;"><span class="dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff;"></span>LIVE WEATHER MAP — ALL MARKETS</div>';
+    html += '<div id="weather-map"></div>';
+    html += '</div>';
+
+    // ====== TAB 2: 7-DAY OPS PLANNING GRID ======
+    html += '<div class="tab-content" id="tab-ops">';
+    html += '<div class="section-title" style="color:#ffd700;"><span class="dot" style="background:#ffd700;box-shadow:0 0 8px #ffd700;"></span>7-DAY OPERATIONS FORECAST — DISPATCH PLANNING</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:15px;">Weather-adjusted call predictions per market. Green = high demand (staff up), Red = low demand (reassign techs), Yellow = normal.</div>';
+
+    // Build 5-day grid for all markets
+    var forecastDays = [];
+    if (validResults.length > 0 && validResults[0].forecast) {
+      validResults[0].forecast.forEach(function(f) {
+        var d = new Date(f.date + 'T12:00:00');
+        forecastDays.push({ date: f.date, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()], dayNum: d.getDate() });
+      });
+    }
+
+    html += '<div style="overflow-x:auto;">';
+    html += '<table class="staff-table">';
+    html += '<thead><tr><th style="min-width:140px;">MARKET</th><th>TODAY</th>';
+    forecastDays.forEach(function(fd) {
+      html += '<th style="text-align:center;">' + fd.dayName + ' ' + fd.dayNum + '</th>';
+    });
+    html += '<th style="text-align:center;">5-DAY AVG</th><th>ACTION</th></tr></thead><tbody>';
+
+    validResults.forEach(function(r) {
+      if (r.error) return;
+      html += '<tr>';
+      // Market name
+      html += '<td style="color:#00d4ff;font-weight:600;">' + r.market + '</td>';
+      // Today
+      var todayColor = r.impact.direction === 'up' ? '#00ff66' : r.impact.direction === 'down' ? '#ff4757' : '#4a6a8a';
+      html += '<td style="text-align:center;"><div class="predicted-calls" style="color:' + todayColor + ';">' + r._estAdjustedCalls + '</div><div style="color:' + todayColor + ';font-size:0.75em;">' + (r.impact.percent >= 0 ? '+' : '') + r.impact.percent + '%</div><div style="font-size:0.68em;color:#4a6a8a;">' + r.current.temp + '&deg; ' + r.current.weather.description + '</div></td>';
+      // Forecast days
+      var fiveDaySum = r.impact.percent;
+      (r.forecast || []).forEach(function(f) {
+        var fColor = f.impact.direction === 'up' ? '#00ff66' : f.impact.direction === 'down' ? '#ff4757' : '#4a6a8a';
+        var bgIntensity = Math.min(0.15, Math.abs(f.impact.percent) / 200);
+        var bgColor = f.impact.direction === 'up' ? 'rgba(0,255,102,' + bgIntensity + ')' : f.impact.direction === 'down' ? 'rgba(255,71,87,' + bgIntensity + ')' : 'transparent';
+        var fPredCalls = Math.max(0, Math.round(r._estDailyCalls * (1 + f.impact.percent / 100)));
+        fiveDaySum += f.impact.percent;
+        html += '<td style="text-align:center;background:' + bgColor + ';"><div class="predicted-calls" style="color:' + fColor + ';">' + fPredCalls + '</div><div style="color:' + fColor + ';font-size:0.75em;">' + (f.impact.percent >= 0 ? '+' : '') + f.impact.percent + '%</div>';
+        html += '<div style="font-size:0.68em;color:#4a6a8a;">' + f.high + '/' + f.low + '&deg;</div></td>';
+      });
+      // 5-day avg
+      var avgF = Math.round(fiveDaySum / ((r.forecast || []).length + 1));
+      var avgColor = avgF > 5 ? '#00ff66' : avgF < -5 ? '#ff4757' : '#4a6a8a';
+      html += '<td style="text-align:center;font-weight:900;color:' + avgColor + ';">' + (avgF >= 0 ? '+' : '') + avgF + '%</td>';
+      // Action recommendation
+      var action = '';
+      if (avgF > 15) action = '<span style="color:#00ff66;">STAFF UP</span>';
+      else if (avgF > 5) action = '<span style="color:#55f7d8;">NORMAL+</span>';
+      else if (avgF < -15) action = '<span style="color:#ff4757;">REDUCE / REASSIGN</span>';
+      else if (avgF < -5) action = '<span style="color:#ff9f43;">LIGHT DAY</span>';
+      else action = '<span style="color:#4a6a8a;">NORMAL</span>';
+      html += '<td>' + action + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '</div>';
+
+    // ====== TAB 3: STAFFING RECOMMENDATIONS ======
+    html += '<div class="tab-content" id="tab-staffing">';
+    html += '<div class="section-title" style="color:#c084fc;"><span class="dot" style="background:#c084fc;box-shadow:0 0 8px #c084fc;"></span>STAFFING RECOMMENDATIONS — WEATHER-ADJUSTED</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:15px;">Based on estimated daily calls adjusted for current weather conditions. Assumes ' + AVG_CALLS_PER_TECH_DAY + ' jobs/tech/day and $' + AVG_TICKET + ' avg ticket.</div>';
+
+    html += '<table class="staff-table">';
+    html += '<thead><tr><th>MARKET</th><th>WEATHER</th><th>BASELINE CALLS</th><th>ADJUSTED CALLS</th><th>TECHS NEEDED</th><th>EST. DAILY REV</th><th>PRIORITY</th></tr></thead><tbody>';
+
+    validResults.sort(function(a,b) { return (b._estDailyRevenue || 0) - (a._estDailyRevenue || 0); }).forEach(function(r) {
+      if (r.error) return;
+      var pColor = r._estAdjustedCalls >= 5 ? '#00ff66' : r._estAdjustedCalls >= 3 ? '#ffd700' : r._estAdjustedCalls >= 1 ? '#ff9f43' : '#4a6a8a';
+      var priority = r._estAdjustedCalls >= 5 ? 'HIGH' : r._estAdjustedCalls >= 3 ? 'MEDIUM' : r._estAdjustedCalls >= 1 ? 'LOW' : 'MINIMAL';
+      html += '<tr>';
+      html += '<td style="color:#00d4ff;font-weight:600;">' + r.market + '</td>';
+      html += '<td><img src="https://openweathermap.org/img/wn/' + r.current.icon + '.png" style="width:24px;height:24px;vertical-align:middle;"> ' + r.current.temp + '&deg;</td>';
+      html += '<td style="text-align:center;">' + r._estDailyCalls + '</td>';
+      html += '<td style="text-align:center;font-weight:700;color:' + r.impact.color + ';">' + r._estAdjustedCalls + ' <span style="font-size:0.8em;">(' + (r.impact.percent >= 0 ? '+' : '') + r.impact.percent + '%)</span></td>';
+      html += '<td style="text-align:center;font-weight:900;color:#c084fc;">' + r._estTechsNeeded + '</td>';
+      html += '<td style="text-align:center;color:#ffd700;font-weight:700;">$' + r._estDailyRevenue.toLocaleString() + '</td>';
+      html += '<td style="color:' + pColor + ';font-family:Orbitron;font-size:0.6em;letter-spacing:1px;">' + priority + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '</div>';
+
+    // ====== TAB 4: PARTS PREP ======
+    html += '<div class="tab-content" id="tab-parts">';
+    html += '<div class="section-title" style="color:#ff9f43;"><span class="dot" style="background:#ff9f43;box-shadow:0 0 8px #ff9f43;"></span>PARTS & INVENTORY PREP — WEATHER-DRIVEN DEMAND</div>';
+    html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:15px;">Based on 5-day forecast and active alerts. Stock up before demand hits.</div>';
+
+    html += '<div class="prep-grid">';
+
+    // Snow Blower parts
+    var sbCount = partsPrep.snowBlower.length;
+    html += '<div class="prep-card" style="border-left:3px solid ' + (sbCount > 0 ? '#00d4ff' : '#1a2a3a') + ';">';
+    html += '<div class="prep-title" style="color:#00d4ff;">SNOW BLOWER PARTS <span style="background:#00d4ff20;color:#00d4ff;padding:2px 8px;font-size:0.9em;border:1px solid #00d4ff30;">' + sbCount + ' alerts</span></div>';
+    if (sbCount > 0) {
+      html += '<div style="color:#c0d8f0;font-size:0.78em;margin-bottom:6px;padding:4px 8px;background:rgba(0,212,255,0.05);">Stock: Carb kits, belts, auger shear pins, spark plugs, fuel stabilizer</div>';
+      partsPrep.snowBlower.slice(0, 5).forEach(function(p) {
+        html += '<div class="prep-item"><span style="color:#00d4ff;">' + p.market + '</span><span style="color:#4a6a8a;">' + p.date + ' — ' + p.detail + '</span></div>';
+      });
+    } else {
+      html += '<div style="color:#4a6a8a;font-size:0.8em;">No snow in forecast. Snow blower demand normal.</div>';
+    }
+    html += '</div>';
+
+    // Generator parts
+    var genCount = partsPrep.generator.length;
+    html += '<div class="prep-card" style="border-left:3px solid ' + (genCount > 0 ? '#ffd700' : '#1a2a3a') + ';">';
+    html += '<div class="prep-title" style="color:#ffd700;">GENERATOR PARTS <span style="background:#ffd70020;color:#ffd700;padding:2px 8px;font-size:0.9em;border:1px solid #ffd70030;">' + genCount + ' alerts</span></div>';
+    if (genCount > 0) {
+      html += '<div style="color:#c0d8f0;font-size:0.78em;margin-bottom:6px;padding:4px 8px;background:rgba(255,215,0,0.03);">Stock: Oil, air filters, spark plugs, fuel lines, voltage regulators, pull cords</div>';
+      partsPrep.generator.slice(0, 5).forEach(function(p) {
+        html += '<div class="prep-item"><span style="color:#ffd700;">' + p.market + '</span><span style="color:#4a6a8a;">' + p.date + ' — ' + p.detail + '</span></div>';
+      });
+    } else {
+      html += '<div style="color:#4a6a8a;font-size:0.8em;">No extreme weather. Generator demand normal.</div>';
+    }
+    html += '</div>';
+
+    // Chainsaw parts
+    var csCount = partsPrep.chainsaw.length;
+    html += '<div class="prep-card" style="border-left:3px solid ' + (csCount > 0 ? '#ff4757' : '#1a2a3a') + ';">';
+    html += '<div class="prep-title" style="color:#ff4757;">CHAINSAW PARTS <span style="background:#ff475720;color:#ff4757;padding:2px 8px;font-size:0.9em;border:1px solid #ff475730;">' + csCount + ' alerts</span></div>';
+    if (csCount > 0) {
+      html += '<div style="color:#c0d8f0;font-size:0.78em;margin-bottom:6px;padding:4px 8px;background:rgba(255,71,87,0.03);">Stock: Chains, bars, sprockets, air filters, fuel lines, clutch assemblies</div>';
+      partsPrep.chainsaw.slice(0, 5).forEach(function(p) {
+        html += '<div class="prep-item"><span style="color:#ff4757;">' + p.market + '</span><span style="color:#4a6a8a;">' + p.date + ' — ' + p.detail + '</span></div>';
+      });
+    } else {
+      html += '<div style="color:#4a6a8a;font-size:0.8em;">No severe wind events. Chainsaw demand normal.</div>';
+    }
+    html += '</div>';
+
+    // Mower parts (peak demand)
+    var mwCount = partsPrep.mower.length;
+    html += '<div class="prep-card" style="border-left:3px solid ' + (mwCount > 0 ? '#00ff66' : '#1a2a3a') + ';">';
+    html += '<div class="prep-title" style="color:#00ff66;">MOWER PARTS (PEAK DAYS) <span style="background:#00ff6620;color:#00ff66;padding:2px 8px;font-size:0.9em;border:1px solid #00ff6630;">' + mwCount + ' peak days</span></div>';
+    if (mwCount > 0) {
+      html += '<div style="color:#c0d8f0;font-size:0.78em;margin-bottom:6px;padding:4px 8px;background:rgba(0,255,102,0.03);">Stock: Blades, belts, carb kits, air filters, spindle assemblies, tires</div>';
+      partsPrep.mower.slice(0, 5).forEach(function(p) {
+        html += '<div class="prep-item"><span style="color:#00ff66;">' + p.market + '</span><span style="color:#4a6a8a;">' + p.date + ' — ' + p.detail + '</span></div>';
+      });
+    } else {
+      html += '<div style="color:#4a6a8a;font-size:0.8em;">No ideal mowing days in forecast.</div>';
+    }
+    html += '</div>';
+    html += '</div>'; // prep-grid
+    html += '</div>'; // tab-parts
+
+    // ====== TAB 5: ALL MARKETS (original market cards) ======
+    html += '<div class="tab-content" id="tab-markets">';
+
+    // Filter bar
+    html += '<div class="filter-bar">';
+    html += '<div class="filter-btn active" onclick="filterMarkets(\'all\')">ALL</div>';
+    html += '<div class="filter-btn" onclick="filterMarkets(\'up\')">VOLUME UP</div>';
+    html += '<div class="filter-btn" onclick="filterMarkets(\'down\')">VOLUME DOWN</div>';
+    html += '<div class="filter-btn" onclick="filterMarkets(\'severe\')">SEVERE WEATHER</div>';
+    html += '</div>';
+
+    // Market weather cards
+    html += '<div class="section-title" style="color:#00d4ff;"><span class="dot" style="background:#00d4ff;box-shadow:0 0 8px #00d4ff;"></span>MARKET WEATHER & CALL IMPACT</div>';
+    html += '<div class="market-grid" id="market-grid">';
+
+    var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+    weatherResults.forEach(function(r) {
+      if (r.error) {
+        html += '<div class="market-card" data-impact="error">';
+        html += '<div class="market-name">' + r.market + ' <span class="calls">' + r.stats.total + ' calls</span></div>';
+        html += '<div style="color:#4a6a8a;font-size:0.85em;">Weather data unavailable</div>';
+        html += '</div>';
+        return;
+      }
+
+      var impactDir = r.impact.direction;
+      var borderColor = impactDir === 'up' ? '#00ff6615' : impactDir === 'down' ? '#ff475715' : '#1a2a3a';
+
+      var hasSevere = (r.current.weather.id < 700 && r.current.weather.id >= 200) || (r.nwsAlerts && r.nwsAlerts.length > 0);
+      html += '<div class="market-card" data-impact="' + impactDir + '" data-severe="' + (hasSevere ? 'yes' : 'no') + '" style="border-color:' + borderColor + (r.nwsAlerts && r.nwsAlerts.length > 0 ? ';border-left:3px solid #ff0066;' : '') + ';">';
+
+      // Market name + calls
+      html += '<div class="market-name">' + r.market + ' <span class="calls">' + r.stats.total + ' total | ' + r.stats.booked + ' booked</span></div>';
+
+      // Current weather
+      html += '<div class="weather-current">';
+      html += '<img class="weather-icon" src="https://openweathermap.org/img/wn/' + r.current.icon + '@2x.png" alt="' + r.current.weather.description + '">';
+      html += '<div>';
+      html += '<div class="weather-temp">' + r.current.temp + '&deg;</div>';
+      html += '<div class="weather-desc">' + r.current.weather.description + '</div>';
+      html += '</div>';
+      html += '<div style="margin-left:auto;text-align:right;">';
+      html += '<div class="weather-details">Feels ' + r.current.feels_like + '&deg; | Wind ' + r.current.wind + ' mph</div>';
+      html += '<div class="weather-details">Humidity ' + r.current.humidity + '%</div>';
+      // Impact badge
+      var badgeBg = r.impact.direction === 'up' ? 'rgba(0,255,102,0.1)' : r.impact.direction === 'down' ? 'rgba(255,71,87,0.1)' : 'rgba(74,106,138,0.1)';
+      var badgeColor = r.impact.color;
+      html += '<div class="impact-badge" style="background:' + badgeBg + ';color:' + badgeColor + ';border:1px solid ' + badgeColor + '30;margin-top:5px;">';
+      html += (r.impact.percent >= 0 ? '+' : '') + r.impact.percent + '% CALLS';
+      html += '</div>';
+      html += '</div>';
+      html += '</div>';
+
+      // Impact reason
+      html += '<div style="font-size:0.8em;color:' + r.impact.color + ';margin-bottom:8px;">' + r.impact.reason + '</div>';
+
+      // Active NWS alerts for this market
+      if (r.nwsAlerts && r.nwsAlerts.length > 0) {
+        r.nwsAlerts.forEach(function(a) {
+          var cat = a.category;
+          html += '<div style="background:' + cat.color + '10;border:1px solid ' + cat.color + '30;padding:8px 12px;margin-bottom:6px;border-left:3px solid ' + cat.color + ';font-size:0.8em;">';
+          html += '<span style="font-size:1.1em;">' + cat.icon + '</span> ';
+          html += '<span style="color:' + cat.color + ';font-weight:700;font-family:Orbitron;font-size:0.75em;letter-spacing:1px;">' + a.event + '</span>';
+          html += ' <span style="color:#4a6a8a;font-size:0.85em;">(' + a.severity + ')</span>';
+          html += '<div style="color:#c0d8f0;font-size:0.9em;margin-top:3px;">' + cat.bizNote + '</div>';
+          html += '</div>';
+        });
+      }
+
+      // 5-day forecast
+      if (r.forecast && r.forecast.length > 0) {
+        html += '<div class="forecast-row">';
+        r.forecast.forEach(function(f) {
+          var d = new Date(f.date + 'T12:00:00');
+          var dayName = dayNames[d.getDay()];
+          var fImpactClass = f.impact.direction === 'up' ? 'impact-up' : f.impact.direction === 'down' ? 'impact-down' : 'impact-neutral';
+          html += '<div class="forecast-day">';
+          html += '<div class="day-name">' + dayName + '</div>';
+          html += '<img src="https://openweathermap.org/img/wn/' + f.weather.icon + '.png" style="width:28px;height:28px;">';
+          html += '<div class="day-temp">' + f.high + '&deg;/' + f.low + '&deg;</div>';
+          html += '<div class="day-impact ' + fImpactClass + '">' + (f.impact.percent >= 0 ? '+' : '') + f.impact.percent + '%</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      html += '</div>';
+    });
+
+    html += '</div>'; // market-grid
+    html += '</div>'; // tab-markets
+
+    // ====== TAB 6: HISTORICAL ======
+    html += '<div class="tab-content" id="tab-history">';
+
+    // ====== HISTORICAL WEATHER vs CALL VOLUME ANALYSIS ======
+    var marketsWithHistory = validResults.filter(function(r) { return r.correlation && r.correlation.dataPoints.length >= 3; });
+
+    if (marketsWithHistory.length > 0) {
+      html += '<div class="hist-section">';
+      html += '<div class="section-title" style="color:#c084fc;"><span class="dot" style="background:#c084fc;box-shadow:0 0 8px #c084fc;"></span>HISTORICAL WEATHER vs CALL VOLUME — 18 Month Analysis</div>';
+      html += '<div style="color:#4a6a8a;font-size:0.85em;margin-bottom:20px;">Actual weather data correlated with your real call volume per market. Powered by Open-Meteo historical archive (free, no API key).</div>';
+
+      // Aggregate correlation summary
+      var avgTempCorr = 0, avgPrecipCorr = 0, corrCount = 0;
+      marketsWithHistory.forEach(function(r) {
+        avgTempCorr += r.correlation.tempCorrelation;
+        avgPrecipCorr += r.correlation.precipCorrelation;
+        corrCount++;
+      });
+      avgTempCorr = corrCount > 0 ? Math.round((avgTempCorr / corrCount) * 100) / 100 : 0;
+      avgPrecipCorr = corrCount > 0 ? Math.round((avgPrecipCorr / corrCount) * 100) / 100 : 0;
+
+      html += '<div class="summary-grid" style="margin-bottom:25px;">';
+      html += '<div class="summary-card"><div class="label">MARKETS ANALYZED</div><div class="value" style="color:#c084fc;">' + marketsWithHistory.length + '</div><div class="sub">with 3+ months of data</div></div>';
+      html += '<div class="summary-card"><div class="label">TEMP &harr; CALLS</div><div class="value" style="color:' + (avgTempCorr > 0.2 ? '#00ff66' : avgTempCorr < -0.2 ? '#ff4757' : '#4a6a8a') + ';">' + (avgTempCorr >= 0 ? '+' : '') + avgTempCorr + '</div><div class="sub">' + (avgTempCorr > 0.3 ? 'Warmer = more calls' : avgTempCorr < -0.3 ? 'Colder = more calls' : 'Weak correlation') + '</div></div>';
+      html += '<div class="summary-card"><div class="label">RAIN &harr; CALLS</div><div class="value" style="color:' + (avgPrecipCorr > 0.2 ? '#00ff66' : avgPrecipCorr < -0.2 ? '#ff4757' : '#4a6a8a') + ';">' + (avgPrecipCorr >= 0 ? '+' : '') + avgPrecipCorr + '</div><div class="sub">' + (avgPrecipCorr < -0.3 ? 'Rain kills volume' : avgPrecipCorr > 0.3 ? 'Rain drives emergency calls' : 'Minor rain impact') + '</div></div>';
+
+      // Best overall season
+      var allSeasons = { spring: { calls: 0, n: 0 }, summer: { calls: 0, n: 0 }, fall: { calls: 0, n: 0 }, winter: { calls: 0, n: 0 } };
+      marketsWithHistory.forEach(function(r) {
+        var s = r.correlation.seasonal;
+        ['spring','summer','fall','winter'].forEach(function(k) {
+          allSeasons[k].calls += s[k].calls;
+          allSeasons[k].n += s[k].n;
+        });
+      });
+      var bestSeason = 'summer', bestSeasonAvg = 0;
+      Object.keys(allSeasons).forEach(function(k) {
+        var avg = allSeasons[k].n > 0 ? allSeasons[k].calls / allSeasons[k].n : 0;
+        allSeasons[k].avg = Math.round(avg);
+        if (avg > bestSeasonAvg) { bestSeasonAvg = avg; bestSeason = k; }
+      });
+      html += '<div class="summary-card"><div class="label">PEAK SEASON</div><div class="value" style="color:#ffd700;">' + bestSeason.toUpperCase() + '</div><div class="sub">~' + Math.round(bestSeasonAvg) + ' avg calls/market/mo</div></div>';
+      html += '</div>';
+
+      // Aggregate seasonal breakdown
+      html += '<div style="background:rgba(10,20,35,0.5);border:1px solid #c084fc10;padding:20px;margin-bottom:25px;">';
+      html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#c084fc;margin-bottom:10px;">SEASONAL CALL VOLUME (ALL MARKETS COMBINED)</div>';
+      html += '<div class="season-grid">';
+      var seasonColors = { spring: '#55f7d8', summer: '#ffd700', fall: '#ff9f43', winter: '#00d4ff' };
+      var seasonIcons = { spring: 'Mar-May', summer: 'Jun-Aug', fall: 'Sep-Nov', winter: 'Dec-Feb' };
+      var seasonMax = Math.max(allSeasons.spring.avg, allSeasons.summer.avg, allSeasons.fall.avg, allSeasons.winter.avg) || 1;
+      ['spring','summer','fall','winter'].forEach(function(s) {
+        var pct = Math.round((allSeasons[s].avg / seasonMax) * 100);
+        html += '<div class="season-box" style="border-bottom:3px solid ' + seasonColors[s] + ';">';
+        html += '<div class="s-name">' + s.toUpperCase() + '</div>';
+        html += '<div class="s-val" style="color:' + seasonColors[s] + ';">' + allSeasons[s].avg + '</div>';
+        html += '<div class="s-sub">' + seasonIcons[s] + ' | avg calls/market</div>';
+        html += '<div style="height:4px;background:#0a1520;margin-top:6px;"><div style="height:100%;width:' + pct + '%;background:' + seasonColors[s] + ';"></div></div>';
+        html += '</div>';
       });
       html += '</div></div>';
 
-      // ===== TAB: HISTORICAL =====
-      html += '<div class="tab-content" id="tab-historical">';
-      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Historical Weather vs Call Volume (18 Months)</h2>';
-
-      // Aggregate correlation chart data
-      var chartLabels = [];
-      var chartTemps = [];
-      var chartCalls = [];
-      var allCorrelations = [];
+      // ====== HISTORICAL SEVERE EVENTS TIMELINE ======
+      var allSevereEvents = [];
       validResults.forEach(function(r) {
-        if (r.correlation && r.correlation.months.length > 0) {
-          allCorrelations.push({ city: r.city, tempCorr: r.correlation.correlation, rainCorr: r.correlation.rainCorrelation });
+        if (r.severeEvents && r.severeEvents.length > 0) {
+          r.severeEvents.forEach(function(e) {
+            allSevereEvents.push({ market: r.market, event: e });
+          });
         }
       });
 
-      // Build per-market correlation cards
-      html += '<div style="margin-bottom:20px;">';
-      // Summary stats
-      if (allCorrelations.length > 0) {
-        var avgTempCorr = allCorrelations.reduce(function(s,c){return s+c.tempCorr;},0) / allCorrelations.length;
-        var avgRainCorr = allCorrelations.reduce(function(s,c){return s+c.rainCorr;},0) / allCorrelations.length;
-        html += '<div class="summary-row" style="padding:0 0 16px;">';
-        html += '<div class="sum-card"><div class="val" style="color:' + (avgTempCorr >= 0 ? '#00ff66' : '#ff4757') + '">' + (avgTempCorr >= 0 ? '+' : '') + (avgTempCorr * 100).toFixed(0) + '%</div><div class="lbl">Avg Temp\u2194Calls Correlation</div></div>';
-        html += '<div class="sum-card"><div class="val" style="color:' + (avgRainCorr >= 0 ? '#00ff66' : '#ff4757') + '">' + (avgRainCorr >= 0 ? '+' : '') + (avgRainCorr * 100).toFixed(0) + '%</div><div class="lbl">Avg Rain\u2194Calls Correlation</div></div>';
+      if (allSevereEvents.length > 0) {
+        // Sort by date descending
+        allSevereEvents.sort(function(a, b) { return b.event.date.localeCompare(a.event.date); });
+
+        html += '<div style="background:rgba(10,20,35,0.5);border:1px solid #ff006610;padding:20px;margin-bottom:25px;">';
+        html += '<div style="font-family:Orbitron;font-size:0.65em;letter-spacing:3px;color:#ff0066;margin-bottom:12px;">HISTORICAL SEVERE EVENTS — LAST 18 MONTHS (' + allSevereEvents.length + ' detected)</div>';
+        html += '<div style="color:#4a6a8a;font-size:0.8em;margin-bottom:12px;">Hurricanes, blizzards, severe storms, flooding, and extreme temperatures detected from historical weather data across your markets.</div>';
+
+        // Summary by type
+        var eventTypeCounts = {};
+        allSevereEvents.forEach(function(se) {
+          var t = se.event.type;
+          if (!eventTypeCounts[t]) eventTypeCounts[t] = { count: 0, icon: se.event.icon, label: se.event.label, color: se.event.color };
+          eventTypeCounts[t].count++;
+        });
+        html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:15px;">';
+        Object.values(eventTypeCounts).sort(function(a,b){return b.count-a.count;}).forEach(function(et) {
+          html += '<div style="background:' + et.color + '10;border:1px solid ' + et.color + '25;padding:6px 14px;font-size:0.8em;">';
+          html += '<span style="font-size:1.1em;">' + et.icon + '</span> ';
+          html += '<span style="color:' + et.color + ';font-weight:700;">' + et.count + '</span>';
+          html += ' <span style="color:#4a6a8a;">' + et.label + (et.count > 1 ? 's' : '') + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+
+        // Event timeline (show up to 30 most recent)
+        html += '<div style="max-height:400px;overflow-y:auto;">';
+        allSevereEvents.slice(0, 30).forEach(function(se) {
+          var e = se.event;
+          // Find the call volume for that month
+          var eMonth = e.date.substring(0, 7);
+          var mCalls = '';
+          var mData = se.market;
+          validResults.forEach(function(r) {
+            if (r.market === mData && r.history && r.history[eMonth]) {
+              mCalls = r.history[eMonth] + ' calls that month';
+            }
+          });
+
+          html += '<div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid #0a1520;">';
+          html += '<div style="width:80px;font-family:Orbitron;font-size:0.55em;letter-spacing:1px;color:#4a6a8a;flex-shrink:0;">' + e.date + '</div>';
+          html += '<div style="font-size:1.1em;flex-shrink:0;">' + e.icon + '</div>';
+          html += '<div style="flex:1;">';
+          html += '<span style="color:' + e.color + ';font-weight:600;font-size:0.85em;">' + e.label + '</span>';
+          html += ' <span style="color:#00d4ff;font-size:0.8em;">@ ' + se.market + '</span>';
+          html += '<div style="color:#4a6a8a;font-size:0.75em;">' + e.detail + (mCalls ? ' | ' + mCalls : '') + '</div>';
+          html += '</div>';
+          html += '</div>';
+        });
+        if (allSevereEvents.length > 30) {
+          html += '<div style="text-align:center;color:#4a6a8a;font-size:0.75em;padding:8px;">+ ' + (allSevereEvents.length - 30) + ' more events</div>';
+        }
+        html += '</div>';
         html += '</div>';
       }
-      html += '</div>';
-
-      // Chart canvas for aggregate view
-      html += '<div style="background:#0a1628;border:1px solid #0a2a4a;border-radius:10px;padding:16px;margin-bottom:20px;">';
-      html += '<h3 style="font-family:Orbitron;font-size:13px;color:#00d4ff;margin-bottom:10px;">Temperature vs Predicted Calls by Market</h3>';
-      html += '<canvas id="weatherChart" height="100"></canvas></div>';
 
       // Per-market historical cards
-      html += '<div class="hist-grid">';
-      validResults.forEach(function(r) {
-        if (!r.correlation || r.correlation.months.length < 3) return;
-        var tc = r.correlation.correlation;
-        var rc = r.correlation.rainCorrelation;
-        html += '<div class="hist-card"><h3>' + r.city + '</h3>';
-        // Temp correlation meter
-        html += '<div style="display:flex;justify-content:space-between;font-size:12px;"><span>Temperature \u2194 Calls</span><span style="color:' + (tc >= 0 ? '#00ff66' : '#ff4757') + ';font-family:Share Tech Mono;">' + (tc >= 0 ? '+' : '') + (tc * 100).toFixed(0) + '%</span></div>';
-        html += '<div class="corr-meter"><div class="corr-fill" style="width:' + Math.abs(tc * 100) + '%;background:' + (tc >= 0 ? '#00ff66' : '#ff4757') + ';"></div></div>';
-        // Rain correlation meter
-        html += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px;"><span>Rain Days \u2194 Calls</span><span style="color:' + (rc >= 0 ? '#00ff66' : '#ff4757') + ';font-family:Share Tech Mono;">' + (rc >= 0 ? '+' : '') + (rc * 100).toFixed(0) + '%</span></div>';
-        html += '<div class="corr-meter"><div class="corr-fill" style="width:' + Math.abs(rc * 100) + '%;background:' + (rc >= 0 ? '#00ff66' : '#ff4757') + ';"></div></div>';
-        // Monthly bar chart
-        html += '<div class="month-bar">';
-        var maxCalls = Math.max.apply(null, r.correlation.months.map(function(m){return m.calls;})) || 1;
-        r.correlation.months.forEach(function(m) {
-          var h = Math.round((m.calls / maxCalls) * 70);
-          var tempColor = m.temp > 85 ? '#ff6348' : m.temp > 70 ? '#ffa502' : m.temp > 50 ? '#00d4ff' : '#a855f7';
-          html += '<div class="bar" style="height:' + h + 'px;background:' + tempColor + ';" title="' + m.month + ': ' + m.calls + ' calls, ' + Math.round(m.temp) + '\u00b0F"></div>';
+      html += '<div class="corr-grid">';
+
+      marketsWithHistory.sort(function(a, b) {
+        return Math.abs(b.correlation.tempCorrelation) - Math.abs(a.correlation.tempCorrelation);
+      }).forEach(function(r) {
+        var c = r.correlation;
+        html += '<div class="corr-card">';
+        html += '<div class="market-label">' + r.market + ' <span style="color:#4a6a8a;font-family:Rajdhani;letter-spacing:0;font-size:1.2em;">(' + c.dataPoints.length + ' months analyzed)</span></div>';
+
+        // Correlation meters
+        html += '<div style="display:flex;gap:15px;margin-bottom:12px;">';
+        // Temp correlation
+        var tempPos = Math.round(((c.tempCorrelation + 1) / 2) * 100);
+        html += '<div style="flex:1;">';
+        html += '<div style="font-size:0.7em;color:#4a6a8a;margin-bottom:3px;">Temperature &harr; Calls</div>';
+        html += '<div class="corr-meter"><div class="corr-meter-track"><div class="corr-meter-dot" style="left:calc(' + tempPos + '% - 7px);"></div></div>';
+        html += '<span style="font-weight:700;color:' + (c.tempCorrelation > 0.3 ? '#00ff66' : c.tempCorrelation < -0.3 ? '#ff4757' : '#4a6a8a') + ';font-size:0.85em;">' + (c.tempCorrelation >= 0 ? '+' : '') + c.tempCorrelation + '</span></div>';
+        html += '</div>';
+        // Precip correlation
+        var precipPos = Math.round(((c.precipCorrelation + 1) / 2) * 100);
+        html += '<div style="flex:1;">';
+        html += '<div style="font-size:0.7em;color:#4a6a8a;margin-bottom:3px;">Rain Days &harr; Calls</div>';
+        html += '<div class="corr-meter"><div class="corr-meter-track"><div class="corr-meter-dot" style="left:calc(' + precipPos + '% - 7px);"></div></div>';
+        html += '<span style="font-weight:700;color:' + (c.precipCorrelation > 0.3 ? '#00ff66' : c.precipCorrelation < -0.3 ? '#ff4757' : '#4a6a8a') + ';font-size:0.85em;">' + (c.precipCorrelation >= 0 ? '+' : '') + c.precipCorrelation + '</span></div>';
+        html += '</div>';
+        html += '</div>';
+
+        // Insights
+        if (c.insights.length > 0) {
+          c.insights.forEach(function(ins) {
+            html += '<div class="insight-tag">' + ins + '</div>';
+          });
+        }
+
+        // Monthly chart — weather bars + call volume overlay
+        html += '<div class="agg-chart">';
+        html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:0.65em;color:#4a6a8a;font-family:Orbitron;letter-spacing:2px;">MONTH-BY-MONTH</span>';
+        html += '<span style="font-size:0.7em;"><span style="color:#ff9f43;">&#9632;</span> Temp <span style="color:#00d4ff;">&#9632;</span> Calls <span style="color:#55f7d8;">&#9632;</span> Rain</span></div>';
+
+        var maxCalls = Math.max.apply(null, c.dataPoints.map(function(d) { return d.calls; }).concat([1]));
+        var maxTemp = Math.max.apply(null, c.dataPoints.map(function(d) { return d.weather.avgTemp || 60; }).concat([100]));
+
+        c.dataPoints.forEach(function(dp) {
+          var monthLabel = dp.month.substring(2); // "25-03"
+          var tempPct = dp.weather.avgTemp != null ? Math.round((dp.weather.avgTemp / maxTemp) * 100) : 0;
+          var callPct = maxCalls > 0 ? Math.round((dp.calls / maxCalls) * 100) : 0;
+          var rainWidth = Math.min(30, dp.weather.rainDays * 3);
+
+          html += '<div class="agg-row">';
+          html += '<div class="agg-month">' + monthLabel + '</div>';
+          html += '<div class="agg-bars">';
+          html += '<div style="flex:1;position:relative;background:#0a1520;height:22px;">';
+          // Temperature bar (background, full width reference)
+          html += '<div style="position:absolute;top:0;left:0;height:100%;width:' + tempPct + '%;background:rgba(255,159,67,0.15);"></div>';
+          // Call volume bar (foreground)
+          html += '<div style="position:absolute;top:3px;left:0;height:16px;width:' + callPct + '%;background:rgba(0,212,255,0.5);border-right:2px solid #00d4ff;"></div>';
+          // Rain indicator dots
+          if (dp.weather.rainDays > 0) {
+            html += '<div style="position:absolute;top:0;right:0;height:100%;width:' + rainWidth + 'px;background:rgba(85,247,216,0.2);border-left:1px solid #55f7d830;"></div>';
+          }
+          html += '</div>';
+          html += '</div>';
+          html += '<div class="agg-vals">';
+          html += '<span style="color:#ff9f43;">' + (dp.weather.avgTemp || '?') + '&deg;</span>';
+          html += '<span style="color:#00d4ff;font-weight:700;">' + dp.calls + '</span>';
+          html += '<span style="color:#55f7d8;">' + dp.weather.rainDays + 'd</span>';
+          html += '</div>';
+          html += '</div>';
         });
         html += '</div>';
-        html += '<div style="font-size:10px;color:#4a6a8a;margin-top:4px;">Bars = call volume, color = temp (purple=cold, blue=cool, orange=warm, red=hot)</div>';
-        // Insight
-        if (Math.abs(tc) > 0.5) {
-          html += '<div style="margin-top:8px;padding:8px;background:#050d18;border-radius:4px;font-size:12px;">';
-          if (tc > 0.5) html += '\ud83d\udcc8 Higher temps <strong>strongly correlate</strong> with more calls (+' + (tc * 100).toFixed(0) + '%)';
-          else if (tc < -0.5) html += '\ud83d\udcc9 Higher temps <strong>strongly correlate</strong> with fewer calls (' + (tc * 100).toFixed(0) + '%)';
+
+        // Best/worst months
+        if (c.bestMonths.length > 0) {
+          html += '<div style="display:flex;gap:10px;margin-top:8px;font-size:0.75em;">';
+          html += '<div style="flex:1;"><span style="color:#00ff66;">Best:</span> ';
+          c.bestMonths.slice(0, 2).forEach(function(bm, idx) {
+            if (idx > 0) html += ', ';
+            html += '<span style="color:#c0d8f0;">' + bm.month + '</span> <span style="color:#00ff66;">(' + bm.calls + ' calls, ' + bm.weather.avgTemp + '&deg;)</span>';
+          });
+          html += '</div>';
+          html += '<div style="flex:1;"><span style="color:#ff4757;">Slowest:</span> ';
+          c.worstMonths.slice(0, 2).forEach(function(wm, idx) {
+            if (idx > 0) html += ', ';
+            html += '<span style="color:#c0d8f0;">' + wm.month + '</span> <span style="color:#ff4757;">(' + wm.calls + ' calls, ' + wm.weather.avgTemp + '&deg;)</span>';
+          });
+          html += '</div>';
           html += '</div>';
         }
-        html += '</div>';
+
+        html += '</div>'; // corr-card
       });
-      html += '</div>';
 
-      // Severe events timeline
-      var allSevere = [];
-      validResults.forEach(function(r) {
-        (r.severeEvents || []).forEach(function(e) { allSevere.push({ city: r.city, date: e.date, type: e.type, icon: e.icon, detail: e.detail }); });
+      html += '</div>'; // corr-grid
+      html += '</div>'; // hist-section
+    }
+    html += '</div>'; // tab-history
+
+    // Footer
+    html += '<div style="text-align:center;padding:30px;font-family:Orbitron;font-size:0.55em;letter-spacing:3px;color:#1a2a3a;border-top:1px solid #0a1520;">WEATHER OPS v3.0 // ' + validResults.length + ' markets // ' + marketsWithHistory.length + ' historical // $' + totalDailyRevenue.toLocaleString() + '/day est. // ' + totalTechsNeeded + ' techs recommended</div>';
+
+    html += '</div>'; // container
+
+    // Leaflet JS
+    html += '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>';
+
+    html += '<script>';
+
+    // Tab switching
+    html += 'function switchTab(id) {';
+    html += '  document.querySelectorAll(".tab-content").forEach(function(t){t.classList.remove("active");});';
+    html += '  document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});';
+    html += '  document.getElementById("tab-"+id).classList.add("active");';
+    html += '  event.target.classList.add("active");';
+    html += '  if(id==="map" && window._mapInit) window._mapInit();';
+    html += '}';
+
+    // Market filtering
+    html += 'function filterMarkets(type) {';
+    html += '  document.querySelectorAll(".filter-btn").forEach(function(b){b.classList.remove("active");});';
+    html += '  event.target.classList.add("active");';
+    html += '  document.querySelectorAll(".market-card").forEach(function(c) {';
+    html += '    var impact = c.getAttribute("data-impact");';
+    html += '    var severe = c.getAttribute("data-severe");';
+    html += '    if (type === "all") c.style.display = "";';
+    html += '    else if (type === "up") c.style.display = impact === "up" ? "" : "none";';
+    html += '    else if (type === "down") c.style.display = impact === "down" ? "" : "none";';
+    html += '    else if (type === "severe") c.style.display = severe === "yes" ? "" : "none";';
+    html += '  });';
+    html += '}';
+
+    // Leaflet map initialization
+    html += 'var mapReady = false;';
+    html += 'window._mapInit = function() {';
+    html += '  if (mapReady) return; mapReady = true;';
+    html += '  var map = L.map("weather-map",{zoomControl:true,scrollWheelZoom:true}).setView([39.5,-98.35],4);';
+    html += '  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{attribution:"CartoDB",maxZoom:18}).addTo(map);';
+
+    // Add market markers with weather data
+    var mapData = [];
+    validResults.forEach(function(r) {
+      if (r.error || !r.geo) return;
+      mapData.push({
+        lat: r.geo.lat, lon: r.geo.lon,
+        name: r.market, temp: r.current.temp,
+        desc: r.current.weather.description,
+        icon: r.current.icon,
+        impact: r.impact.percent,
+        dir: r.impact.direction,
+        calls: r.stats.total,
+        estCalls: r._estAdjustedCalls,
+        techs: r._estTechsNeeded,
+        rev: r._estDailyRevenue,
+        reason: r.impact.reason,
+        alertCount: (r.nwsAlerts || []).length
       });
-      allSevere.sort(function(a,b) { return b.date.localeCompare(a.date); });
-      if (allSevere.length > 0) {
-        html += '<div style="margin-top:20px;"><h3 style="font-family:Orbitron;font-size:14px;color:#ff4757;margin-bottom:14px;">Severe Weather Events (Last 18 Months)</h3>';
-        html += '<div class="timeline">';
-        allSevere.slice(0, 30).forEach(function(e) {
-          html += '<div class="tl-item"><div class="tl-date">' + e.date + ' \u2014 ' + e.city + '</div>';
-          html += '<div class="tl-event">' + e.icon + ' ' + e.type + '</div>';
-          html += '<div style="font-size:12px;color:#4a6a8a;">' + e.detail + '</div></div>';
-        });
-        html += '</div></div>';
-      }
-      html += '</div>';
-
-      // ===== TAB: BRIEFING =====
-      html += '<div class="tab-content" id="tab-briefing">';
-      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Morning Ops Briefing</h2>';
-      html += '<div class="briefing-box">' + briefingText.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
-      html += '<div class="briefing-actions">';
-      html += '<button class="btn btn-primary" onclick="copyBriefing()">Copy to Clipboard</button>';
-      html += '<button class="btn" onclick="smsBriefing()">Send via SMS</button>';
-      html += '</div></div>';
-
-      // ===== JAVASCRIPT =====
-      html += '<script>';
-
-      // Tab switching
-      html += 'function switchTab(id) {';
-      html += '  document.querySelectorAll(".tab-content").forEach(function(t){t.classList.remove("active");});';
-      html += '  document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});';
-      html += '  document.getElementById("tab-"+id).classList.add("active");';
-      html += '  event.target.classList.add("active");';
-      html += '  if (id==="map" && window.weatherMap) window.weatherMap.invalidateSize();';
-      html += '}';
-
-      // Market filter
-      html += 'function filterMarkets(type, btn) {';
-      html += '  document.querySelectorAll(".filter-btn").forEach(function(b){b.classList.remove("active");});';
-      html += '  btn.classList.add("active");';
-      html += '  document.querySelectorAll(".market-card").forEach(function(c) {';
-      html += '    if (type==="all") c.style.display="";';
-      html += '    else if (type==="up") c.style.display = c.dataset.impact==="up" ? "" : "none";';
-      html += '    else if (type==="down") c.style.display = c.dataset.impact==="down" ? "" : "none";';
-      html += '    else if (type==="alert") c.style.display = c.dataset.alert==="yes" ? "" : "none";';
-      html += '  });';
-      html += '}';
-
-      // Copy briefing
-      html += 'function copyBriefing() {';
-      html += '  var text = document.querySelector(".briefing-box").innerText;';
-      html += '  navigator.clipboard.writeText(text).then(function() {';
-      html += '    var btn = document.querySelector(".btn-primary"); btn.textContent = "Copied!"; setTimeout(function(){btn.textContent="Copy to Clipboard";}, 2000);';
-      html += '  });';
-      html += '}';
-
-      // SMS briefing
-      html += 'function smsBriefing() {';
-      html += '  fetch("/api/weather/sms-briefing", {method:"POST"}).then(function(r){return r.json();}).then(function(d){';
-      html += '    alert(d.success ? "Briefing sent via SMS!" : "SMS failed: " + d.error);';
-      html += '  }).catch(function(e){alert("Error: " + e.message);});';
-      html += '}';
-
-      // Auto-refresh countdown
-      html += 'var refreshSec = 900;';
-      html += 'setInterval(function() {';
-      html += '  refreshSec--;';
-      html += '  if (refreshSec <= 0) location.reload();';
-      html += '  var m = Math.floor(refreshSec/60), s = refreshSec%60;';
-      html += '  document.getElementById("countdown").textContent = m + ":" + (s<10?"0":"") + s;';
-      html += '  document.getElementById("refreshBar").style.width = ((900-refreshSec)/900*100) + "%";';
-      html += '}, 1000);';
-
-      // Leaflet Map
-      html += 'setTimeout(function() {';
-      html += '  var map = L.map("weatherMap",{zoomControl:true}).setView([37.5,-96],4);';
-      html += '  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{attribution:"CartoDB",maxZoom:19}).addTo(map);';
-      html += '  window.weatherMap = map;';
-
-      // Add market markers
-      html += '  var markersData = ' + JSON.stringify(validResults.map(function(r) {
-        return {
-          city: r.city, lat: r.coords.lat, lon: r.coords.lon,
-          temp: r.weather && r.weather.current ? Math.round(r.weather.current.main.temp) : null,
-          desc: r.weather && r.weather.current ? r.weather.current.weather[0].description : '',
-          icon: r.weather && r.weather.current ? r.weather.current.weather[0].icon : '',
-          pct: r.impact.pct, color: r.impact.color, label: r.impact.label,
-          calls: r.predictedCalls, techs: r.techsNeeded, revenue: r.dailyRevenue,
-          total: r.total, alerts: r.alerts.length, hasAlert: r.alerts.length > 0
-        };
-      })) + ';';
-
-      html += '  markersData.forEach(function(m) {';
-      html += '    var radius = Math.max(8, Math.min(25, m.total / 10));';
-      html += '    var fillColor = m.pct >= 15 ? "#00ff66" : m.pct >= 0 ? "#00d4ff" : m.pct >= -15 ? "#ffa502" : "#ff4757";';
-      html += '    var circle = L.circleMarker([m.lat,m.lon], {';
-      html += '      radius: radius, fillColor: fillColor, fillOpacity: 0.7, color: m.hasAlert ? "#ff4757" : fillColor, weight: m.hasAlert ? 3 : 1';
-      html += '    }).addTo(map);';
-      html += '    var popup = "<div style=\\"font-family:Rajdhani;\\"><strong style=\\"font-family:Orbitron;font-size:14px;\\">" + m.city + "</strong><br>";';
-      html += '    if (m.temp !== null) popup += "<img src=\\"https://openweathermap.org/img/wn/" + m.icon + ".png\\" style=\\"vertical-align:middle;\\">" + m.temp + "\u00b0F - " + m.desc + "<br>";';
-      html += '    popup += "<strong style=\\"color:" + m.color + ";\\">" + (m.pct>=0?"+":"") + m.pct + "%</strong> " + m.label + "<br>";';
-      html += '    popup += "Est. <strong>" + m.calls + "</strong> calls/day | <strong>" + m.techs + "</strong> techs | <strong>$" + m.revenue.toLocaleString() + "</strong>/day<br>";';
-      html += '    if (m.alerts > 0) popup += "<span style=\\"color:#ff4757;font-weight:700;\\">\u26a0 " + m.alerts + " active alert(s)</span>";';
-      html += '    popup += "</div>";';
-      html += '    circle.bindPopup(popup);';
-      html += '    circle.bindTooltip(m.city.split(",")[0] + " " + (m.pct>=0?"+":"") + m.pct + "%", {permanent:true, direction:"top", className:"leaflet-tooltip-dark", offset:[0,-radius]});';
-      html += '  });';
-      html += '}, 100);';
-
-      // Chart.js
-      html += 'setTimeout(function() {';
-      html += '  var ctx = document.getElementById("weatherChart");';
-      html += '  if (!ctx) return;';
-      var chartData = validResults.map(function(r) {
-        return { city: r.city.split(',')[0], temp: r.weather && r.weather.current ? Math.round(r.weather.current.main.temp) : 0, calls: r.predictedCalls, pct: r.impact.pct };
-      }).sort(function(a,b){return b.calls - a.calls;});
-      html += '  var data = ' + JSON.stringify(chartData) + ';';
-      html += '  new Chart(ctx, {';
-      html += '    type: "bar",';
-      html += '    data: {';
-      html += '      labels: data.map(function(d){return d.city;}),';
-      html += '      datasets: [{';
-      html += '        label: "Temperature (\u00b0F)", data: data.map(function(d){return d.temp;}), backgroundColor: data.map(function(d){return d.temp>85?"rgba(255,99,72,0.7)":d.temp>70?"rgba(255,165,2,0.7)":d.temp>50?"rgba(0,212,255,0.7)":"rgba(168,85,247,0.7)";}), yAxisID:"y", borderRadius:4';
-      html += '      },{';
-      html += '        label: "Predicted Calls/Day", data: data.map(function(d){return d.calls;}), type:"line", borderColor:"#00ff66", backgroundColor:"rgba(0,255,102,0.1)", yAxisID:"y1", tension:0.3, pointRadius:5, pointBackgroundColor:"#00ff66", fill:true';
-      html += '      }]';
-      html += '    },';
-      html += '    options: {';
-      html += '      responsive:true, plugins:{ legend:{ labels:{ color:"#c0d8f0" } } },';
-      html += '      scales: {';
-      html += '        x: { ticks:{color:"#4a6a8a",font:{size:11}}, grid:{color:"rgba(10,42,74,0.5)"} },';
-      html += '        y: { position:"left", title:{display:true,text:"Temp (\u00b0F)",color:"#4a6a8a"}, ticks:{color:"#4a6a8a"}, grid:{color:"rgba(10,42,74,0.3)"} },';
-      html += '        y1: { position:"right", title:{display:true,text:"Calls/Day",color:"#4a6a8a"}, ticks:{color:"#00ff66"}, grid:{drawOnChartArea:false} }';
-      html += '      }';
-      html += '    }';
-      html += '  });';
-      html += '}, 200);';
-
-      html += '<\/script></body></html>';
-      res.send(html);
-    }).catch(function(err) {
-      res.status(500).send('Weather dashboard error: ' + err.message);
     });
+    html += '  var markers = ' + JSON.stringify(mapData) + ';';
+    html += '  markers.forEach(function(m) {';
+    html += '    var color = m.dir==="up"?"#00ff66":m.dir==="down"?"#ff4757":"#4a6a8a";';
+    html += '    var radius = Math.max(8, Math.min(25, m.calls/50));';
+    html += '    var circle = L.circleMarker([m.lat,m.lon],{radius:radius,fillColor:color,color:m.alertCount>0?"#ff0066":color,weight:m.alertCount>0?3:1,opacity:0.9,fillOpacity:0.4}).addTo(map);';
+    html += '    var popup = "<div style=\\"font-family:Rajdhani;min-width:200px;\\">"';
+    html += '      +"<div style=\\"font-family:Orbitron;font-size:0.9em;color:#00d4ff;letter-spacing:2px;margin-bottom:6px;\\">"+m.name+"</div>"';
+    html += '      +"<div style=\\"display:flex;align-items:center;gap:8px;margin-bottom:4px;\\"><img src=\\"https://openweathermap.org/img/wn/"+m.icon+".png\\" style=\\"width:32px;\\"><span style=\\"font-size:1.5em;font-weight:900;\\">"+m.temp+"&deg;F</span><span style=\\"color:#999;\\">"+m.desc+"</span></div>"';
+    html += '      +"<div style=\\"color:"+color+";font-weight:700;\\">"+(m.impact>=0?"+":"")+m.impact+"% call volume</div>"';
+    html += '      +"<div style=\\"color:#999;font-size:0.85em;\\">"+m.reason+"</div>"';
+    html += '      +"<hr style=\\"border-color:#333;margin:6px 0;\\">"';
+    html += '      +"<div style=\\"display:flex;gap:12px;font-size:0.85em;\\"><span>Est. "+m.estCalls+" calls/day</span><span>"+m.techs+" techs</span><span style=\\"color:#ffd700;\\">$"+m.rev.toLocaleString()+"/day</span></div>"';
+    html += '      +(m.alertCount>0?"<div style=\\"color:#ff0066;margin-top:4px;font-weight:700;\\">"+m.alertCount+" ACTIVE ALERT"+(m.alertCount>1?"S":"")+"</div>":"")';
+    html += '      +"</div>";';
+    html += '    circle.bindPopup(popup);';
+    // Add temp label
+    html += '    var label = L.divIcon({className:"",html:"<div style=\\"font-family:Orbitron;font-size:10px;color:"+color+";text-shadow:0 0 3px #000,0 0 6px #000;font-weight:700;white-space:nowrap;\\">"+m.temp+"&deg; "+(m.impact>=0?"+":"")+m.impact+"%</div>",iconSize:[0,0],iconAnchor:[-radius-2,5]});';
+    html += '    L.marker([m.lat,m.lon],{icon:label,interactive:false}).addTo(map);';
+    html += '  });';
+    html += '};';
+    // Init map on load
+    html += 'window._mapInit();';
+
+    // Chart.js — dual-axis: temp bars + calls line
+    var chartData = validResults.filter(function(r) { return !r.error; }).sort(function(a,b) { return (b._estAdjustedCalls || 0) - (a._estAdjustedCalls || 0); }).map(function(r) {
+      return { name: r.market.split(',')[0], temp: r.current.temp, calls: r._estAdjustedCalls, impact: r.impact.percent, color: r.impact.color };
+    });
+    html += 'var chartData = ' + JSON.stringify(chartData) + ';';
+    html += 'var cCtx = document.getElementById("weather-calls-chart");';
+    html += 'if(cCtx) { new Chart(cCtx.getContext("2d"), {';
+    html += '  type: "bar",';
+    html += '  data: {';
+    html += '    labels: chartData.map(function(d){return d.name;}),';
+    html += '    datasets: [{';
+    html += '      label: "Temperature (°F)",';
+    html += '      data: chartData.map(function(d){return d.temp;}),';
+    html += '      backgroundColor: chartData.map(function(d){return d.temp > 90 ? "rgba(255,71,87,0.6)" : d.temp > 70 ? "rgba(255,159,67,0.6)" : d.temp > 50 ? "rgba(0,212,255,0.6)" : "rgba(74,106,138,0.6)";}),';
+    html += '      borderColor: chartData.map(function(d){return d.temp > 90 ? "#ff4757" : d.temp > 70 ? "#ff9f43" : d.temp > 50 ? "#00d4ff" : "#4a6a8a";}),';
+    html += '      borderWidth: 1,';
+    html += '      yAxisID: "y",';
+    html += '      order: 2';
+    html += '    }, {';
+    html += '      label: "Predicted Calls/Day",';
+    html += '      data: chartData.map(function(d){return d.calls;}),';
+    html += '      type: "line",';
+    html += '      borderColor: "#00ff66",';
+    html += '      backgroundColor: "rgba(0,255,102,0.1)",';
+    html += '      pointBackgroundColor: chartData.map(function(d){return d.color || "#00ff66";}),';
+    html += '      pointBorderColor: "#000",';
+    html += '      pointRadius: 6,';
+    html += '      pointHoverRadius: 9,';
+    html += '      borderWidth: 2,';
+    html += '      fill: true,';
+    html += '      tension: 0.3,';
+    html += '      yAxisID: "y1",';
+    html += '      order: 1';
+    html += '    }]';
+    html += '  },';
+    html += '  options: {';
+    html += '    responsive: true, maintainAspectRatio: false,';
+    html += '    plugins: { legend: { labels: { color: "#c0d8f0", font: { family: "Rajdhani" } } },';
+    html += '      tooltip: { callbacks: { afterLabel: function(ctx) { if(ctx.datasetIndex===1) return "Impact: "+(chartData[ctx.dataIndex].impact>=0?"+":"")+chartData[ctx.dataIndex].impact+"%"; return ""; } } } },';
+    html += '    scales: {';
+    html += '      x: { ticks: { color: "#4a6a8a", font: { family: "Rajdhani", size: 11 } }, grid: { color: "#0a1520" } },';
+    html += '      y: { position: "left", title: { display: true, text: "Temp (°F)", color: "#ff9f43", font: { family: "Orbitron", size: 10 } }, ticks: { color: "#ff9f43" }, grid: { color: "#0a152040" } },';
+    html += '      y1: { position: "right", title: { display: true, text: "Calls/Day", color: "#00ff66", font: { family: "Orbitron", size: 10 } }, ticks: { color: "#00ff66" }, grid: { drawOnChartArea: false } }';
+    html += '    }';
+    html += '  }';
+    html += '}); }';
+
+    // copyBriefing function
+    html += 'function copyBriefing() {';
+    html += '  var el = document.getElementById("briefing-text");';
+    html += '  if(!el) return;';
+    html += '  var text = el.innerText || el.textContent;';
+    html += '  navigator.clipboard.writeText(text).then(function() {';
+    html += '    var btns = document.querySelectorAll(".sms-btn");';
+    html += '    if(btns[0]) { btns[0].style.background="rgba(0,255,102,0.2)"; btns[0].style.borderColor="#00ff66"; btns[0].textContent="COPIED!"; setTimeout(function(){ btns[0].style.background=""; btns[0].style.borderColor=""; btns[0].textContent="COPY TO CLIPBOARD"; },2000); }';
+    html += '  });';
+    html += '}';
+
+    // smsBriefing function
+    html += 'function smsBriefing() {';
+    html += '  var btn = document.getElementById("sms-btn");';
+    html += '  if(!btn) return;';
+    html += '  btn.textContent = "SENDING..."; btn.style.opacity = "0.5";';
+    html += '  fetch("/api/weather/sms-briefing", { method: "POST", headers: {"Content-Type":"application/json"} })';
+    html += '    .then(function(r) { return r.json(); })';
+    html += '    .then(function(d) {';
+    html += '      if(d.success) { btn.textContent="SENT!"; btn.style.background="rgba(0,255,102,0.2)"; btn.style.borderColor="#00ff66"; }';
+    html += '      else { btn.textContent="FAILED: "+(d.error||"unknown"); btn.style.background="rgba(255,71,87,0.2)"; btn.style.borderColor="#ff4757"; }';
+    html += '      setTimeout(function(){ btn.textContent="SMS TO DISPATCH TEAM"; btn.style.background=""; btn.style.borderColor=""; btn.style.opacity=""; },3000);';
+    html += '    }).catch(function(e) {';
+    html += '      btn.textContent="ERROR"; btn.style.opacity=""; setTimeout(function(){ btn.textContent="SMS TO DISPATCH TEAM"; },3000);';
+    html += '    });';
+    html += '}';
+
+    // Auto-refresh countdown (15 minutes)
+    html += 'var refreshSec = 900;';
+    html += 'var refreshBar = document.getElementById("refresh-bar");';
+    html += 'var refreshTimer = setInterval(function() {';
+    html += '  refreshSec--;';
+    html += '  if(refreshBar) { var pct = ((900-refreshSec)/900)*100; refreshBar.style.width=pct+"%"; }';
+    html += '  if(refreshSec <= 0) { clearInterval(refreshTimer); location.reload(); }';
+    html += '}, 1000);';
+
+    html += '</script>';
+
+    html += '</body></html>';
+    res.send(html);
   } catch (err) {
-    console.log('Weather dashboard error:', err.message);
-    res.status(500).send('Error loading weather dashboard: ' + err.message);
+    console.log("Weather dashboard error:", err.message);
+    res.status(500).send("Error loading Weather Dashboard: " + err.message);
   }
 });
 
-// ===== WEATHER API ENDPOINTS =====
-app.get('/api/weather', requireAuth('owner'), function(req, res) {
+// Weather API endpoint for Athena/chat integration
+app.get('/api/weather', async function(req, res) {
+  if (!OPENWEATHER_API_KEY) return res.json({ error: 'No API key configured' });
   var city = req.query.city;
-  if (!city) return res.json({ error: 'Provide ?city=City, ST' });
-  var coords = MARKET_COORDS[city];
-  if (!coords) return res.json({ error: 'Unknown city. Available: ' + Object.keys(MARKET_COORDS).join(', ') });
-  fetchWeatherData(city, coords.lat, coords.lon).then(function(w) {
-    var impact = calcWeatherImpact(w ? w.current : null);
-    res.json({ city: city, weather: w, impact: impact });
-  }).catch(function(e) { res.json({ error: e.message }); });
+  if (!city) return res.json({ error: 'city parameter required' });
+  try {
+    var geo = await geocodeCity(city);
+    if (!geo) return res.json({ error: 'Could not geocode ' + city });
+    var weather = await fetchWeatherData(geo.lat, geo.lon, city);
+    if (!weather) return res.json({ error: 'Weather fetch failed' });
+    var impact = getWeatherCallImpact(weather.current.weather[0], weather.current.main.temp, weather.current.wind ? weather.current.wind.speed : 0, false);
+    res.json({ city: city, geo: geo, current: weather.current, impact: impact });
+  } catch(e) { res.json({ error: e.message }); }
 });
 
-app.post('/api/weather/sms-briefing', requireAuth('owner'), function(req, res) {
-  // Quick briefing via SMS
-  var markets = Object.keys(MARKET_COORDS).slice(0, 16);
-  var promises = markets.map(function(city) {
-    var c = MARKET_COORDS[city];
-    return fetchWeatherData(city, c.lat, c.lon).then(function(w) {
-      var impact = calcWeatherImpact(w ? w.current : null);
-      var temp = w && w.current ? Math.round(w.current.main.temp) : '?';
-      return { city: city.split(',')[0], pct: impact.pct, temp: temp };
-    }).catch(function() { return null; });
-  });
-  Promise.all(promises).then(function(results) {
-    var valid = results.filter(Boolean);
-    var hot = valid.filter(function(r){return r.pct >= 15;}).map(function(r){return r.city + ' +' + r.pct + '%';});
-    var slow = valid.filter(function(r){return r.pct <= -15;}).map(function(r){return r.city + ' ' + r.pct + '%';});
-    var msg = 'WEATHER OPS ' + new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '\n';
-    if (hot.length > 0) msg += 'STAFF UP: ' + hot.join(', ') + '\n';
-    if (slow.length > 0) msg += 'LIGHT: ' + slow.join(', ') + '\n';
-    msg += valid.length + ' markets tracked';
-    twilioClient.messages.create({ body: msg, from: TWILIO_NUMBER, to: MY_NUMBER })
-      .then(function() { res.json({ success: true }); })
-      .catch(function(e) { res.json({ success: false, error: e.message }); });
-  });
+// SMS Weather Briefing endpoint
+app.post('/api/weather/sms-briefing', requireAuth('owner'), async function(req, res) {
+  try {
+    if (!OPENWEATHER_API_KEY) return res.json({ success: false, error: 'No weather API key' });
+    var markets = Object.keys((global.bizMetrics || {}).locationStats || {});
+    if (markets.length === 0) return res.json({ success: false, error: 'No markets found' });
+
+    // Build brief summary
+    var validResults = [];
+    var totalAdjustedCalls = 0;
+    var totalDailyRevenue = 0;
+    var AVG_TICKET = 185;
+    var AVG_CALLS_PER_TECH_DAY = 4;
+
+    for (var i = 0; i < markets.length; i++) {
+      try {
+        var geo = await geocodeCity(markets[i]);
+        if (!geo) continue;
+        var weather = await fetchWeatherData(geo.lat, geo.lon, markets[i]);
+        if (!weather) continue;
+        var current = weather.current;
+        var impact = getWeatherCallImpact(current.weather[0], current.main.temp, current.wind ? current.wind.speed : 0, false);
+        var stats = (global.bizMetrics.locationStats || {})[markets[i]] || { total: 0 };
+        var avgDaily = stats.total > 0 ? Math.round(stats.total / 22) : 2;
+        var estCalls = Math.round(avgDaily * (1 + impact.percent / 100));
+        totalAdjustedCalls += estCalls;
+        totalDailyRevenue += estCalls * AVG_TICKET;
+        validResults.push({ market: markets[i], temp: current.main.temp, desc: current.weather[0].description, impact: impact.percent, estCalls: estCalls });
+      } catch(e) { /* skip market */ }
+    }
+
+    var totalTechs = Math.max(1, Math.ceil(totalAdjustedCalls / AVG_CALLS_PER_TECH_DAY));
+
+    // Build SMS text (max ~1600 chars for Twilio)
+    var sms = 'WILDWOOD WEATHER OPS\n';
+    sms += new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + '\n\n';
+    sms += 'Est: ' + totalAdjustedCalls + ' calls | $' + totalDailyRevenue.toLocaleString() + ' rev | ' + totalTechs + ' techs\n\n';
+
+    var hot = validResults.filter(function(r) { return r.impact >= 10; }).sort(function(a,b) { return b.estCalls - a.estCalls; });
+    var cold = validResults.filter(function(r) { return r.impact <= -10; });
+
+    if (hot.length > 0) {
+      sms += 'HOT: ';
+      hot.slice(0, 5).forEach(function(r) { sms += r.market.split(',')[0] + ' +' + r.impact + '% '; });
+      sms += '\n';
+    }
+    if (cold.length > 0) {
+      sms += 'SLOW: ';
+      cold.slice(0, 5).forEach(function(r) { sms += r.market.split(',')[0] + ' ' + r.impact + '% '; });
+      sms += '\n';
+    }
+
+    await twilioClient.messages.create({
+      body: sms,
+      from: TWILIO_NUMBER,
+      to: MY_NUMBER
+    });
+
+    res.json({ success: true, message: 'Briefing sent', markets: validResults.length });
+  } catch(e) {
+    console.log('SMS briefing error:', e.message);
+    res.json({ success: false, error: e.message });
+  }
 });
 
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload /weather-dashboard");
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
