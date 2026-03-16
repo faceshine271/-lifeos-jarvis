@@ -22281,6 +22281,866 @@ app.get('/followup', async function(req, res) {
     res.status(500).send("Error loading Follow Up portal: " + err.message);
   }
 });
+
+/* ===========================
+   WEATHER OPS DASHBOARD
+   Real-time weather + call volume predictions + historical correlation
+   Uses: OpenWeatherMap (current/forecast), Open-Meteo (historical, free), NWS (alerts, free)
+=========================== */
+
+// Geocoding cache for market cities
+var MARKET_COORDS = {
+  'Kansas City, MO': {lat:39.0997,lon:-94.5786}, 'Loveland, CO': {lat:40.3978,lon:-105.0750},
+  'Detroit, MI': {lat:42.3314,lon:-83.0458}, 'Houston, TX': {lat:29.7604,lon:-95.3698},
+  'Wilmington, NC': {lat:34.2257,lon:-77.9447}, 'Tampa, FL': {lat:27.9506,lon:-82.4572},
+  'Poinciana, FL': {lat:28.1403,lon:-81.4584}, 'Brownsville, TX': {lat:25.9017,lon:-97.4975},
+  'Elkhart, IN': {lat:41.6820,lon:-85.9767}, 'Sioux Falls, SD': {lat:43.5446,lon:-96.7311},
+  'San Antonio, TX': {lat:29.4241,lon:-98.4936}, 'Cape Coral, FL': {lat:26.5629,lon:-81.9495},
+  'Lehigh Acres, FL': {lat:26.6254,lon:-81.6248}, 'Fort Wayne, IN': {lat:41.0793,lon:-85.1394},
+  'Sarasota, FL': {lat:27.3364,lon:-82.5307}, 'Reno, NV': {lat:39.5296,lon:-119.8138}
+};
+
+var weatherCache = { data: null, time: 0, TTL: 30 * 60 * 1000 }; // 30 min
+var historicalWeatherCache = { data: null, time: 0, TTL: 6 * 60 * 60 * 1000 }; // 6 hours
+
+// Fetch current weather + 5-day forecast from OpenWeatherMap
+function fetchWeatherData(city, lat, lon) {
+  var apiKey = process.env.OPENWEATHER_API_KEY;
+  if (!apiKey) return Promise.resolve(null);
+  var url = 'https://api.openweathermap.org/data/2.5/forecast?lat=' + lat + '&lon=' + lon + '&appid=' + apiKey + '&units=imperial';
+  var currentUrl = 'https://api.openweathermap.org/data/2.5/weather?lat=' + lat + '&lon=' + lon + '&appid=' + apiKey + '&units=imperial';
+  return Promise.all([
+    fetch(currentUrl).then(function(r) { return r.json(); }),
+    fetch(url).then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    return { current: results[0], forecast: results[1] };
+  }).catch(function() { return null; });
+}
+
+// Fetch NWS alerts (free, no API key)
+function fetchNWSAlerts(lat, lon) {
+  var url = 'https://api.weather.gov/alerts/active?point=' + lat.toFixed(4) + ',' + lon.toFixed(4);
+  return fetch(url, { headers: { 'User-Agent': 'LifeOS-Jarvis/1.0' } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.features) return [];
+      return data.features.map(function(f) {
+        var p = f.properties;
+        return {
+          event: p.event || 'Unknown',
+          severity: p.severity || 'Unknown',
+          headline: p.headline || '',
+          description: (p.description || '').substring(0, 300),
+          onset: p.onset,
+          expires: p.expires,
+          urgency: p.urgency
+        };
+      });
+    }).catch(function() { return []; });
+}
+
+// Fetch historical weather from Open-Meteo (completely free, no key)
+function fetchHistoricalWeather(lat, lon) {
+  var end = new Date();
+  var start = new Date(); start.setMonth(start.getMonth() - 18);
+  var startStr = start.toISOString().split('T')[0];
+  var endStr = end.toISOString().split('T')[0];
+  var url = 'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon
+    + '&start_date=' + startStr + '&end_date=' + endStr
+    + '&daily=temperature_2m_max,temperature_2m_min,temperature_2m_mean,precipitation_sum,snowfall_sum,windspeed_10m_max,weathercode'
+    + '&timezone=America/Chicago';
+  return fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.daily) return { monthly: {}, severeEvents: [] };
+    var monthly = {};
+    var severeEvents = [];
+    var days = data.daily.time || [];
+    for (var i = 0; i < days.length; i++) {
+      var month = days[i].substring(0, 7);
+      if (!monthly[month]) monthly[month] = { temps: [], rain: 0, snow: 0, rainDays: 0, stormDays: 0, count: 0 };
+      var temp = data.daily.temperature_2m_mean[i];
+      var rain = data.daily.precipitation_sum[i] || 0;
+      var snow = data.daily.snowfall_sum[i] || 0;
+      var wind = data.daily.windspeed_10m_max[i] || 0;
+      var code = data.daily.weathercode[i] || 0;
+      if (temp !== null) monthly[month].temps.push(temp);
+      monthly[month].rain += rain;
+      monthly[month].snow += snow;
+      if (rain > 0.1) monthly[month].rainDays++;
+      if (code >= 95) monthly[month].stormDays++;
+      monthly[month].count++;
+      // Detect severe events
+      var maxTemp = data.daily.temperature_2m_max[i] || 0;
+      var minTemp = data.daily.temperature_2m_min[i] || 0;
+      if (wind > 74 && rain > 25) severeEvents.push({ date: days[i], type: 'Hurricane-Force', icon: '\ud83c\udf00', detail: 'Wind ' + Math.round(wind) + 'mph, rain ' + rain.toFixed(1) + 'mm' });
+      else if (snow > 150) severeEvents.push({ date: days[i], type: 'Major Snowstorm', icon: '\u2744\ufe0f', detail: snow.toFixed(0) + 'mm snow, wind ' + Math.round(wind) + 'mph' });
+      else if (wind > 58 && rain > 15 && code >= 95) severeEvents.push({ date: days[i], type: 'Severe Storm', icon: '\u26c8\ufe0f', detail: 'Wind ' + Math.round(wind) + 'mph, thunder + heavy rain' });
+      else if (rain > 76) severeEvents.push({ date: days[i], type: 'Extreme Flooding', icon: '\ud83c\udf0a', detail: rain.toFixed(0) + 'mm rain in one day' });
+      else if (maxTemp > 43.3) severeEvents.push({ date: days[i], type: 'Dangerous Heat', icon: '\ud83d\udd25', detail: 'High of ' + Math.round(maxTemp * 9/5 + 32) + '\u00b0F' });
+      else if (minTemp < -23.3) severeEvents.push({ date: days[i], type: 'Extreme Cold', icon: '\ud83e\udd76', detail: 'Low of ' + Math.round(minTemp * 9/5 + 32) + '\u00b0F' });
+    }
+    // Compute monthly averages
+    Object.keys(monthly).forEach(function(m) {
+      var d = monthly[m];
+      d.avgTemp = d.temps.length > 0 ? d.temps.reduce(function(a,b){return a+b;},0) / d.temps.length : 0;
+      d.avgTempF = d.avgTemp * 9/5 + 32;
+    });
+    return { monthly: monthly, severeEvents: severeEvents };
+  }).catch(function() { return { monthly: {}, severeEvents: [] }; });
+}
+
+// Calculate weather impact on call volume for small engine repair
+function calcWeatherImpact(weather) {
+  if (!weather) return { pct: 0, label: 'Unknown', color: '#4a6a8a' };
+  var temp = weather.main ? weather.main.temp : (weather.temp || 70);
+  var code = weather.weather ? weather.weather[0].id : (weather.weatherCode || 800);
+  var wind = weather.wind ? weather.wind.speed : (weather.windSpeed || 5);
+  var pct = 0; var label = ''; var color = '';
+  // Thunderstorms
+  if (code >= 200 && code < 300) { pct = -35; label = 'Storms \u2014 Calls Drop'; color = '#ff4757'; }
+  // Heavy rain
+  else if (code >= 500 && code < 600) { pct = code >= 502 ? -30 : -15; label = 'Rain \u2014 Slower Day'; color = '#ffa502'; }
+  // Snow
+  else if (code >= 600 && code < 700) { pct = 25; label = 'Snow \u2014 Blower Surge'; color = '#00d4ff'; }
+  // Clear skies
+  else if (code >= 800) {
+    if (temp >= 75 && temp <= 95) { pct = 20; label = 'Peak Mowing Weather'; color = '#00ff66'; }
+    else if (temp > 95) { pct = 30; label = 'Extreme Heat \u2014 Equipment Stress'; color = '#ff6348'; }
+    else if (temp > 60) { pct = 10; label = 'Good Conditions'; color = '#00ff66'; }
+    else if (temp > 32) { pct = -5; label = 'Cool \u2014 Slight Slowdown'; color = '#ffa502'; }
+    else if (temp > 10) { pct = 15; label = 'Cold \u2014 Generator Demand'; color = '#00d4ff'; }
+    else { pct = 20; label = 'Extreme Cold \u2014 Emergency Calls'; color = '#ff4757'; }
+  }
+  // Fog/mist
+  else { pct = -10; label = 'Low Visibility'; color = '#ffa502'; }
+  // Wind modifier
+  if (wind > 30) { pct -= 15; label += ' + High Wind'; }
+  return { pct: pct, label: label, color: color };
+}
+
+// Correlate historical weather with actual CRM call data
+function correlateWeatherCalls(monthlyWeather, monthlyCallsByCity, city) {
+  var weatherMonths = Object.keys(monthlyWeather).sort();
+  var callData = monthlyCallsByCity || {};
+  var cityCallData = null;
+  // Find matching city in call data
+  Object.keys(callData).forEach(function(k) {
+    if (k.toLowerCase().includes(city.split(',')[0].toLowerCase().trim())) cityCallData = callData[k];
+  });
+  if (!cityCallData) return { correlation: 0, rainCorrelation: 0, months: [] };
+  var paired = [];
+  weatherMonths.forEach(function(m) {
+    var w = monthlyWeather[m];
+    var calls = cityCallData[m] || 0;
+    if (calls > 0 && w.avgTempF) paired.push({ month: m, temp: w.avgTempF, rain: w.rainDays, calls: calls });
+  });
+  if (paired.length < 3) return { correlation: 0, rainCorrelation: 0, months: paired };
+  // Pearson correlation
+  function pearson(xs, ys) {
+    var n = xs.length;
+    var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    for (var i = 0; i < n; i++) { sumX += xs[i]; sumY += ys[i]; sumXY += xs[i]*ys[i]; sumX2 += xs[i]*xs[i]; sumY2 += ys[i]*ys[i]; }
+    var denom = Math.sqrt((n*sumX2-sumX*sumX)*(n*sumY2-sumY*sumY));
+    return denom === 0 ? 0 : (n*sumXY - sumX*sumY) / denom;
+  }
+  var temps = paired.map(function(p){return p.temp;});
+  var calls = paired.map(function(p){return p.calls;});
+  var rains = paired.map(function(p){return p.rain;});
+  return { correlation: pearson(temps, calls), rainCorrelation: pearson(rains, calls), months: paired };
+}
+
+// Pattern matching: find historical days with similar weather and return avg call volume
+function findSimilarWeatherDays(currentTemp, currentCode, monthlyWeather, monthlyCallsByCity, city) {
+  var callData = monthlyCallsByCity || {};
+  var cityCallData = null;
+  Object.keys(callData).forEach(function(k) {
+    if (k.toLowerCase().includes(city.split(',')[0].toLowerCase().trim())) cityCallData = callData[k];
+  });
+  if (!cityCallData) return null;
+  var months = Object.keys(monthlyWeather).sort();
+  var matchingMonthCalls = [];
+  months.forEach(function(m) {
+    var w = monthlyWeather[m];
+    if (Math.abs(w.avgTempF - currentTemp) < 15) {
+      var calls = cityCallData[m] || 0;
+      if (calls > 0) {
+        var daysInMonth = w.count || 30;
+        matchingMonthCalls.push(calls / daysInMonth);
+      }
+    }
+  });
+  if (matchingMonthCalls.length === 0) return null;
+  var avg = matchingMonthCalls.reduce(function(a,b){return a+b;},0) / matchingMonthCalls.length;
+  return Math.round(avg * 10) / 10;
+}
+
+// ===== WEATHER DASHBOARD ROUTE =====
+app.get('/weather-dashboard', requireAuth('owner'), function(req, res) {
+  try {
+    var bm = global.bizMetrics;
+    if (!bm) return res.status(503).send('Business data not loaded yet. Try again in a minute.');
+
+    // Get top markets by call volume
+    var locStats = bm.locationStats || {};
+    var markets = Object.keys(locStats).map(function(k) {
+      return { city: k, total: locStats[k].total, booked: locStats[k].booked, completed: locStats[k].completed, cancelled: locStats[k].cancelled };
+    }).filter(function(m) { return m.total >= 3 && MARKET_COORDS[m.city]; })
+      .sort(function(a, b) { return b.total - a.total; })
+      .slice(0, 30);
+
+    if (markets.length === 0) return res.send('No markets with coordinates found. Check MARKET_COORDS mapping.');
+
+    // Fetch all weather data in parallel
+    var weatherPromises = markets.map(function(m) {
+      var coords = MARKET_COORDS[m.city];
+      return Promise.all([
+        fetchWeatherData(m.city, coords.lat, coords.lon),
+        fetchNWSAlerts(coords.lat, coords.lon),
+        fetchHistoricalWeather(coords.lat, coords.lon)
+      ]).then(function(results) {
+        var weather = results[0];
+        var alerts = results[1];
+        var historical = results[2];
+        var impact = calcWeatherImpact(weather ? weather.current : null);
+        var callsByCity = bm.monthlyCallsByCity || {};
+        var correlation = correlateWeatherCalls(historical.monthly, callsByCity, m.city);
+        var baselineDailyCalls = m.total / 180; // avg over ~6 months
+        var predictedCalls = Math.round(baselineDailyCalls * (1 + impact.pct / 100) * 10) / 10;
+        var patternMatch = weather && weather.current ? findSimilarWeatherDays(weather.current.main.temp, weather.current.weather[0].id, historical.monthly, callsByCity, m.city) : null;
+        // Forecast daily impacts
+        var forecastDays = [];
+        if (weather && weather.forecast && weather.forecast.list) {
+          var dayMap = {};
+          weather.forecast.list.forEach(function(f) {
+            var day = f.dt_txt.split(' ')[0];
+            if (!dayMap[day]) dayMap[day] = [];
+            dayMap[day].push(f);
+          });
+          Object.keys(dayMap).sort().slice(0, 7).forEach(function(day) {
+            var entries = dayMap[day];
+            var midday = entries[Math.floor(entries.length/2)];
+            var dayImpact = calcWeatherImpact(midday);
+            var hi = Math.max.apply(null, entries.map(function(e){return e.main.temp_max;}));
+            var lo = Math.min.apply(null, entries.map(function(e){return e.main.temp_min;}));
+            forecastDays.push({
+              date: day, hi: Math.round(hi), lo: Math.round(lo),
+              icon: midday.weather[0].icon, desc: midday.weather[0].description,
+              code: midday.weather[0].id, impact: dayImpact,
+              predictedCalls: Math.round(baselineDailyCalls * (1 + dayImpact.pct / 100) * 10) / 10
+            });
+          });
+        }
+        return {
+          city: m.city, total: m.total, booked: m.booked, completed: m.completed,
+          coords: coords, weather: weather, alerts: alerts, historical: historical,
+          impact: impact, correlation: correlation, baselineDailyCalls: baselineDailyCalls,
+          predictedCalls: predictedCalls, patternMatch: patternMatch,
+          forecastDays: forecastDays, severeEvents: historical.severeEvents || [],
+          techsNeeded: Math.ceil(predictedCalls / 4), // 4 jobs per tech per day
+          dailyRevenue: Math.round(predictedCalls * 185) // $185 avg ticket
+        };
+      }).catch(function(err) {
+        return { city: m.city, total: m.total, error: err.message };
+      });
+    });
+
+    Promise.all(weatherPromises).then(function(results) {
+      var validResults = results.filter(function(r) { return !r.error && r.weather; });
+      var errorResults = results.filter(function(r) { return r.error || !r.weather; });
+
+      // Aggregate stats
+      var totalPredictedCalls = 0, totalTechs = 0, totalRevenue = 0, totalAlerts = 0;
+      var upMarkets = 0, downMarkets = 0;
+      validResults.forEach(function(r) {
+        totalPredictedCalls += r.predictedCalls;
+        totalTechs += r.techsNeeded;
+        totalRevenue += r.dailyRevenue;
+        totalAlerts += r.alerts.length;
+        if (r.impact.pct > 0) upMarkets++;
+        else if (r.impact.pct < 0) downMarkets++;
+      });
+      var avgImpact = validResults.length > 0 ? validResults.reduce(function(s,r){return s+r.impact.pct;},0) / validResults.length : 0;
+
+      // Build morning briefing text
+      var briefingLines = [];
+      briefingLines.push('WEATHER OPS BRIEFING - ' + new Date().toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'}));
+      briefingLines.push('');
+      briefingLines.push('OVERALL: ' + (avgImpact >= 0 ? '+' : '') + Math.round(avgImpact) + '% call volume impact | Est. ' + Math.round(totalPredictedCalls) + ' calls | $' + totalRevenue.toLocaleString() + ' revenue | ' + totalTechs + ' techs needed');
+      briefingLines.push('');
+      if (totalAlerts > 0) {
+        briefingLines.push('ACTIVE ALERTS: ' + totalAlerts);
+        validResults.forEach(function(r) {
+          r.alerts.forEach(function(a) { briefingLines.push('  ' + r.city + ': ' + a.event + ' - ' + a.severity); });
+        });
+        briefingLines.push('');
+      }
+      briefingLines.push('HOT MARKETS (staff up):');
+      validResults.filter(function(r){return r.impact.pct >= 15;}).sort(function(a,b){return b.impact.pct-a.impact.pct;}).forEach(function(r) {
+        briefingLines.push('  ' + r.city + ': +' + r.impact.pct + '% (' + r.impact.label + ') ~' + r.predictedCalls + ' calls');
+      });
+      briefingLines.push('');
+      briefingLines.push('SLOW MARKETS (reassign techs):');
+      validResults.filter(function(r){return r.impact.pct <= -15;}).sort(function(a,b){return a.impact.pct-b.impact.pct;}).forEach(function(r) {
+        briefingLines.push('  ' + r.city + ': ' + r.impact.pct + '% (' + r.impact.label + ') ~' + r.predictedCalls + ' calls');
+      });
+      var briefingText = briefingLines.join('\n');
+
+      // Generate parts prep data
+      var partsPrep = { snowBlower: [], generator: [], chainsaw: [], mower: [] };
+      validResults.forEach(function(r) {
+        r.forecastDays.forEach(function(fd) {
+          if (fd.code >= 600 && fd.code < 700) partsPrep.snowBlower.push(r.city);
+          if (fd.impact.pct >= 25 || r.alerts.some(function(a){return a.event.toLowerCase().includes('hurricane') || a.event.toLowerCase().includes('storm');})) partsPrep.generator.push(r.city);
+          if (r.alerts.some(function(a){return a.event.toLowerCase().includes('wind') || a.event.toLowerCase().includes('tornado');})) partsPrep.chainsaw.push(r.city);
+          if (fd.code >= 800 && fd.hi >= 70 && fd.hi <= 95) partsPrep.mower.push(r.city);
+        });
+      });
+      // Deduplicate
+      Object.keys(partsPrep).forEach(function(k) { partsPrep[k] = Array.from(new Set(partsPrep[k])); });
+
+      // ===== BUILD HTML =====
+      var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+      html += '<title>Weather Ops Dashboard | JARVIS</title>';
+      html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">';
+      html += '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>';
+      html += '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>';
+      html += '<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>';
+      html += '<style>';
+      html += '* { margin:0; padding:0; box-sizing:border-box; }';
+      html += 'body { background:#020810; color:#c0d8f0; font-family:Rajdhani,sans-serif; }';
+      html += '.header { background:linear-gradient(135deg,#0a1628,#0d2040); border-bottom:1px solid #0a2a4a; padding:16px 24px; display:flex; align-items:center; justify-content:space-between; }';
+      html += '.header h1 { font-family:Orbitron; font-size:22px; color:#00d4ff; letter-spacing:2px; }';
+      html += '.header .subtitle { font-size:13px; color:#4a6a8a; }';
+      html += '.refresh-bar { height:3px; background:#0a2a4a; position:relative; }';
+      html += '.refresh-bar .progress { height:100%; background:linear-gradient(90deg,#00d4ff,#a855f7); width:0%; transition:width 1s linear; }';
+      html += '.summary-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; padding:16px 24px; }';
+      html += '.sum-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:8px; padding:14px; text-align:center; }';
+      html += '.sum-card .val { font-family:Orbitron; font-size:28px; font-weight:700; }';
+      html += '.sum-card .lbl { font-size:12px; color:#4a6a8a; text-transform:uppercase; letter-spacing:1px; margin-top:4px; }';
+      html += '.sum-card.up .val { color:#00ff66; }';
+      html += '.sum-card.down .val { color:#ff4757; }';
+      html += '.sum-card.neutral .val { color:#00d4ff; }';
+      html += '.sum-card.alert .val { color:#ffd700; }';
+      // Alert banner
+      html += '.alert-banner { margin:0 24px 12px; padding:14px 20px; background:linear-gradient(135deg,#2d1a0a,#1a0a0a); border:1px solid #ff4757; border-radius:8px; display:' + (totalAlerts > 0 ? 'block' : 'none') + '; }';
+      html += '.alert-banner h3 { color:#ff4757; font-family:Orbitron; font-size:14px; margin-bottom:8px; }';
+      html += '.alert-item { padding:6px 0; border-bottom:1px solid rgba(255,71,87,0.2); font-size:14px; }';
+      html += '.alert-item .severity { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; margin-left:8px; }';
+      html += '.severity-extreme { background:#ff4757; color:#fff; }';
+      html += '.severity-severe { background:#ff6348; color:#fff; }';
+      html += '.severity-moderate { background:#ffa502; color:#000; }';
+      // Tabs
+      html += '.tab-bar { display:flex; gap:4px; padding:0 24px; border-bottom:1px solid #0a2a4a; overflow-x:auto; }';
+      html += '.tab-btn { padding:10px 18px; background:none; border:none; color:#4a6a8a; font-family:Rajdhani; font-size:14px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; }';
+      html += '.tab-btn.active { color:#00d4ff; border-bottom-color:#00d4ff; }';
+      html += '.tab-btn:hover { color:#c0d8f0; }';
+      html += '.tab-content { display:none; padding:16px 24px; }';
+      html += '.tab-content.active { display:block; }';
+      // Map
+      html += '#weatherMap { height:500px; border-radius:8px; border:1px solid #0a2a4a; }';
+      // Market grid
+      html += '.market-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; }';
+      html += '.market-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:10px; padding:16px; transition:all 0.2s; position:relative; overflow:hidden; }';
+      html += '.market-card:hover { border-color:#00d4ff; box-shadow:0 0 20px rgba(0,212,255,0.15); }';
+      html += '.market-card.has-alert { border-color:#ff4757; }';
+      html += '.mc-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }';
+      html += '.mc-city { font-family:Orbitron; font-size:14px; color:#00d4ff; }';
+      html += '.mc-impact { font-family:Share Tech Mono; font-size:20px; font-weight:700; }';
+      html += '.mc-weather { display:flex; align-items:center; gap:10px; margin-bottom:10px; }';
+      html += '.mc-weather img { width:50px; height:50px; }';
+      html += '.mc-temp { font-family:Orbitron; font-size:32px; font-weight:700; color:#fff; }';
+      html += '.mc-desc { font-size:13px; color:#4a6a8a; text-transform:capitalize; }';
+      html += '.mc-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }';
+      html += '.mc-stat { text-align:center; padding:6px; background:#050d18; border-radius:6px; }';
+      html += '.mc-stat .v { font-family:Share Tech Mono; font-size:16px; color:#fff; }';
+      html += '.mc-stat .l { font-size:10px; color:#4a6a8a; text-transform:uppercase; }';
+      html += '.mc-forecast { display:flex; gap:6px; margin-top:10px; overflow-x:auto; }';
+      html += '.mc-fday { flex:0 0 60px; text-align:center; padding:6px 4px; background:#050d18; border-radius:6px; font-size:11px; }';
+      html += '.mc-fday img { width:30px; height:30px; }';
+      html += '.mc-fday .fpct { font-family:Share Tech Mono; font-weight:700; }';
+      html += '.mc-alert-badge { position:absolute; top:8px; right:8px; background:#ff4757; color:#fff; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; font-family:Orbitron; }';
+      // Ops grid
+      html += '.ops-table { width:100%; border-collapse:collapse; font-size:13px; }';
+      html += '.ops-table th { background:#0a1628; padding:10px 8px; text-align:left; font-family:Orbitron; font-size:11px; color:#4a6a8a; border-bottom:1px solid #0a2a4a; position:sticky; top:0; }';
+      html += '.ops-table td { padding:8px; border-bottom:1px solid #050d18; }';
+      html += '.ops-table tr:hover { background:#0d1a2d; }';
+      html += '.ops-cell { text-align:center; border-radius:4px; padding:6px; min-width:80px; }';
+      html += '.ops-cell .pct { font-family:Share Tech Mono; font-weight:700; font-size:14px; }';
+      html += '.ops-cell .calls { font-size:11px; color:#c0d8f0; }';
+      html += '.ops-cell .tmp { font-size:10px; color:#4a6a8a; }';
+      // Staffing table
+      html += '.staff-table { width:100%; border-collapse:collapse; font-size:13px; }';
+      html += '.staff-table th { background:#0a1628; padding:10px 8px; text-align:left; font-family:Orbitron; font-size:11px; color:#4a6a8a; border-bottom:1px solid #0a2a4a; }';
+      html += '.staff-table td { padding:8px; border-bottom:1px solid #050d18; }';
+      html += '.staff-table tr:hover { background:#0d1a2d; }';
+      html += '.priority-high { color:#ff4757; font-weight:700; }';
+      html += '.priority-med { color:#ffa502; font-weight:700; }';
+      html += '.priority-low { color:#00ff66; font-weight:700; }';
+      // Parts prep
+      html += '.parts-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }';
+      html += '.parts-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:10px; padding:16px; }';
+      html += '.parts-card h3 { font-family:Orbitron; font-size:14px; margin-bottom:10px; }';
+      html += '.parts-card .parts-list { font-size:13px; line-height:1.8; }';
+      html += '.parts-card .parts-markets { font-size:12px; color:#4a6a8a; margin-top:8px; }';
+      // Historical
+      html += '.hist-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr)); gap:14px; }';
+      html += '.hist-card { background:#0a1628; border:1px solid #0a2a4a; border-radius:10px; padding:16px; }';
+      html += '.hist-card h3 { font-family:Orbitron; font-size:13px; color:#00d4ff; margin-bottom:10px; }';
+      html += '.corr-meter { height:8px; background:#050d18; border-radius:4px; margin:6px 0; position:relative; overflow:hidden; }';
+      html += '.corr-fill { height:100%; border-radius:4px; transition:width 0.5s; }';
+      html += '.month-bar { display:flex; align-items:flex-end; gap:2px; height:80px; margin-top:10px; }';
+      html += '.month-bar .bar { flex:1; min-width:4px; border-radius:2px 2px 0 0; position:relative; }';
+      // Briefing
+      html += '.briefing-box { background:#050d18; border:1px solid #0a2a4a; border-radius:8px; padding:20px; font-family:Share Tech Mono; font-size:13px; line-height:1.8; white-space:pre-wrap; max-height:500px; overflow-y:auto; }';
+      html += '.briefing-actions { display:flex; gap:10px; margin-top:12px; }';
+      html += '.btn { padding:10px 20px; border:1px solid #0a2a4a; border-radius:6px; background:#0a1628; color:#00d4ff; font-family:Rajdhani; font-weight:600; cursor:pointer; font-size:14px; }';
+      html += '.btn:hover { background:#0d2040; border-color:#00d4ff; }';
+      html += '.btn-primary { background:linear-gradient(135deg,#00d4ff,#a855f7); color:#fff; border:none; }';
+      // Severe events timeline
+      html += '.timeline { position:relative; padding-left:30px; }';
+      html += '.timeline::before { content:""; position:absolute; left:10px; top:0; bottom:0; width:2px; background:#0a2a4a; }';
+      html += '.tl-item { position:relative; margin-bottom:16px; padding:10px 14px; background:#050d18; border-radius:8px; border:1px solid #0a2a4a; }';
+      html += '.tl-item::before { content:""; position:absolute; left:-24px; top:14px; width:10px; height:10px; border-radius:50%; background:#ff4757; border:2px solid #0a2a4a; }';
+      html += '.tl-date { font-family:Share Tech Mono; font-size:11px; color:#4a6a8a; }';
+      html += '.tl-event { font-size:14px; font-weight:600; margin-top:4px; }';
+      // Filter
+      html += '.filter-row { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }';
+      html += '.filter-btn { padding:6px 14px; border:1px solid #0a2a4a; border-radius:20px; background:none; color:#4a6a8a; font-family:Rajdhani; font-size:13px; cursor:pointer; }';
+      html += '.filter-btn.active { background:#00d4ff; color:#020810; border-color:#00d4ff; }';
+      html += '@media(max-width:768px) { .summary-row { grid-template-columns:repeat(2,1fr); } .market-grid { grid-template-columns:1fr; } }';
+      html += '</style></head><body>';
+
+      // Header
+      html += '<div class="header"><div><h1>WEATHER OPS CENTER</h1><div class="subtitle">Real-Time Weather Intelligence \u00b7 Call Volume Predictions \u00b7 ' + validResults.length + ' Markets</div></div>';
+      html += '<div style="text-align:right"><div style="font-family:Share Tech Mono;font-size:12px;color:#4a6a8a;">Auto-refresh in <span id="countdown">15:00</span></div>';
+      html += '<a href="/dashboard" style="color:#4a6a8a;font-size:12px;text-decoration:none;">\u2190 Back to JARVIS</a></div></div>';
+      html += '<div class="refresh-bar"><div class="progress" id="refreshBar"></div></div>';
+
+      // Summary cards
+      html += '<div class="summary-row">';
+      html += '<div class="sum-card ' + (avgImpact >= 0 ? 'up' : 'down') + '"><div class="val">' + (avgImpact >= 0 ? '+' : '') + Math.round(avgImpact) + '%</div><div class="lbl">Avg Impact</div></div>';
+      html += '<div class="sum-card neutral"><div class="val">' + Math.round(totalPredictedCalls) + '</div><div class="lbl">Est. Daily Calls</div></div>';
+      html += '<div class="sum-card up"><div class="val">$' + totalRevenue.toLocaleString() + '</div><div class="lbl">Est. Daily Revenue</div></div>';
+      html += '<div class="sum-card neutral"><div class="val">' + totalTechs + '</div><div class="lbl">Techs Needed</div></div>';
+      html += '<div class="sum-card ' + (upMarkets > downMarkets ? 'up' : 'down') + '"><div class="val">' + upMarkets + ' / ' + downMarkets + '</div><div class="lbl">Up / Down Markets</div></div>';
+      if (totalAlerts > 0) html += '<div class="sum-card alert"><div class="val">' + totalAlerts + '</div><div class="lbl">Active Alerts</div></div>';
+      html += '</div>';
+
+      // Active alerts banner
+      if (totalAlerts > 0) {
+        html += '<div class="alert-banner"><h3>\u26a0\ufe0f ACTIVE SEVERE WEATHER ALERTS</h3>';
+        validResults.forEach(function(r) {
+          r.alerts.forEach(function(a) {
+            var sevClass = a.severity === 'Extreme' ? 'severity-extreme' : a.severity === 'Severe' ? 'severity-severe' : 'severity-moderate';
+            html += '<div class="alert-item"><strong>' + r.city + '</strong>: ' + a.event + '<span class="severity ' + sevClass + '">' + a.severity + '</span>';
+            if (a.headline) html += '<br><span style="font-size:12px;color:#4a6a8a;">' + a.headline.substring(0,120) + '</span>';
+            html += '</div>';
+          });
+        });
+        html += '</div>';
+      }
+
+      // Tab bar
+      html += '<div class="tab-bar">';
+      html += '<button class="tab-btn active" onclick="switchTab(\'map\')">MAP</button>';
+      html += '<button class="tab-btn" onclick="switchTab(\'ops\')">7-DAY OPS GRID</button>';
+      html += '<button class="tab-btn" onclick="switchTab(\'staffing\')">STAFFING</button>';
+      html += '<button class="tab-btn" onclick="switchTab(\'parts\')">PARTS PREP</button>';
+      html += '<button class="tab-btn" onclick="switchTab(\'markets\')">ALL MARKETS</button>';
+      html += '<button class="tab-btn" onclick="switchTab(\'historical\')">HISTORICAL</button>';
+      html += '<button class="tab-btn" onclick="switchTab(\'briefing\')">BRIEFING</button>';
+      html += '</div>';
+
+      // ===== TAB: MAP =====
+      html += '<div class="tab-content active" id="tab-map">';
+      html += '<div id="weatherMap"></div>';
+      html += '</div>';
+
+      // ===== TAB: OPS GRID =====
+      html += '<div class="tab-content" id="tab-ops">';
+      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">7-Day Operations Planning Grid</h2>';
+      html += '<div style="overflow-x:auto;"><table class="ops-table"><thead><tr><th>Market</th><th>Today Calls</th>';
+      // Add forecast day headers
+      if (validResults.length > 0 && validResults[0].forecastDays) {
+        validResults[0].forecastDays.forEach(function(fd) {
+          var d = new Date(fd.date + 'T12:00:00');
+          html += '<th>' + d.toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric'}) + '</th>';
+        });
+      }
+      html += '<th>5-Day Avg</th><th>Action</th></tr></thead><tbody>';
+      validResults.sort(function(a,b){return b.predictedCalls-a.predictedCalls;}).forEach(function(r) {
+        html += '<tr><td style="font-family:Orbitron;font-size:12px;color:#00d4ff;white-space:nowrap;">' + r.city + '</td>';
+        // Today
+        var todayBg = r.impact.pct >= 15 ? 'rgba(0,255,102,0.15)' : r.impact.pct <= -15 ? 'rgba(255,71,87,0.15)' : 'rgba(0,212,255,0.08)';
+        html += '<td><div class="ops-cell" style="background:' + todayBg + '"><div class="pct" style="color:' + r.impact.color + '">' + (r.impact.pct >= 0 ? '+' : '') + r.impact.pct + '%</div><div class="calls">' + r.predictedCalls + ' calls</div>';
+        if (r.weather && r.weather.current) html += '<div class="tmp">' + Math.round(r.weather.current.main.temp) + '\u00b0F</div>';
+        html += '</div></td>';
+        // Forecast days
+        var sumPct = 0;
+        if (r.forecastDays) {
+          r.forecastDays.forEach(function(fd) {
+            sumPct += fd.impact.pct;
+            var bg = fd.impact.pct >= 15 ? 'rgba(0,255,102,0.15)' : fd.impact.pct <= -15 ? 'rgba(255,71,87,0.15)' : 'rgba(0,212,255,0.08)';
+            html += '<td><div class="ops-cell" style="background:' + bg + '"><div class="pct" style="color:' + fd.impact.color + '">' + (fd.impact.pct >= 0 ? '+' : '') + fd.impact.pct + '%</div><div class="calls">' + fd.predictedCalls + ' calls</div><div class="tmp">' + fd.hi + '/' + fd.lo + '\u00b0F</div></div></td>';
+          });
+        }
+        var avgPct = r.forecastDays && r.forecastDays.length > 0 ? Math.round(sumPct / r.forecastDays.length) : 0;
+        html += '<td style="text-align:center;font-family:Share Tech Mono;font-weight:700;color:' + (avgPct >= 0 ? '#00ff66' : '#ff4757') + '">' + (avgPct >= 0 ? '+' : '') + avgPct + '%</td>';
+        // Action recommendation
+        var action = avgPct >= 20 ? '<span style="color:#00ff66;font-weight:700;">STAFF UP</span>' : avgPct >= 5 ? '<span style="color:#00d4ff;">NORMAL+</span>' : avgPct >= -10 ? '<span style="color:#ffa502;">LIGHT DAY</span>' : '<span style="color:#ff4757;font-weight:700;">REDUCE / REASSIGN</span>';
+        html += '<td>' + action + '</td></tr>';
+      });
+      html += '</tbody></table></div></div>';
+
+      // ===== TAB: STAFFING =====
+      html += '<div class="tab-content" id="tab-staffing">';
+      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Staffing Recommendations</h2>';
+      html += '<table class="staff-table"><thead><tr><th>Market</th><th>Baseline/Day</th><th>Weather-Adjusted</th><th>Pattern Match</th><th>Techs Needed</th><th>Est. Revenue</th><th>Priority</th></tr></thead><tbody>';
+      validResults.sort(function(a,b){return b.dailyRevenue-a.dailyRevenue;}).forEach(function(r) {
+        var priority = r.impact.pct >= 20 ? 'high' : r.impact.pct >= 0 ? 'med' : 'low';
+        var prLabel = priority === 'high' ? 'HIGH' : priority === 'med' ? 'MEDIUM' : 'LOW';
+        html += '<tr><td style="font-family:Orbitron;font-size:12px;color:#00d4ff;">' + r.city + '</td>';
+        html += '<td style="font-family:Share Tech Mono;">' + r.baselineDailyCalls.toFixed(1) + '</td>';
+        html += '<td style="font-family:Share Tech Mono;font-weight:700;color:' + r.impact.color + '">' + r.predictedCalls + '</td>';
+        html += '<td style="font-family:Share Tech Mono;">' + (r.patternMatch ? r.patternMatch + '/day' : '-') + '</td>';
+        html += '<td style="font-family:Share Tech Mono;font-weight:700;">' + r.techsNeeded + '</td>';
+        html += '<td style="font-family:Share Tech Mono;color:#00ff66;">$' + r.dailyRevenue.toLocaleString() + '</td>';
+        html += '<td class="priority-' + priority + '">' + prLabel + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+
+      // ===== TAB: PARTS PREP =====
+      html += '<div class="tab-content" id="tab-parts">';
+      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Parts Prep Alerts (Next 5 Days)</h2>';
+      html += '<div class="parts-grid">';
+      // Snow Blower
+      html += '<div class="parts-card" style="border-left:3px solid #00d4ff;"><h3>\u2744\ufe0f Snow Blower Parts</h3>';
+      html += '<div class="parts-list">\u2022 Carburetor rebuild kits<br>\u2022 Drive belts<br>\u2022 Auger shear pins<br>\u2022 Spark plugs<br>\u2022 Paddle sets</div>';
+      html += '<div class="parts-markets">Demand from: ' + (partsPrep.snowBlower.length > 0 ? partsPrep.snowBlower.join(', ') : 'No markets forecasting snow') + '</div></div>';
+      // Generator
+      html += '<div class="parts-card" style="border-left:3px solid #ffd700;"><h3>\u26a1 Generator Parts</h3>';
+      html += '<div class="parts-list">\u2022 Oil & air filters<br>\u2022 Voltage regulators<br>\u2022 Pull cord assemblies<br>\u2022 AVR modules<br>\u2022 Fuel system kits</div>';
+      html += '<div class="parts-markets">Demand from: ' + (partsPrep.generator.length > 0 ? partsPrep.generator.join(', ') : 'No storm-related generator demand') + '</div></div>';
+      // Chainsaw
+      html += '<div class="parts-card" style="border-left:3px solid #ff6348;"><h3>\ud83e\udeb5 Chainsaw Parts</h3>';
+      html += '<div class="parts-list">\u2022 Chains & bars<br>\u2022 Sprockets<br>\u2022 Clutch assemblies<br>\u2022 Air filters<br>\u2022 Chain brake bands</div>';
+      html += '<div class="parts-markets">Demand from: ' + (partsPrep.chainsaw.length > 0 ? partsPrep.chainsaw.join(', ') : 'No high-wind markets') + '</div></div>';
+      // Mower
+      html += '<div class="parts-card" style="border-left:3px solid #00ff66;"><h3>\ud83c\udfe1 Mower Parts</h3>';
+      html += '<div class="parts-list">\u2022 Blades<br>\u2022 Drive belts<br>\u2022 Spindle assemblies<br>\u2022 Air filters<br>\u2022 Carburetor kits</div>';
+      html += '<div class="parts-markets">Demand from: ' + (partsPrep.mower.length > 0 ? partsPrep.mower.join(', ') : 'No ideal mowing weather forecasted') + '</div></div>';
+      html += '</div></div>';
+
+      // ===== TAB: ALL MARKETS =====
+      html += '<div class="tab-content" id="tab-markets">';
+      html += '<div class="filter-row">';
+      html += '<button class="filter-btn active" onclick="filterMarkets(\'all\',this)">All (' + validResults.length + ')</button>';
+      html += '<button class="filter-btn" onclick="filterMarkets(\'up\',this)">Volume Up (' + upMarkets + ')</button>';
+      html += '<button class="filter-btn" onclick="filterMarkets(\'down\',this)">Volume Down (' + downMarkets + ')</button>';
+      html += '<button class="filter-btn" onclick="filterMarkets(\'alert\',this)">Severe (' + totalAlerts + ')</button>';
+      html += '</div>';
+      html += '<div class="market-grid">';
+      validResults.forEach(function(r) {
+        var hasAlert = r.alerts.length > 0;
+        html += '<div class="market-card' + (hasAlert ? ' has-alert' : '') + '" data-impact="' + (r.impact.pct >= 0 ? 'up' : 'down') + '" data-alert="' + (hasAlert ? 'yes' : 'no') + '">';
+        if (hasAlert) html += '<div class="mc-alert-badge">' + r.alerts.length + ' ALERT' + (r.alerts.length > 1 ? 'S' : '') + '</div>';
+        html += '<div class="mc-header"><div class="mc-city">' + r.city + '</div>';
+        html += '<div class="mc-impact" style="color:' + r.impact.color + '">' + (r.impact.pct >= 0 ? '+' : '') + r.impact.pct + '%</div></div>';
+        if (r.weather && r.weather.current) {
+          var cur = r.weather.current;
+          html += '<div class="mc-weather"><img src="https://openweathermap.org/img/wn/' + cur.weather[0].icon + '@2x.png" alt="">';
+          html += '<div><div class="mc-temp">' + Math.round(cur.main.temp) + '\u00b0</div>';
+          html += '<div class="mc-desc">' + cur.weather[0].description + '</div></div></div>';
+        }
+        html += '<div style="font-size:13px;color:' + r.impact.color + ';margin-bottom:8px;font-weight:600;">' + r.impact.label + '</div>';
+        html += '<div class="mc-stats">';
+        html += '<div class="mc-stat"><div class="v">' + r.predictedCalls + '</div><div class="l">Est. Calls</div></div>';
+        html += '<div class="mc-stat"><div class="v">' + r.techsNeeded + '</div><div class="l">Techs</div></div>';
+        html += '<div class="mc-stat"><div class="v">$' + r.dailyRevenue.toLocaleString() + '</div><div class="l">Revenue</div></div>';
+        html += '</div>';
+        // Mini forecast
+        if (r.forecastDays && r.forecastDays.length > 0) {
+          html += '<div class="mc-forecast">';
+          r.forecastDays.slice(0, 5).forEach(function(fd) {
+            html += '<div class="mc-fday"><div style="color:#4a6a8a;">' + new Date(fd.date + 'T12:00:00').toLocaleDateString('en-US',{weekday:'short'}) + '</div>';
+            html += '<img src="https://openweathermap.org/img/wn/' + fd.icon + '.png" alt="">';
+            html += '<div class="fpct" style="color:' + fd.impact.color + '">' + (fd.impact.pct >= 0 ? '+' : '') + fd.impact.pct + '%</div>';
+            html += '<div style="color:#4a6a8a;">' + fd.hi + '\u00b0</div></div>';
+          });
+          html += '</div>';
+        }
+        // NWS alerts on card
+        if (hasAlert) {
+          html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,71,87,0.3);">';
+          r.alerts.forEach(function(a) {
+            html += '<div style="font-size:12px;color:#ff4757;margin-bottom:4px;">\u26a0 ' + a.event + ' (' + a.severity + ')</div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+      // Error markets
+      errorResults.forEach(function(r) {
+        html += '<div class="market-card" style="opacity:0.5;"><div class="mc-header"><div class="mc-city">' + r.city + '</div><div style="color:#4a6a8a;font-size:12px;">No weather data</div></div>';
+        html += '<div style="font-size:12px;color:#4a6a8a;">' + (r.error || 'Missing API key') + '</div></div>';
+      });
+      html += '</div></div>';
+
+      // ===== TAB: HISTORICAL =====
+      html += '<div class="tab-content" id="tab-historical">';
+      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Historical Weather vs Call Volume (18 Months)</h2>';
+
+      // Aggregate correlation chart data
+      var chartLabels = [];
+      var chartTemps = [];
+      var chartCalls = [];
+      var allCorrelations = [];
+      validResults.forEach(function(r) {
+        if (r.correlation && r.correlation.months.length > 0) {
+          allCorrelations.push({ city: r.city, tempCorr: r.correlation.correlation, rainCorr: r.correlation.rainCorrelation });
+        }
+      });
+
+      // Build per-market correlation cards
+      html += '<div style="margin-bottom:20px;">';
+      // Summary stats
+      if (allCorrelations.length > 0) {
+        var avgTempCorr = allCorrelations.reduce(function(s,c){return s+c.tempCorr;},0) / allCorrelations.length;
+        var avgRainCorr = allCorrelations.reduce(function(s,c){return s+c.rainCorr;},0) / allCorrelations.length;
+        html += '<div class="summary-row" style="padding:0 0 16px;">';
+        html += '<div class="sum-card"><div class="val" style="color:' + (avgTempCorr >= 0 ? '#00ff66' : '#ff4757') + '">' + (avgTempCorr >= 0 ? '+' : '') + (avgTempCorr * 100).toFixed(0) + '%</div><div class="lbl">Avg Temp\u2194Calls Correlation</div></div>';
+        html += '<div class="sum-card"><div class="val" style="color:' + (avgRainCorr >= 0 ? '#00ff66' : '#ff4757') + '">' + (avgRainCorr >= 0 ? '+' : '') + (avgRainCorr * 100).toFixed(0) + '%</div><div class="lbl">Avg Rain\u2194Calls Correlation</div></div>';
+        html += '</div>';
+      }
+      html += '</div>';
+
+      // Chart canvas for aggregate view
+      html += '<div style="background:#0a1628;border:1px solid #0a2a4a;border-radius:10px;padding:16px;margin-bottom:20px;">';
+      html += '<h3 style="font-family:Orbitron;font-size:13px;color:#00d4ff;margin-bottom:10px;">Temperature vs Predicted Calls by Market</h3>';
+      html += '<canvas id="weatherChart" height="100"></canvas></div>';
+
+      // Per-market historical cards
+      html += '<div class="hist-grid">';
+      validResults.forEach(function(r) {
+        if (!r.correlation || r.correlation.months.length < 3) return;
+        var tc = r.correlation.correlation;
+        var rc = r.correlation.rainCorrelation;
+        html += '<div class="hist-card"><h3>' + r.city + '</h3>';
+        // Temp correlation meter
+        html += '<div style="display:flex;justify-content:space-between;font-size:12px;"><span>Temperature \u2194 Calls</span><span style="color:' + (tc >= 0 ? '#00ff66' : '#ff4757') + ';font-family:Share Tech Mono;">' + (tc >= 0 ? '+' : '') + (tc * 100).toFixed(0) + '%</span></div>';
+        html += '<div class="corr-meter"><div class="corr-fill" style="width:' + Math.abs(tc * 100) + '%;background:' + (tc >= 0 ? '#00ff66' : '#ff4757') + ';"></div></div>';
+        // Rain correlation meter
+        html += '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px;"><span>Rain Days \u2194 Calls</span><span style="color:' + (rc >= 0 ? '#00ff66' : '#ff4757') + ';font-family:Share Tech Mono;">' + (rc >= 0 ? '+' : '') + (rc * 100).toFixed(0) + '%</span></div>';
+        html += '<div class="corr-meter"><div class="corr-fill" style="width:' + Math.abs(rc * 100) + '%;background:' + (rc >= 0 ? '#00ff66' : '#ff4757') + ';"></div></div>';
+        // Monthly bar chart
+        html += '<div class="month-bar">';
+        var maxCalls = Math.max.apply(null, r.correlation.months.map(function(m){return m.calls;})) || 1;
+        r.correlation.months.forEach(function(m) {
+          var h = Math.round((m.calls / maxCalls) * 70);
+          var tempColor = m.temp > 85 ? '#ff6348' : m.temp > 70 ? '#ffa502' : m.temp > 50 ? '#00d4ff' : '#a855f7';
+          html += '<div class="bar" style="height:' + h + 'px;background:' + tempColor + ';" title="' + m.month + ': ' + m.calls + ' calls, ' + Math.round(m.temp) + '\u00b0F"></div>';
+        });
+        html += '</div>';
+        html += '<div style="font-size:10px;color:#4a6a8a;margin-top:4px;">Bars = call volume, color = temp (purple=cold, blue=cool, orange=warm, red=hot)</div>';
+        // Insight
+        if (Math.abs(tc) > 0.5) {
+          html += '<div style="margin-top:8px;padding:8px;background:#050d18;border-radius:4px;font-size:12px;">';
+          if (tc > 0.5) html += '\ud83d\udcc8 Higher temps <strong>strongly correlate</strong> with more calls (+' + (tc * 100).toFixed(0) + '%)';
+          else if (tc < -0.5) html += '\ud83d\udcc9 Higher temps <strong>strongly correlate</strong> with fewer calls (' + (tc * 100).toFixed(0) + '%)';
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+
+      // Severe events timeline
+      var allSevere = [];
+      validResults.forEach(function(r) {
+        (r.severeEvents || []).forEach(function(e) { allSevere.push({ city: r.city, date: e.date, type: e.type, icon: e.icon, detail: e.detail }); });
+      });
+      allSevere.sort(function(a,b) { return b.date.localeCompare(a.date); });
+      if (allSevere.length > 0) {
+        html += '<div style="margin-top:20px;"><h3 style="font-family:Orbitron;font-size:14px;color:#ff4757;margin-bottom:14px;">Severe Weather Events (Last 18 Months)</h3>';
+        html += '<div class="timeline">';
+        allSevere.slice(0, 30).forEach(function(e) {
+          html += '<div class="tl-item"><div class="tl-date">' + e.date + ' \u2014 ' + e.city + '</div>';
+          html += '<div class="tl-event">' + e.icon + ' ' + e.type + '</div>';
+          html += '<div style="font-size:12px;color:#4a6a8a;">' + e.detail + '</div></div>';
+        });
+        html += '</div></div>';
+      }
+      html += '</div>';
+
+      // ===== TAB: BRIEFING =====
+      html += '<div class="tab-content" id="tab-briefing">';
+      html += '<h2 style="font-family:Orbitron;font-size:16px;color:#00d4ff;margin-bottom:14px;">Morning Ops Briefing</h2>';
+      html += '<div class="briefing-box">' + briefingText.replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+      html += '<div class="briefing-actions">';
+      html += '<button class="btn btn-primary" onclick="copyBriefing()">Copy to Clipboard</button>';
+      html += '<button class="btn" onclick="smsBriefing()">Send via SMS</button>';
+      html += '</div></div>';
+
+      // ===== JAVASCRIPT =====
+      html += '<script>';
+
+      // Tab switching
+      html += 'function switchTab(id) {';
+      html += '  document.querySelectorAll(".tab-content").forEach(function(t){t.classList.remove("active");});';
+      html += '  document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});';
+      html += '  document.getElementById("tab-"+id).classList.add("active");';
+      html += '  event.target.classList.add("active");';
+      html += '  if (id==="map" && window.weatherMap) window.weatherMap.invalidateSize();';
+      html += '}';
+
+      // Market filter
+      html += 'function filterMarkets(type, btn) {';
+      html += '  document.querySelectorAll(".filter-btn").forEach(function(b){b.classList.remove("active");});';
+      html += '  btn.classList.add("active");';
+      html += '  document.querySelectorAll(".market-card").forEach(function(c) {';
+      html += '    if (type==="all") c.style.display="";';
+      html += '    else if (type==="up") c.style.display = c.dataset.impact==="up" ? "" : "none";';
+      html += '    else if (type==="down") c.style.display = c.dataset.impact==="down" ? "" : "none";';
+      html += '    else if (type==="alert") c.style.display = c.dataset.alert==="yes" ? "" : "none";';
+      html += '  });';
+      html += '}';
+
+      // Copy briefing
+      html += 'function copyBriefing() {';
+      html += '  var text = document.querySelector(".briefing-box").innerText;';
+      html += '  navigator.clipboard.writeText(text).then(function() {';
+      html += '    var btn = document.querySelector(".btn-primary"); btn.textContent = "Copied!"; setTimeout(function(){btn.textContent="Copy to Clipboard";}, 2000);';
+      html += '  });';
+      html += '}';
+
+      // SMS briefing
+      html += 'function smsBriefing() {';
+      html += '  fetch("/api/weather/sms-briefing", {method:"POST"}).then(function(r){return r.json();}).then(function(d){';
+      html += '    alert(d.success ? "Briefing sent via SMS!" : "SMS failed: " + d.error);';
+      html += '  }).catch(function(e){alert("Error: " + e.message);});';
+      html += '}';
+
+      // Auto-refresh countdown
+      html += 'var refreshSec = 900;';
+      html += 'setInterval(function() {';
+      html += '  refreshSec--;';
+      html += '  if (refreshSec <= 0) location.reload();';
+      html += '  var m = Math.floor(refreshSec/60), s = refreshSec%60;';
+      html += '  document.getElementById("countdown").textContent = m + ":" + (s<10?"0":"") + s;';
+      html += '  document.getElementById("refreshBar").style.width = ((900-refreshSec)/900*100) + "%";';
+      html += '}, 1000);';
+
+      // Leaflet Map
+      html += 'setTimeout(function() {';
+      html += '  var map = L.map("weatherMap",{zoomControl:true}).setView([37.5,-96],4);';
+      html += '  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{attribution:"CartoDB",maxZoom:19}).addTo(map);';
+      html += '  window.weatherMap = map;';
+
+      // Add market markers
+      html += '  var markersData = ' + JSON.stringify(validResults.map(function(r) {
+        return {
+          city: r.city, lat: r.coords.lat, lon: r.coords.lon,
+          temp: r.weather && r.weather.current ? Math.round(r.weather.current.main.temp) : null,
+          desc: r.weather && r.weather.current ? r.weather.current.weather[0].description : '',
+          icon: r.weather && r.weather.current ? r.weather.current.weather[0].icon : '',
+          pct: r.impact.pct, color: r.impact.color, label: r.impact.label,
+          calls: r.predictedCalls, techs: r.techsNeeded, revenue: r.dailyRevenue,
+          total: r.total, alerts: r.alerts.length, hasAlert: r.alerts.length > 0
+        };
+      })) + ';';
+
+      html += '  markersData.forEach(function(m) {';
+      html += '    var radius = Math.max(8, Math.min(25, m.total / 10));';
+      html += '    var fillColor = m.pct >= 15 ? "#00ff66" : m.pct >= 0 ? "#00d4ff" : m.pct >= -15 ? "#ffa502" : "#ff4757";';
+      html += '    var circle = L.circleMarker([m.lat,m.lon], {';
+      html += '      radius: radius, fillColor: fillColor, fillOpacity: 0.7, color: m.hasAlert ? "#ff4757" : fillColor, weight: m.hasAlert ? 3 : 1';
+      html += '    }).addTo(map);';
+      html += '    var popup = "<div style=\\"font-family:Rajdhani;\\"><strong style=\\"font-family:Orbitron;font-size:14px;\\">" + m.city + "</strong><br>";';
+      html += '    if (m.temp !== null) popup += "<img src=\\"https://openweathermap.org/img/wn/" + m.icon + ".png\\" style=\\"vertical-align:middle;\\">" + m.temp + "\u00b0F - " + m.desc + "<br>";';
+      html += '    popup += "<strong style=\\"color:" + m.color + ";\\">" + (m.pct>=0?"+":"") + m.pct + "%</strong> " + m.label + "<br>";';
+      html += '    popup += "Est. <strong>" + m.calls + "</strong> calls/day | <strong>" + m.techs + "</strong> techs | <strong>$" + m.revenue.toLocaleString() + "</strong>/day<br>";';
+      html += '    if (m.alerts > 0) popup += "<span style=\\"color:#ff4757;font-weight:700;\\">\u26a0 " + m.alerts + " active alert(s)</span>";';
+      html += '    popup += "</div>";';
+      html += '    circle.bindPopup(popup);';
+      html += '    circle.bindTooltip(m.city.split(",")[0] + " " + (m.pct>=0?"+":"") + m.pct + "%", {permanent:true, direction:"top", className:"leaflet-tooltip-dark", offset:[0,-radius]});';
+      html += '  });';
+      html += '}, 100);';
+
+      // Chart.js
+      html += 'setTimeout(function() {';
+      html += '  var ctx = document.getElementById("weatherChart");';
+      html += '  if (!ctx) return;';
+      var chartData = validResults.map(function(r) {
+        return { city: r.city.split(',')[0], temp: r.weather && r.weather.current ? Math.round(r.weather.current.main.temp) : 0, calls: r.predictedCalls, pct: r.impact.pct };
+      }).sort(function(a,b){return b.calls - a.calls;});
+      html += '  var data = ' + JSON.stringify(chartData) + ';';
+      html += '  new Chart(ctx, {';
+      html += '    type: "bar",';
+      html += '    data: {';
+      html += '      labels: data.map(function(d){return d.city;}),';
+      html += '      datasets: [{';
+      html += '        label: "Temperature (\u00b0F)", data: data.map(function(d){return d.temp;}), backgroundColor: data.map(function(d){return d.temp>85?"rgba(255,99,72,0.7)":d.temp>70?"rgba(255,165,2,0.7)":d.temp>50?"rgba(0,212,255,0.7)":"rgba(168,85,247,0.7)";}), yAxisID:"y", borderRadius:4';
+      html += '      },{';
+      html += '        label: "Predicted Calls/Day", data: data.map(function(d){return d.calls;}), type:"line", borderColor:"#00ff66", backgroundColor:"rgba(0,255,102,0.1)", yAxisID:"y1", tension:0.3, pointRadius:5, pointBackgroundColor:"#00ff66", fill:true';
+      html += '      }]';
+      html += '    },';
+      html += '    options: {';
+      html += '      responsive:true, plugins:{ legend:{ labels:{ color:"#c0d8f0" } } },';
+      html += '      scales: {';
+      html += '        x: { ticks:{color:"#4a6a8a",font:{size:11}}, grid:{color:"rgba(10,42,74,0.5)"} },';
+      html += '        y: { position:"left", title:{display:true,text:"Temp (\u00b0F)",color:"#4a6a8a"}, ticks:{color:"#4a6a8a"}, grid:{color:"rgba(10,42,74,0.3)"} },';
+      html += '        y1: { position:"right", title:{display:true,text:"Calls/Day",color:"#4a6a8a"}, ticks:{color:"#00ff66"}, grid:{drawOnChartArea:false} }';
+      html += '      }';
+      html += '    }';
+      html += '  });';
+      html += '}, 200);';
+
+      html += '<\/script></body></html>';
+      res.send(html);
+    }).catch(function(err) {
+      res.status(500).send('Weather dashboard error: ' + err.message);
+    });
+  } catch (err) {
+    console.log('Weather dashboard error:', err.message);
+    res.status(500).send('Error loading weather dashboard: ' + err.message);
+  }
+});
+
+// ===== WEATHER API ENDPOINTS =====
+app.get('/api/weather', requireAuth('owner'), function(req, res) {
+  var city = req.query.city;
+  if (!city) return res.json({ error: 'Provide ?city=City, ST' });
+  var coords = MARKET_COORDS[city];
+  if (!coords) return res.json({ error: 'Unknown city. Available: ' + Object.keys(MARKET_COORDS).join(', ') });
+  fetchWeatherData(city, coords.lat, coords.lon).then(function(w) {
+    var impact = calcWeatherImpact(w ? w.current : null);
+    res.json({ city: city, weather: w, impact: impact });
+  }).catch(function(e) { res.json({ error: e.message }); });
+});
+
+app.post('/api/weather/sms-briefing', requireAuth('owner'), function(req, res) {
+  // Quick briefing via SMS
+  var markets = Object.keys(MARKET_COORDS).slice(0, 16);
+  var promises = markets.map(function(city) {
+    var c = MARKET_COORDS[city];
+    return fetchWeatherData(city, c.lat, c.lon).then(function(w) {
+      var impact = calcWeatherImpact(w ? w.current : null);
+      var temp = w && w.current ? Math.round(w.current.main.temp) : '?';
+      return { city: city.split(',')[0], pct: impact.pct, temp: temp };
+    }).catch(function() { return null; });
+  });
+  Promise.all(promises).then(function(results) {
+    var valid = results.filter(Boolean);
+    var hot = valid.filter(function(r){return r.pct >= 15;}).map(function(r){return r.city + ' +' + r.pct + '%';});
+    var slow = valid.filter(function(r){return r.pct <= -15;}).map(function(r){return r.city + ' ' + r.pct + '%';});
+    var msg = 'WEATHER OPS ' + new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}) + '\n';
+    if (hot.length > 0) msg += 'STAFF UP: ' + hot.join(', ') + '\n';
+    if (slow.length > 0) msg += 'LIGHT: ' + slow.join(', ') + '\n';
+    msg += valid.length + ' markets tracked';
+    twilioClient.messages.create({ body: msg, from: TWILIO_NUMBER, to: MY_NUMBER })
+      .then(function() { res.json({ success: true }); })
+      .catch(function(e) { res.json({ success: false, error: e.message }); });
+  });
+});
+
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
   console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload");
