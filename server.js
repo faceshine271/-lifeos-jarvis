@@ -8766,14 +8766,26 @@ app.get('/business', requireAuth('owner'), async function(req, res) {
     html += '<div style="font-family:Rajdhani;font-size:0.95em;letter-spacing:4px;color:#a855f780;margin-top:3px;">' + dateStr + ' // ' + timeStr + '</div>';
 
     // === TAB NAVIGATION ===
-    html += '<div style="display:flex;justify-content:center;gap:0;margin-top:20px;margin-bottom:15px;">';
-    html += '<a href="/dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">JARVIS</a>';
-    html += '<a href="/business" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#a855f7;border:1px solid #a855f740;text-decoration:none;background:rgba(168,85,247,0.1);box-shadow:0 0 15px rgba(168,85,247,0.1);">ATHENA</a>';
-    html += '<a href="/tookan" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TOOKAN</a>';
-    html += '<a href="/business/chart" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">CHARTS</a>';
-    html += '<a href="/analytics" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">ANALYTICS</a>';
-    html += '<a href="/ads" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">GOOGLE ADS</a>';
-    html += '<a href="/square" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SQUARE</a><a href="/discord" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">DISCORD</a><a href="/followup" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FOLLOW UP</a><a href="/ai" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AI</a><a href="/forecast" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">FORECAST</a><a href="/seo" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">SEO</a><a href="/tasks" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">TASKS</a><a href="/audit" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">AUDIT</a><a href="/weather-dashboard" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">WEATHER</a><a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
+    var navStyle = 'font-family:Orbitron;font-size:0.6em;letter-spacing:3px;padding:8px 16px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);white-space:nowrap;';
+    var navActiveStyle = 'font-family:Orbitron;font-size:0.6em;letter-spacing:3px;padding:8px 16px;color:#a855f7;border:1px solid #a855f740;text-decoration:none;background:rgba(168,85,247,0.1);box-shadow:0 0 15px rgba(168,85,247,0.1);white-space:nowrap;';
+    var navLogoutStyle = 'font-family:Orbitron;font-size:0.6em;letter-spacing:3px;padding:8px 16px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);white-space:nowrap;';
+    html += '<div style="display:flex;justify-content:center;gap:3px;margin-top:20px;margin-bottom:15px;flex-wrap:wrap;padding:0 10px;">';
+    html += '<a href="/dashboard" style="' + navStyle + '">JARVIS</a>';
+    html += '<a href="/business" style="' + navActiveStyle + '">ATHENA</a>';
+    html += '<a href="/tookan" style="' + navStyle + '">TOOKAN</a>';
+    html += '<a href="/business/chart" style="' + navStyle + '">CHARTS</a>';
+    html += '<a href="/analytics" style="' + navStyle + '">ANALYTICS</a>';
+    html += '<a href="/ads" style="' + navStyle + '">GOOGLE ADS</a>';
+    html += '<a href="/square" style="' + navStyle + '">SQUARE</a>';
+    html += '<a href="/discord" style="' + navStyle + '">DISCORD</a>';
+    html += '<a href="/followup" style="' + navStyle + '">FOLLOW UP</a>';
+    html += '<a href="/ai" style="' + navStyle + '">AI</a>';
+    html += '<a href="/forecast" style="' + navStyle + '">FORECAST</a>';
+    html += '<a href="/seo" style="' + navStyle + '">SEO</a>';
+    html += '<a href="/tasks" style="' + navStyle + '">TASKS</a>';
+    html += '<a href="/audit" style="' + navStyle + '">AUDIT</a>';
+    html += '<a href="/weather-dashboard" style="' + navStyle + '">WEATHER</a>';
+    html += '<a href="/auth/logout" style="' + navLogoutStyle + '">LOGOUT</a>';
     html += '</div>';
     var tkForCount = global.tookanData || {};
     var allTechNames = {};
