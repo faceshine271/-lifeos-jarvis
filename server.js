@@ -23020,6 +23020,16 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
       r._patternMatches = matchedCalls;
     });
 
+    // Build allActiveAlerts before morning briefing
+    var allActiveAlerts = [];
+    validResults.forEach(function(r) {
+      if (r.nwsAlerts && r.nwsAlerts.length > 0) {
+        r.nwsAlerts.forEach(function(a) {
+          allActiveAlerts.push({ market: r.market, alert: a });
+        });
+      }
+    });
+
     // Generate morning briefing
     var morningBriefing = generateMorningBriefing(validResults, totalAdjustedCalls, totalDailyRevenue, totalTechsNeeded, allActiveAlerts, partsPrep);
 
@@ -23029,6 +23039,15 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     var dispatchMoves = [];
     for (var di = 0; di < Math.min(coldMarkets.length, hotMarkets.length, 5); di++) {
       dispatchMoves.push({ from: coldMarkets[di].market, fromImpact: coldMarkets[di].impact.percent, to: hotMarkets[di].market, toImpact: hotMarkets[di].impact.percent, toEst: hotMarkets[di]._estAdjustedCalls, revGain: hotMarkets[di]._estDailyRevenue - coldMarkets[di]._estDailyRevenue });
+    }
+
+    // Build forecast days for heatmap and dispatch tabs
+    var forecastDays = [];
+    if (validResults.length > 0 && validResults[0].forecast) {
+      validResults[0].forecast.forEach(function(f) {
+        var d = new Date(f.date + 'T12:00:00');
+        forecastDays.push({ date: f.date, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()], dayNum: d.getDate() });
+      });
     }
 
     // Build HTML
@@ -23165,15 +23184,7 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     html += '<div class="summary-card"><div class="label">TECHS NEEDED TODAY</div><div class="value" style="color:#c084fc;">' + totalTechsNeeded + '</div><div class="sub">' + totalAdjustedCalls + ' calls &divide; ' + AVG_CALLS_PER_TECH_DAY + ' per tech</div></div>';
     html += '<div class="summary-card"><div class="label">MARKETS UP</div><div class="value" style="color:#00ff66;">' + totalUp + '</div><div class="sub">Expecting more calls</div></div>';
     html += '<div class="summary-card"><div class="label">MARKETS DOWN</div><div class="value" style="color:#ff4757;">' + totalDown + '</div><div class="sub">Expecting fewer calls</div></div>';
-    // Count active alerts
-    var allActiveAlerts = [];
-    validResults.forEach(function(r) {
-      if (r.nwsAlerts && r.nwsAlerts.length > 0) {
-        r.nwsAlerts.forEach(function(a) {
-          allActiveAlerts.push({ market: r.market, alert: a });
-        });
-      }
-    });
+    // Count severe alerts (allActiveAlerts built earlier before morning briefing)
     var severeAlertCount = allActiveAlerts.filter(function(a) { return a.alert.severity === 'Extreme' || a.alert.severity === 'Severe'; }).length;
 
     html += '<div class="summary-card"><div class="label">NEUTRAL</div><div class="value" style="color:#4a6a8a;">' + totalNeutral + '</div><div class="sub">Normal volume expected</div></div>';
@@ -23368,15 +23379,7 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     html += '<div class="section-title" style="color:#ffd700;"><span class="dot" style="background:#ffd700;box-shadow:0 0 8px #ffd700;"></span>7-DAY OPERATIONS FORECAST — DISPATCH PLANNING</div>';
     html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:15px;">Weather-adjusted call predictions per market. Green = high demand (staff up), Red = low demand (reassign techs), Yellow = normal.</div>';
 
-    // Build 5-day grid for all markets
-    var forecastDays = [];
-    if (validResults.length > 0 && validResults[0].forecast) {
-      validResults[0].forecast.forEach(function(f) {
-        var d = new Date(f.date + 'T12:00:00');
-        forecastDays.push({ date: f.date, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()], dayNum: d.getDate() });
-      });
-    }
-
+    // forecastDays already built above
     html += '<div style="overflow-x:auto;">';
     html += '<table class="staff-table">';
     html += '<thead><tr><th style="min-width:140px;">MARKET</th><th>TODAY</th>';
