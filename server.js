@@ -23041,6 +23041,15 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
       dispatchMoves.push({ from: coldMarkets[di].market, fromImpact: coldMarkets[di].impact.percent, to: hotMarkets[di].market, toImpact: hotMarkets[di].impact.percent, toEst: hotMarkets[di]._estAdjustedCalls, revGain: hotMarkets[di]._estDailyRevenue - coldMarkets[di]._estDailyRevenue });
     }
 
+    // Build forecast days for heatmap and dispatch tabs
+    var forecastDays = [];
+    if (validResults.length > 0 && validResults[0].forecast) {
+      validResults[0].forecast.forEach(function(f) {
+        var d = new Date(f.date + 'T12:00:00');
+        forecastDays.push({ date: f.date, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()], dayNum: d.getDate() });
+      });
+    }
+
     // Build HTML
     var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
     html += '<title>Weather Dashboard — Call Volume Impact</title>';
@@ -23370,15 +23379,7 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     html += '<div class="section-title" style="color:#ffd700;"><span class="dot" style="background:#ffd700;box-shadow:0 0 8px #ffd700;"></span>7-DAY OPERATIONS FORECAST — DISPATCH PLANNING</div>';
     html += '<div style="color:#4a6a8a;font-size:0.82em;margin-bottom:15px;">Weather-adjusted call predictions per market. Green = high demand (staff up), Red = low demand (reassign techs), Yellow = normal.</div>';
 
-    // Build 5-day grid for all markets
-    var forecastDays = [];
-    if (validResults.length > 0 && validResults[0].forecast) {
-      validResults[0].forecast.forEach(function(f) {
-        var d = new Date(f.date + 'T12:00:00');
-        forecastDays.push({ date: f.date, dayName: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()], dayNum: d.getDate() });
-      });
-    }
-
+    // forecastDays already built above
     html += '<div style="overflow-x:auto;">';
     html += '<table class="staff-table">';
     html += '<thead><tr><th style="min-width:140px;">MARKET</th><th>TODAY</th>';
