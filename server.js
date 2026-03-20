@@ -22869,37 +22869,74 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     var locationStats = bm.locationStats || {};
     var monthlyCalls = bm.monthlyCalls || {};
     var monthlyCallsByCity = bm.monthlyCallsByCity || {};
+    var pm = global.profitMetrics || {};
 
-    // ====== COMPANY-WIDE CALL DATA from CRM receptionist logs ======
-    var totalCompanyCalls = bm.totalLeads || 0;
-    var thisMonthCalls = bm.thisMonthCalls || 0;
-    var lastMonthCalls = bm.lastMonthCalls || 0;
-    // Best estimate of current monthly call rate
-    var dayOfMonth = new Date().getDate();
-    var currentMonthProjected = thisMonthCalls > 0 ? Math.round(thisMonthCalls * (30 / Math.max(dayOfMonth, 1))) : lastMonthCalls;
-    var bestMonthlyRate = currentMonthProjected || lastMonthCalls || 0;
-    // If we have no monthly data, estimate from total
-    if (bestMonthlyRate === 0 && totalCompanyCalls > 0) {
-      var monthKeys = Object.keys(monthlyCalls);
-      bestMonthlyRate = Math.round(totalCompanyCalls / Math.max(monthKeys.length, 1));
-    }
-    var companyDailyCalls = Math.max(1, Math.round(bestMonthlyRate / 22)); // ~22 working days
-
-    // ====== SQUARE DATA: Get actual avg ticket and revenue ======
+    // ====== ACTUAL REVENUE & CALL DATA from Square + Profit Sheet + CRM ======
     var sqAvgTicket = 185; // fallback
+    var sqAvgDailyRev = 0;
+    var sqTodayRev = 0;
+    var sqWeekRev = 0;
     var sqMonthlyRevenue = {};
+    var sqPaymentsByDay = {};
+    var sqMonthlyPaymentCount = {};
     if (SQUARE_ACCESS_TOKEN) {
       try {
         var sqSnap = await squareFullSnapshot();
         var sqData = squareAnalyze(sqSnap);
-        if (sqData && sqData.revenue && sqData.revenue.avgTicket > 0) {
-          sqAvgTicket = Math.round(sqData.revenue.avgTicket);
+        if (sqData && sqData.revenue) {
+          if (sqData.revenue.avgTicket > 0) sqAvgTicket = Math.round(sqData.revenue.avgTicket);
+          if (sqData.revenue.avgDailyRev > 0) sqAvgDailyRev = Math.round(sqData.revenue.avgDailyRev);
+          sqTodayRev = Math.round(sqData.revenue.today || 0);
+          sqWeekRev = Math.round(sqData.revenue.week || 0);
         }
-        if (sqData && sqData.trends && sqData.trends.monthlyRevenue) {
-          sqMonthlyRevenue = sqData.trends.monthlyRevenue;
+        if (sqData && sqData.trends) {
+          sqMonthlyRevenue = sqData.trends.monthlyRevenue || {};
+          sqMonthlyPaymentCount = sqData.trends.monthlyPaymentCount || {};
+        }
+        if (sqData && sqData.payments) {
+          sqPaymentsByDay = sqData.payments.byDay || {};
         }
       } catch(e) { console.log('Weather dashboard Square error:', e.message); }
     }
+
+    // Use profit sheet avgDailyRev as fallback
+    if (sqAvgDailyRev === 0 && pm.avgDailyRev > 0) {
+      sqAvgDailyRev = Math.round(pm.avgDailyRev);
+    }
+
+    // Company-wide daily call volume from actual data
+    var dayOfMonth = new Date().getDate();
+    var thisMonthCalls = bm.thisMonthCalls || 0;
+    var lastMonthCalls = bm.lastMonthCalls || 0;
+
+    // Best daily call rate: Square payment count → CRM calls → estimate
+    var companyDailyCalls = 0;
+
+    // Method 1: From Square daily payment counts (most accurate for actual jobs done)
+    var recentDayRevenues = Object.entries(sqPaymentsByDay).sort(function(a,b) { return b[0].localeCompare(a[0]); });
+    if (recentDayRevenues.length >= 7) {
+      // Average transactions per day from recent Square data
+      var recentDays = recentDayRevenues.slice(0, 30); // last 30 days with data
+      companyDailyCalls = Math.round(recentDays.length > 0 ? (recentDays.length / 30) * (bm.totalLeads || 0) / Math.max(Object.keys(monthlyCalls).length, 1) / 22 : 0);
+    }
+
+    // Method 2: From actual daily revenue / avg ticket
+    if (companyDailyCalls === 0 && sqAvgDailyRev > 0 && sqAvgTicket > 0) {
+      companyDailyCalls = Math.round(sqAvgDailyRev / sqAvgTicket);
+    }
+
+    // Method 3: From CRM monthly call data
+    if (companyDailyCalls === 0) {
+      var currentMonthProjected = thisMonthCalls > 0 ? Math.round(thisMonthCalls * (30 / Math.max(dayOfMonth, 1))) : lastMonthCalls;
+      var bestMonthlyRate = currentMonthProjected || lastMonthCalls || 0;
+      if (bestMonthlyRate === 0 && (bm.totalLeads || 0) > 0) {
+        bestMonthlyRate = Math.round((bm.totalLeads || 0) / Math.max(Object.keys(monthlyCalls).length, 1));
+      }
+      companyDailyCalls = Math.max(1, Math.round(bestMonthlyRate / 22));
+    }
+
+    // Use actual daily revenue if available, otherwise estimate
+    var companyDailyRevenue = sqAvgDailyRev > 0 ? sqAvgDailyRev : (companyDailyCalls * sqAvgTicket);
 
     // Get top markets sorted by call volume
     var markets = Object.entries(locationStats)
@@ -23015,29 +23052,23 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     var avgImpact = validResults.length > 0 ? Math.round(overallImpactSum / validResults.length) : 0;
 
     // ====== COMPUTE: Revenue impact, staffing, parts prep ======
-    var AVG_TICKET = sqAvgTicket; // actual avg ticket from Square (fallback $185)
-    var AVG_CALLS_PER_TECH_DAY = 4; // avg jobs a tech can handle per day
+    var AVG_TICKET = sqAvgTicket; // actual avg ticket from Square
+    var AVG_CALLS_PER_TECH_DAY = 4;
     var totalAvgDailyCalls = 0;
 
     validResults.forEach(function(r) {
-      // Proportional daily calls: market's share of total calls × company daily rate
+      // Proportional share: this market's % of all tracked calls
       var marketShare = trackedMarketCalls > 0 ? (r.stats.total / trackedMarketCalls) : (1 / Math.max(validResults.length, 1));
+
+      // Daily calls: market's share × company-wide daily rate
       var marketDailyCalls = Math.max(1, Math.round(companyDailyCalls * marketShare));
 
-      // If we have this month's or last month's data for this market, use it directly
-      var thisM = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0');
-      var lastM = new Date().getMonth() === 0 ? (new Date().getFullYear() - 1) + '-12' : new Date().getFullYear() + '-' + String(new Date().getMonth()).padStart(2, '0');
-      if (r.history[thisM]) {
-        // Project partial month to full month, then to daily
-        var projected = Math.round(r.history[thisM] * (30 / Math.max(dayOfMonth, 1)));
-        marketDailyCalls = Math.max(1, Math.round(projected / 22));
-      } else if (r.history[lastM]) {
-        marketDailyCalls = Math.max(1, Math.round(r.history[lastM] / 22));
-      }
+      // Daily revenue: market's share × company-wide actual daily revenue
+      var marketDailyRevenue = Math.round(companyDailyRevenue * marketShare);
 
       r._estDailyCalls = marketDailyCalls;
       r._estAdjustedCalls = Math.max(1, Math.round(r._estDailyCalls * (1 + r.impact.percent / 100)));
-      r._estDailyRevenue = r._estAdjustedCalls * AVG_TICKET;
+      r._estDailyRevenue = Math.round(marketDailyRevenue * (1 + r.impact.percent / 100));
       r._estTechsNeeded = Math.max(1, Math.ceil(r._estAdjustedCalls / AVG_CALLS_PER_TECH_DAY));
       totalAvgDailyCalls += r._estDailyCalls;
     });
@@ -23047,7 +23078,9 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
       totalDailyRevenue += r._estDailyRevenue;
       totalTechsNeeded += r._estTechsNeeded;
     });
-    var revenueImpactDollar = (totalAdjustedCalls - totalAvgDailyCalls) * AVG_TICKET;
+    // Use actual daily revenue as baseline, not estimated
+    var baselineDailyRevenue = companyDailyRevenue;
+    var revenueImpactDollar = totalDailyRevenue - baselineDailyRevenue;
 
     // Parts prep analysis based on forecasts
     var partsPrep = { snowBlower: [], generator: [], chainsaw: [], mower: [], general: [] };
@@ -23230,7 +23263,11 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     html += '<div class="header">';
     html += '<h1>WEATHER OPS</h1>';
     html += '<div class="sub">Real-Time Weather Impact on Call Volume — ' + markets.length + ' Markets</div>';
-    html += '<div style="font-size:0.7em;color:#4a6a8a;margin-top:3px;">Data: ' + totalCompanyCalls + ' total calls • ~' + companyDailyCalls + '/day' + (sqAvgTicket !== 185 ? ' • $' + sqAvgTicket + ' avg ticket (Square)' : '') + '</div>';
+    var dataSourceParts = [];
+    if (sqAvgDailyRev > 0) dataSourceParts.push('$' + sqAvgDailyRev.toLocaleString() + '/day avg (Square)');
+    if (sqAvgTicket !== 185) dataSourceParts.push('$' + sqAvgTicket + ' avg ticket');
+    dataSourceParts.push(companyDailyCalls + ' calls/day • ' + (bm.totalLeads || 0) + ' total leads');
+    html += '<div style="font-size:0.7em;color:#4a6a8a;margin-top:3px;">Data: ' + dataSourceParts.join(' • ') + '</div>';
     var now = new Date();
     html += '<div style="font-size:0.85em;color:#3a5a7a;margin-top:5px;">' + now.toLocaleDateString('en-US', {weekday:'long',year:'numeric',month:'long',day:'numeric'}) + ' // ' + now.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit'}) + ' // <span id="refresh-timer" style="color:#00d4ff;">Auto-refresh in 15:00</span></div>';
     html += '</div>';
@@ -23239,8 +23276,11 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     html += '<div class="summary-grid">';
     html += '<div class="summary-card"><div class="label">MARKETS TRACKED</div><div class="value" style="color:#00d4ff;">' + validResults.length + '</div><div class="sub">of ' + markets.length + ' total</div></div>';
     html += '<div class="summary-card"><div class="label">CALL VOLUME OUTLOOK</div><div class="value" style="color:' + (avgImpact >= 0 ? '#00ff66' : '#ff4757') + ';">' + (avgImpact >= 0 ? '+' : '') + avgImpact + '%</div><div class="sub">Weather-adjusted across all markets</div></div>';
-    html += '<div class="summary-card"><div class="label">EST. DAILY REVENUE</div><div class="value" style="color:#ffd700;">$' + totalDailyRevenue.toLocaleString() + '</div><div class="sub">' + totalAdjustedCalls + ' calls &times; $' + AVG_TICKET + ' avg ticket' + (sqAvgTicket !== 185 ? ' (Square)' : '') + '</div></div>';
-    html += '<div class="summary-card"><div class="label">REVENUE IMPACT</div><div class="value" style="color:' + (revenueImpactDollar >= 0 ? '#00ff66' : '#ff4757') + ';">' + (revenueImpactDollar >= 0 ? '+$' : '-$') + Math.abs(revenueImpactDollar).toLocaleString() + '</div><div class="sub">Daily weather impact vs normal</div></div>';
+    html += '<div class="summary-card"><div class="label">EST. DAILY REVENUE</div><div class="value" style="color:#ffd700;">$' + totalDailyRevenue.toLocaleString() + '</div><div class="sub">' + (sqAvgDailyRev > 0 ? 'Avg $' + sqAvgDailyRev.toLocaleString() + '/day (Square)' : totalAdjustedCalls + ' calls &times; $' + AVG_TICKET + ' avg') + '</div></div>';
+    html += '<div class="summary-card"><div class="label">REVENUE IMPACT</div><div class="value" style="color:' + (revenueImpactDollar >= 0 ? '#00ff66' : '#ff4757') + ';">' + (revenueImpactDollar >= 0 ? '+$' : '-$') + Math.abs(revenueImpactDollar).toLocaleString() + '</div><div class="sub">Weather vs avg $' + baselineDailyRevenue.toLocaleString() + '/day</div></div>';
+    if (sqTodayRev > 0) {
+      html += '<div class="summary-card"><div class="label">TODAY (SQUARE)</div><div class="value" style="color:#00ff66;">$' + sqTodayRev.toLocaleString() + '</div><div class="sub">Actual revenue today</div></div>';
+    }
     html += '<div class="summary-card"><div class="label">TECHS NEEDED TODAY</div><div class="value" style="color:#c084fc;">' + totalTechsNeeded + '</div><div class="sub">' + totalAdjustedCalls + ' calls &divide; ' + AVG_CALLS_PER_TECH_DAY + ' per tech</div></div>';
     html += '<div class="summary-card"><div class="label">MARKETS UP</div><div class="value" style="color:#00ff66;">' + totalUp + '</div><div class="sub">Expecting more calls</div></div>';
     html += '<div class="summary-card"><div class="label">MARKETS DOWN</div><div class="value" style="color:#ff4757;">' + totalDown + '</div><div class="sub">Expecting fewer calls</div></div>';
