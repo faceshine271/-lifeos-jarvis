@@ -24188,9 +24188,403 @@ app.post('/api/weather/sms-briefing', requireAuth('owner'), async function(req, 
   }
 });
 
+/* ===========================
+   SOP TEST & POSITION BOARD — Quiz all Wildwood members on SOPs, track competency
+=========================== */
+
+// In-memory store for SOP test results
+var sopTestResults = {};
+// { memberName: { tests: [{ date, sopName, score, total, answers }], position: { title, level, lastUpdated } } }
+
+function getSopData() {
+  var ops = global.bizOpsData || {};
+  var sops = {};
+  Object.keys(ops).forEach(function(key) {
+    var section = ops[key];
+    var rows = section.rows || section;
+    var isSOP = key.toLowerCase().includes('sop') || key.toLowerCase().includes('contract') || key.toLowerCase().includes('procedure') || key.toLowerCase().includes('checklist') || key.toLowerCase().includes('process') || key.toLowerCase().includes('policy');
+    if (isSOP && rows && rows.length > 0) {
+      sops[key] = rows;
+    }
+  });
+  return sops;
+}
+
+function getAllMembers() {
+  var members = [];
+  // From Square team
+  var snap = squareDataStore || {};
+  if (snap.team && snap.team.length > 0) {
+    snap.team.forEach(function(t) {
+      if (t.status === 'ACTIVE' && t.given_name) {
+        members.push({ name: (t.given_name + ' ' + (t.family_name || '')).trim(), source: 'square', role: t.is_owner ? 'Owner' : 'Team Member' });
+      }
+    });
+  }
+  // From tech stats
+  var ts = (global.bizMetrics || {}).techStats || {};
+  Object.keys(ts).forEach(function(k) {
+    if (k && k.trim() && !members.find(function(m) { return m.name.toLowerCase() === k.toLowerCase(); })) {
+      members.push({ name: k, source: 'crm', role: 'Technician' });
+    }
+  });
+  // From voice users
+  voiceUsers.forEach(function(v) {
+    if (!members.find(function(m) { return m.name.toLowerCase() === v.name.toLowerCase(); })) {
+      members.push({ name: v.name, source: 'system', role: v.role });
+    }
+  });
+  return members;
+}
+
+function calculatePosition(memberName) {
+  var record = sopTestResults[memberName];
+  if (!record || !record.tests || record.tests.length === 0) {
+    return { title: 'Untested', level: 0, color: '#666', sopsTested: 0, avgScore: 0 };
+  }
+  var tests = record.tests;
+  var totalScore = 0, totalQuestions = 0;
+  var sopsTested = {};
+  tests.forEach(function(t) {
+    totalScore += t.score;
+    totalQuestions += t.total;
+    sopsTested[t.sopName] = Math.max(sopsTested[t.sopName] || 0, Math.round((t.score / t.total) * 100));
+  });
+  var avgScore = totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0;
+  var sopsPassedCount = Object.values(sopsTested).filter(function(s) { return s >= 70; }).length;
+  var totalSopsAvailable = Object.keys(getSopData()).length || 1;
+  var sopCoverage = Math.round((sopsPassedCount / totalSopsAvailable) * 100);
+
+  var title, level, color;
+  if (avgScore >= 90 && sopCoverage >= 80) { title = 'SOP Master'; level = 5; color = '#FFD700'; }
+  else if (avgScore >= 80 && sopCoverage >= 60) { title = 'Senior Certified'; level = 4; color = '#4CAF50'; }
+  else if (avgScore >= 70 && sopCoverage >= 40) { title = 'Certified'; level = 3; color = '#2196F3'; }
+  else if (avgScore >= 60 && sopCoverage >= 20) { title = 'In Training'; level = 2; color = '#FF9800'; }
+  else if (tests.length > 0) { title = 'Needs Review'; level = 1; color = '#f44336'; }
+  else { title = 'Untested'; level = 0; color = '#666'; }
+
+  return { title: title, level: level, color: color, sopsTested: Object.keys(sopsTested).length, sopsPassedCount: sopsPassedCount, avgScore: avgScore, sopCoverage: sopCoverage, totalTests: tests.length };
+}
+
+// GET /api/sop-test/positions — Position board for all members
+app.get('/api/sop-test/positions', async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var members = getAllMembers();
+    var sops = getSopData();
+    var positions = members.map(function(m) {
+      var pos = calculatePosition(m.name);
+      return {
+        name: m.name, role: m.role, source: m.source,
+        position: pos,
+        testHistory: (sopTestResults[m.name] || {}).tests || []
+      };
+    });
+    positions.sort(function(a, b) { return b.position.level - a.position.level || b.position.avgScore - a.position.avgScore; });
+    res.json({ members: positions, totalSops: Object.keys(sops).length, sopNames: Object.keys(sops) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/sop-test/generate — Generate quiz questions from SOP data using AI
+app.post('/api/sop-test/generate', express.json(), async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var sops = getSopData();
+    var sopNames = Object.keys(sops);
+    if (sopNames.length === 0) return res.json({ error: 'No SOPs found in business data. Make sure SOP tabs exist in your Google Sheets.' });
+
+    var targetSop = req.body.sopName || sopNames[Math.floor(Math.random() * sopNames.length)];
+    var sopContent = sops[targetSop];
+    if (!sopContent) return res.json({ error: 'SOP not found: ' + targetSop });
+
+    var questionCount = req.body.questionCount || 5;
+    var sopText = sopContent.join('\n');
+
+    var quizPrompt = "You are a strict SOP compliance tester for Wildwood Small Engine Repair. Generate exactly " + questionCount + " multiple-choice quiz questions based on the following SOP document. Each question must test practical knowledge that a team member needs to know to do their job correctly.\n\nRules:\n- Each question has exactly 4 options (A, B, C, D)\n- Only ONE correct answer per question\n- Questions should test real operational knowledge, not trivia\n- Include questions about safety procedures, customer handling, equipment steps, and compliance\n- Return ONLY valid JSON array, no markdown, no explanation\n\nFormat:\n[{\"question\":\"...\",\"options\":[\"A) ...\",\"B) ...\",\"C) ...\",\"D) ...\"],\"correct\":\"A\",\"explanation\":\"...\"}]\n\nSOP DOCUMENT — " + targetSop + ":\n" + sopText.substring(0, 8000);
+
+    var aiResponse = await askClaude(quizPrompt, [{ role: 'user', content: 'Generate the quiz now.' }]);
+
+    // Parse AI response — extract JSON array
+    var questions = [];
+    try {
+      var jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
+      if (jsonMatch) questions = JSON.parse(jsonMatch[0]);
+    } catch(pe) {
+      return res.json({ error: 'Failed to parse quiz questions', raw: aiResponse });
+    }
+
+    res.json({ sopName: targetSop, questionCount: questions.length, questions: questions });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/sop-test/submit — Submit quiz answers, score them, update position
+app.post('/api/sop-test/submit', express.json(), async function(req, res) {
+  try {
+    var memberName = (req.body.memberName || '').trim();
+    var sopName = (req.body.sopName || '').trim();
+    var answers = req.body.answers || []; // [{ questionIndex, selected }]
+    var questions = req.body.questions || []; // Original questions with correct answers
+
+    if (!memberName) return res.json({ error: 'memberName required' });
+    if (!sopName) return res.json({ error: 'sopName required' });
+    if (answers.length === 0) return res.json({ error: 'No answers submitted' });
+
+    var score = 0;
+    var results = [];
+    for (var i = 0; i < questions.length; i++) {
+      var q = questions[i];
+      var userAnswer = answers[i] ? answers[i].selected : '';
+      var isCorrect = userAnswer === q.correct;
+      if (isCorrect) score++;
+      results.push({ question: q.question, userAnswer: userAnswer, correct: q.correct, isCorrect: isCorrect, explanation: q.explanation || '' });
+    }
+
+    // Store result
+    if (!sopTestResults[memberName]) sopTestResults[memberName] = { tests: [] };
+    sopTestResults[memberName].tests.push({
+      date: new Date().toISOString(),
+      sopName: sopName,
+      score: score,
+      total: questions.length,
+      percentage: Math.round((score / questions.length) * 100),
+      answers: results
+    });
+
+    var position = calculatePosition(memberName);
+    sopTestResults[memberName].position = position;
+
+    res.json({
+      memberName: memberName, sopName: sopName,
+      score: score, total: questions.length, percentage: Math.round((score / questions.length) * 100),
+      passed: Math.round((score / questions.length) * 100) >= 70,
+      results: results, position: position
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /sop-test — Full SOP Test & Position Board Dashboard
+app.get('/sop-test', requireAuth('owner'), async function(req, res) {
+  try {
+    await buildBusinessContext();
+    var members = getAllMembers();
+    var sops = getSopData();
+    var sopNames = Object.keys(sops);
+
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>WILDWOOD — SOP Test & Position Board</title>';
+    html += '<style>';
+    html += 'body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0f;color:#e0e0e0;}';
+    html += '.header{background:linear-gradient(135deg,#1a1a2e,#16213e);padding:20px 40px;border-bottom:2px solid #FFD700;}';
+    html += '.header h1{margin:0;font-size:24px;color:#FFD700;letter-spacing:2px;}';
+    html += '.header p{margin:5px 0 0;color:#888;font-size:13px;}';
+    html += '.container{max-width:1400px;margin:0 auto;padding:20px 40px;}';
+    html += '.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;}';
+    html += '@media(max-width:900px){.grid{grid-template-columns:1fr;}}';
+    html += '.card{background:#12121a;border:1px solid #2a2a3a;border-radius:12px;padding:20px;transition:border-color 0.3s;}';
+    html += '.card:hover{border-color:#FFD700;}';
+    html += '.card h2{margin:0 0 15px;font-size:18px;color:#FFD700;}';
+    html += '.card h3{margin:0 0 10px;font-size:15px;color:#aaa;}';
+    html += '.pos-board{width:100%;}';
+    html += '.pos-row{display:flex;align-items:center;padding:12px 15px;border-bottom:1px solid #1a1a2a;transition:background 0.2s;}';
+    html += '.pos-row:hover{background:#1a1a2e;}';
+    html += '.pos-rank{font-size:20px;font-weight:bold;color:#FFD700;width:40px;text-align:center;}';
+    html += '.pos-name{flex:1;margin-left:15px;}';
+    html += '.pos-name strong{display:block;font-size:15px;color:#fff;}';
+    html += '.pos-name span{font-size:12px;color:#888;}';
+    html += '.pos-badge{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:bold;color:#fff;}';
+    html += '.pos-score{margin-left:15px;font-size:14px;color:#aaa;min-width:60px;text-align:right;}';
+    html += '.pos-bar{width:100px;height:8px;background:#1a1a2a;border-radius:4px;margin-left:15px;overflow:hidden;}';
+    html += '.pos-bar-fill{height:100%;border-radius:4px;transition:width 0.5s;}';
+    html += '.btn{padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;transition:all 0.3s;}';
+    html += '.btn-gold{background:linear-gradient(135deg,#FFD700,#FFA500);color:#000;}';
+    html += '.btn-gold:hover{transform:scale(1.05);box-shadow:0 0 20px rgba(255,215,0,0.3);}';
+    html += '.btn-blue{background:linear-gradient(135deg,#2196F3,#1976D2);color:#fff;margin-left:10px;}';
+    html += '.btn-blue:hover{transform:scale(1.05);}';
+    html += 'select,input{background:#1a1a2e;color:#e0e0e0;border:1px solid #2a2a3a;border-radius:8px;padding:10px 15px;font-size:14px;outline:none;}';
+    html += 'select:focus,input:focus{border-color:#FFD700;}';
+    html += '.quiz-area{margin-top:20px;display:none;}';
+    html += '.question{background:#1a1a2e;border:1px solid #2a2a3a;border-radius:10px;padding:20px;margin-bottom:15px;}';
+    html += '.question h4{margin:0 0 12px;color:#fff;font-size:15px;}';
+    html += '.option{display:block;padding:10px 15px;margin:5px 0;border:1px solid #2a2a3a;border-radius:8px;cursor:pointer;transition:all 0.2s;background:#12121a;}';
+    html += '.option:hover{border-color:#FFD700;background:#1a1a2e;}';
+    html += '.option.selected{border-color:#FFD700;background:#2a2a1a;color:#FFD700;}';
+    html += '.option.correct{border-color:#4CAF50;background:#1a2a1a;color:#4CAF50;}';
+    html += '.option.wrong{border-color:#f44336;background:#2a1a1a;color:#f44336;}';
+    html += '.result-banner{padding:20px;border-radius:12px;text-align:center;margin:20px 0;font-size:18px;font-weight:bold;}';
+    html += '.result-pass{background:linear-gradient(135deg,#1a3a1a,#2a4a2a);border:2px solid #4CAF50;color:#4CAF50;}';
+    html += '.result-fail{background:linear-gradient(135deg,#3a1a1a,#4a2a2a);border:2px solid #f44336;color:#f44336;}';
+    html += '.stats-row{display:flex;gap:15px;margin-bottom:20px;flex-wrap:wrap;}';
+    html += '.stat-box{flex:1;min-width:120px;background:#1a1a2e;border:1px solid #2a2a3a;border-radius:10px;padding:15px;text-align:center;}';
+    html += '.stat-box .num{font-size:28px;font-weight:bold;color:#FFD700;}';
+    html += '.stat-box .label{font-size:11px;color:#888;margin-top:5px;text-transform:uppercase;letter-spacing:1px;}';
+    html += '.back-link{color:#FFD700;text-decoration:none;font-size:13px;}';
+    html += '.back-link:hover{text-decoration:underline;}';
+    html += '</style></head><body>';
+
+    // Header
+    html += '<div class="header">';
+    html += '<a href="/dashboard" class="back-link">&larr; Back to Dashboard</a>';
+    html += '<h1>SOP TEST & POSITION BOARD</h1>';
+    html += '<p>Test all Wildwood team members on Standard Operating Procedures — Track competency and build positions</p>';
+    html += '</div>';
+
+    html += '<div class="container">';
+
+    // Stats row
+    var testedCount = Object.keys(sopTestResults).length;
+    var totalTests = 0;
+    Object.values(sopTestResults).forEach(function(r) { totalTests += (r.tests || []).length; });
+    html += '<div class="stats-row">';
+    html += '<div class="stat-box"><div class="num">' + members.length + '</div><div class="label">Team Members</div></div>';
+    html += '<div class="stat-box"><div class="num">' + sopNames.length + '</div><div class="label">SOPs Available</div></div>';
+    html += '<div class="stat-box"><div class="num">' + testedCount + '</div><div class="label">Members Tested</div></div>';
+    html += '<div class="stat-box"><div class="num">' + totalTests + '</div><div class="label">Tests Completed</div></div>';
+    html += '</div>';
+
+    html += '<div class="grid">';
+
+    // Left column: Position Board
+    html += '<div class="card" style="grid-row:span 2;">';
+    html += '<h2>POSITION BOARD</h2>';
+    html += '<h3>Ranked by SOP competency</h3>';
+    html += '<div class="pos-board">';
+
+    var positions = members.map(function(m) {
+      var pos = calculatePosition(m.name);
+      return { name: m.name, role: m.role, position: pos };
+    });
+    positions.sort(function(a, b) { return b.position.level - a.position.level || b.position.avgScore - a.position.avgScore; });
+
+    positions.forEach(function(p, idx) {
+      html += '<div class="pos-row">';
+      html += '<div class="pos-rank">' + (idx + 1) + '</div>';
+      html += '<div class="pos-name"><strong>' + p.name + '</strong><span>' + p.role + '</span></div>';
+      html += '<div class="pos-badge" style="background:' + p.position.color + ';">' + p.position.title + '</div>';
+      html += '<div class="pos-score">' + p.position.avgScore + '%</div>';
+      html += '<div class="pos-bar"><div class="pos-bar-fill" style="width:' + p.position.avgScore + '%;background:' + p.position.color + ';"></div></div>';
+      html += '</div>';
+    });
+
+    if (positions.length === 0) {
+      html += '<div style="text-align:center;padding:40px;color:#666;">No team members found. Data loads on first CRM sync.</div>';
+    }
+    html += '</div></div>';
+
+    // Right column: Start a Test
+    html += '<div class="card">';
+    html += '<h2>START SOP TEST</h2>';
+    html += '<div style="margin-bottom:15px;">';
+    html += '<label style="display:block;margin-bottom:5px;color:#888;font-size:12px;">TEAM MEMBER</label>';
+    html += '<select id="testMember" style="width:100%;">';
+    members.forEach(function(m) {
+      html += '<option value="' + m.name.replace(/"/g, '&quot;') + '">' + m.name + ' (' + m.role + ')</option>';
+    });
+    html += '</select></div>';
+
+    html += '<div style="margin-bottom:15px;">';
+    html += '<label style="display:block;margin-bottom:5px;color:#888;font-size:12px;">SOP TO TEST</label>';
+    html += '<select id="testSop" style="width:100%;">';
+    html += '<option value="">Random SOP</option>';
+    sopNames.forEach(function(s) {
+      html += '<option value="' + s.replace(/"/g, '&quot;') + '">' + s + '</option>';
+    });
+    html += '</select></div>';
+
+    html += '<div style="margin-bottom:15px;">';
+    html += '<label style="display:block;margin-bottom:5px;color:#888;font-size:12px;">QUESTIONS</label>';
+    html += '<select id="testCount" style="width:100%;"><option value="5">5 Questions</option><option value="10">10 Questions</option><option value="3">3 Quick Questions</option></select>';
+    html += '</div>';
+
+    html += '<button class="btn btn-gold" onclick="generateQuiz()" id="genBtn">GENERATE QUIZ</button>';
+    html += '</div>';
+
+    // Quiz area (right column, below start)
+    html += '<div class="card quiz-area" id="quizArea">';
+    html += '<h2 id="quizTitle">Quiz</h2>';
+    html += '<div id="quizQuestions"></div>';
+    html += '<div id="quizResult" style="display:none;"></div>';
+    html += '<button class="btn btn-gold" onclick="submitQuiz()" id="submitBtn" style="display:none;">SUBMIT ANSWERS</button>';
+    html += '</div>';
+
+    html += '</div>'; // grid
+    html += '</div>'; // container
+
+    // JavaScript
+    html += '<script>';
+    html += 'var currentQuestions=[], currentSopName="", userAnswers=[];';
+    html += 'async function generateQuiz(){';
+    html += '  var btn=document.getElementById("genBtn");btn.textContent="GENERATING...";btn.disabled=true;';
+    html += '  var member=document.getElementById("testMember").value;';
+    html += '  var sop=document.getElementById("testSop").value;';
+    html += '  var count=document.getElementById("testCount").value;';
+    html += '  try{';
+    html += '    var r=await fetch("/api/sop-test/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sopName:sop,questionCount:parseInt(count)})});';
+    html += '    var d=await r.json();';
+    html += '    if(d.error){alert(d.error);btn.textContent="GENERATE QUIZ";btn.disabled=false;return;}';
+    html += '    currentQuestions=d.questions;currentSopName=d.sopName;userAnswers=new Array(d.questions.length).fill(null);';
+    html += '    var qhtml="";';
+    html += '    d.questions.forEach(function(q,i){';
+    html += '      qhtml+="<div class=\\"question\\" id=\\"q"+i+"\\"><h4>"+(i+1)+". "+q.question+"</h4>";';
+    html += '      q.options.forEach(function(opt){';
+    html += '        var letter=opt.charAt(0);';
+    html += '        qhtml+="<div class=\\"option\\" onclick=\\"selectOption("+i+",\'"+letter+"\',this)\\" data-q=\\""+i+"\\" data-a=\\""+letter+"\\">"+opt+"</div>";';
+    html += '      });';
+    html += '      qhtml+="</div>";';
+    html += '    });';
+    html += '    document.getElementById("quizQuestions").innerHTML=qhtml;';
+    html += '    document.getElementById("quizTitle").textContent="SOP Quiz: "+d.sopName;';
+    html += '    document.getElementById("quizArea").style.display="block";';
+    html += '    document.getElementById("submitBtn").style.display="inline-block";';
+    html += '    document.getElementById("quizResult").style.display="none";';
+    html += '    document.getElementById("quizResult").innerHTML="";';
+    html += '  }catch(e){alert("Error: "+e.message);}';
+    html += '  btn.textContent="GENERATE QUIZ";btn.disabled=false;';
+    html += '}';
+    html += 'function selectOption(qi,letter,el){';
+    html += '  userAnswers[qi]={selected:letter};';
+    html += '  document.querySelectorAll("[data-q=\\""+qi+"\\"]").forEach(function(o){o.classList.remove("selected");});';
+    html += '  el.classList.add("selected");';
+    html += '}';
+    html += 'async function submitQuiz(){';
+    html += '  var member=document.getElementById("testMember").value;';
+    html += '  var unanswered=userAnswers.filter(function(a){return !a;}).length;';
+    html += '  if(unanswered>0&&!confirm(unanswered+" question(s) unanswered. Submit anyway?"))return;';
+    html += '  var btn=document.getElementById("submitBtn");btn.textContent="SCORING...";btn.disabled=true;';
+    html += '  try{';
+    html += '    var r=await fetch("/api/sop-test/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({memberName:member,sopName:currentSopName,answers:userAnswers,questions:currentQuestions})});';
+    html += '    var d=await r.json();';
+    html += '    if(d.error){alert(d.error);btn.textContent="SUBMIT ANSWERS";btn.disabled=false;return;}';
+    // Show results on each question
+    html += '    d.results.forEach(function(r,i){';
+    html += '      document.querySelectorAll("[data-q=\\""+i+"\\"]").forEach(function(o){';
+    html += '        o.classList.remove("selected");';
+    html += '        if(o.getAttribute("data-a")===r.correct)o.classList.add("correct");';
+    html += '        else if(o.getAttribute("data-a")===r.userAnswer&&!r.isCorrect)o.classList.add("wrong");';
+    html += '      });';
+    html += '    });';
+    // Result banner
+    html += '    var rhtml="<div class=\\"result-banner "+(d.passed?"result-pass":"result-fail")+"\\">";';
+    html += '    rhtml+=d.memberName+" scored "+d.score+"/"+d.total+" ("+d.percentage+"%) on "+d.sopName;';
+    html += '    rhtml+="<br>Status: "+(d.passed?"PASSED":"NEEDS REVIEW")+"</div>";';
+    html += '    rhtml+="<div style=\\"text-align:center;margin:10px 0;\\"><strong>Position: </strong><span style=\\"color:"+d.position.color+";font-weight:bold;\\">"+d.position.title+"</span> (Level "+d.position.level+")</div>";';
+    html += '    rhtml+="<div style=\\"text-align:center;margin:15px 0;\\"><button class=\\"btn btn-blue\\" onclick=\\"location.reload()\\">TEST ANOTHER</button></div>";';
+    html += '    document.getElementById("quizResult").innerHTML=rhtml;';
+    html += '    document.getElementById("quizResult").style.display="block";';
+    html += '    btn.style.display="none";';
+    html += '  }catch(e){alert("Error: "+e.message);btn.textContent="SUBMIT ANSWERS";btn.disabled=false;}';
+    html += '}';
+    html += '</script>';
+
+    html += '</body></html>';
+    res.send(html);
+  } catch (err) {
+    res.status(500).send('Error loading SOP Test: ' + err.message);
+  }
+});
+
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload /weather-dashboard");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload /weather-dashboard /sop-test");
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
