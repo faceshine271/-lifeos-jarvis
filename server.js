@@ -22870,31 +22870,20 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     var monthlyCalls = bm.monthlyCalls || {};
     var monthlyCallsByCity = bm.monthlyCallsByCity || {};
 
-    // ====== RECEPTIONIST CALL DATA: Count actual inbound calls from job rows ======
-    var allJobs = bm.allJobRows || [];
-    var receptionistCallsByCity = {}; // city → { total, monthly: { "2025-03": N } }
-    var receptionistCallsTotal = 0;
-    var receptionistMonthly = {}; // "2025-03" → N
-    allJobs.forEach(function(j) {
-      // Count all rows — each row is an inbound call logged by receptionist
-      var loc = (j.city && j.state) ? (j.city + ', ' + j.state) : (j.locationTab || '');
-      if (!loc || loc.length < 3 || !loc.includes(',')) return;
-      if (!receptionistCallsByCity[loc]) receptionistCallsByCity[loc] = { total: 0, monthly: {} };
-      receptionistCallsByCity[loc].total++;
-      receptionistCallsTotal++;
-      // Monthly breakdown
-      var dateStr = j.dateIn || '';
-      if (dateStr) {
-        try {
-          var d = new Date(dateStr);
-          if (!isNaN(d.getTime())) {
-            var mKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-            receptionistCallsByCity[loc].monthly[mKey] = (receptionistCallsByCity[loc].monthly[mKey] || 0) + 1;
-            receptionistMonthly[mKey] = (receptionistMonthly[mKey] || 0) + 1;
-          }
-        } catch(e) {}
-      }
-    });
+    // ====== COMPANY-WIDE CALL DATA from CRM receptionist logs ======
+    var totalCompanyCalls = bm.totalLeads || 0;
+    var thisMonthCalls = bm.thisMonthCalls || 0;
+    var lastMonthCalls = bm.lastMonthCalls || 0;
+    // Best estimate of current monthly call rate
+    var dayOfMonth = new Date().getDate();
+    var currentMonthProjected = thisMonthCalls > 0 ? Math.round(thisMonthCalls * (30 / Math.max(dayOfMonth, 1))) : lastMonthCalls;
+    var bestMonthlyRate = currentMonthProjected || lastMonthCalls || 0;
+    // If we have no monthly data, estimate from total
+    if (bestMonthlyRate === 0 && totalCompanyCalls > 0) {
+      var monthKeys = Object.keys(monthlyCalls);
+      bestMonthlyRate = Math.round(totalCompanyCalls / Math.max(monthKeys.length, 1));
+    }
+    var companyDailyCalls = Math.max(1, Math.round(bestMonthlyRate / 22)); // ~22 working days
 
     // ====== SQUARE DATA: Get actual avg ticket and revenue ======
     var sqAvgTicket = 185; // fallback
@@ -22912,25 +22901,15 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
       } catch(e) { console.log('Weather dashboard Square error:', e.message); }
     }
 
-    // Get top markets sorted by call volume — merge receptionist calls with locationStats
-    var mergedStats = {};
-    // Start with locationStats
-    Object.entries(locationStats).forEach(function(e) {
-      if (e[0] && e[0].length > 3 && e[0].includes(',')) {
-        mergedStats[e[0]] = { booked: e[1].booked || 0, completed: e[1].completed || 0, cancelled: e[1].cancelled || 0, total: e[1].total || 0 };
-      }
-    });
-    // Overlay receptionist call data (use higher count — receptionist logs are more complete)
-    Object.entries(receptionistCallsByCity).forEach(function(e) {
-      if (!mergedStats[e[0]]) {
-        mergedStats[e[0]] = { booked: 0, completed: 0, cancelled: 0, total: e[1].total };
-      } else if (e[1].total > mergedStats[e[0]].total) {
-        mergedStats[e[0]].total = e[1].total;
-      }
-    });
-    var markets = Object.entries(mergedStats)
+    // Get top markets sorted by call volume
+    var markets = Object.entries(locationStats)
+      .filter(function(l) { return l[0] && l[0].length > 3 && l[0].includes(','); })
       .sort(function(a, b) { return b[1].total - a[1].total; })
       .slice(0, 30);
+
+    // Calculate total calls across tracked markets for proportional distribution
+    var trackedMarketCalls = 0;
+    markets.forEach(function(m) { trackedMarketCalls += m[1].total; });
 
     // Fetch weather for all markets in parallel (rate-limited batches)
     var weatherResults = [];
@@ -22986,9 +22965,8 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
           });
         }
 
-        // Historical monthly calls for this market — prefer receptionist call data
-        var recCity = receptionistCallsByCity[cityState];
-        var cityHistory = (recCity && Object.keys(recCity.monthly).length > 0) ? recCity.monthly : (monthlyCallsByCity[cityState] || {});
+        // Historical monthly calls for this market
+        var cityHistory = monthlyCallsByCity[cityState] || {};
 
         // Fetch historical weather from Open-Meteo (free, no key)
         var histData = await fetchHistoricalWeather(geo.lat, geo.lon, cityState, 18);
@@ -23041,26 +23019,24 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     var AVG_CALLS_PER_TECH_DAY = 4; // avg jobs a tech can handle per day
     var totalAvgDailyCalls = 0;
 
-    // Calculate data span for accurate daily estimate
-    var allMonthKeys = Object.keys(receptionistMonthly).length > 0 ? Object.keys(receptionistMonthly) : Object.keys(monthlyCalls);
-    allMonthKeys.sort();
-    var dataMonthSpan = allMonthKeys.length || 1;
-
     validResults.forEach(function(r) {
-      // Use receptionist call data: this month → last month → avg from total / months of data
+      // Proportional daily calls: market's share of total calls × company daily rate
+      var marketShare = trackedMarketCalls > 0 ? (r.stats.total / trackedMarketCalls) : (1 / Math.max(validResults.length, 1));
+      var marketDailyCalls = Math.max(1, Math.round(companyDailyCalls * marketShare));
+
+      // If we have this month's or last month's data for this market, use it directly
       var thisM = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0');
       var lastM = new Date().getMonth() === 0 ? (new Date().getFullYear() - 1) + '-12' : new Date().getFullYear() + '-' + String(new Date().getMonth()).padStart(2, '0');
-      var mCalls = r.history[thisM] || r.history[lastM] || Math.round(r.stats.total / Math.max(dataMonthSpan, 1));
-      // Check if current month is partial — adjust for days elapsed
-      if (r.history[thisM] && !r.history[lastM]) {
-        var dayOfMonth = new Date().getDate();
-        if (dayOfMonth < 20) {
-          // Current month partial — project to full month
-          mCalls = Math.round(r.history[thisM] * (22 / Math.max(dayOfMonth * (22/30), 1)));
-        }
+      if (r.history[thisM]) {
+        // Project partial month to full month, then to daily
+        var projected = Math.round(r.history[thisM] * (30 / Math.max(dayOfMonth, 1)));
+        marketDailyCalls = Math.max(1, Math.round(projected / 22));
+      } else if (r.history[lastM]) {
+        marketDailyCalls = Math.max(1, Math.round(r.history[lastM] / 22));
       }
-      r._estDailyCalls = Math.max(1, Math.round(mCalls / 22)); // ~22 working days
-      r._estAdjustedCalls = Math.round(r._estDailyCalls * (1 + r.impact.percent / 100));
+
+      r._estDailyCalls = marketDailyCalls;
+      r._estAdjustedCalls = Math.max(1, Math.round(r._estDailyCalls * (1 + r.impact.percent / 100)));
       r._estDailyRevenue = r._estAdjustedCalls * AVG_TICKET;
       r._estTechsNeeded = Math.max(1, Math.ceil(r._estAdjustedCalls / AVG_CALLS_PER_TECH_DAY));
       totalAvgDailyCalls += r._estDailyCalls;
@@ -23254,7 +23230,7 @@ app.get('/weather-dashboard', requireAuth('owner'), async function(req, res) {
     html += '<div class="header">';
     html += '<h1>WEATHER OPS</h1>';
     html += '<div class="sub">Real-Time Weather Impact on Call Volume — ' + markets.length + ' Markets</div>';
-    html += '<div style="font-size:0.7em;color:#4a6a8a;margin-top:3px;">Data: ' + receptionistCallsTotal + ' calls from CRM receptionist logs' + (sqAvgTicket !== 185 ? ' • $' + sqAvgTicket + ' avg ticket from Square' : '') + '</div>';
+    html += '<div style="font-size:0.7em;color:#4a6a8a;margin-top:3px;">Data: ' + totalCompanyCalls + ' total calls • ~' + companyDailyCalls + '/day' + (sqAvgTicket !== 185 ? ' • $' + sqAvgTicket + ' avg ticket (Square)' : '') + '</div>';
     var now = new Date();
     html += '<div style="font-size:0.85em;color:#3a5a7a;margin-top:5px;">' + now.toLocaleDateString('en-US', {weekday:'long',year:'numeric',month:'long',day:'numeric'}) + ' // ' + now.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit'}) + ' // <span id="refresh-timer" style="color:#00d4ff;">Auto-refresh in 15:00</span></div>';
     html += '</div>';
