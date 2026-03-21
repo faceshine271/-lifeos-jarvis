@@ -78,6 +78,68 @@ const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN || '';
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID || '';
 var discordCache = { channels: null, messages: {}, time: 0 };
 
+// SEMrush API config
+const SEMRUSH_API_KEY = process.env.SEMRUSH_API_KEY || '';
+var semrushCache = { data: null, time: 0 };
+const SEMRUSH_CACHE_TTL = 30 * 60 * 1000; // 30 min
+
+async function semrushFetch(type, params) {
+  if (!SEMRUSH_API_KEY) return null;
+  var url = 'https://api.semrush.com/';
+  var qp = 'type=' + type + '&key=' + SEMRUSH_API_KEY + '&export_columns=';
+  Object.keys(params).forEach(function(k) { qp += '&' + k + '=' + encodeURIComponent(params[k]); });
+  try {
+    var resp = await axios.get(url + '?' + qp, { timeout: 30000 });
+    if (typeof resp.data === 'string') {
+      var lines = resp.data.trim().split('\n');
+      if (lines.length < 2) return [];
+      var headers = lines[0].split(';');
+      return lines.slice(1).map(function(line) {
+        var vals = line.split(';');
+        var obj = {};
+        headers.forEach(function(h, i) { obj[h.trim()] = vals[i] ? vals[i].trim() : ''; });
+        return obj;
+      });
+    }
+    return resp.data;
+  } catch(e) { console.log('SEMrush API error (' + type + '): ' + e.message); return []; }
+}
+
+async function buildSemrushData(domain) {
+  var now = Date.now();
+  if (semrushCache.data && semrushCache.domain === domain && (now - semrushCache.time) < SEMRUSH_CACHE_TTL) {
+    return semrushCache.data;
+  }
+  var result = { domain: domain, timestamp: now, overview: {}, organicKeywords: [], competitors: [], backlinksOverview: {}, pages: [], historicData: [] };
+
+  // Domain overview
+  var overview = await semrushFetch('domain_ranks', { domain: domain, database: 'us', export_columns: 'Db,Dn,Dt,Rk,Or,Ot,Oc,Ad,At,Ac,Sh,Sv' });
+  if (overview && overview.length) result.overview = overview[0];
+
+  // Organic keywords (top 100)
+  var organic = await semrushFetch('domain_organic', { domain: domain, database: 'us', display_limit: 100, export_columns: 'Ph,Po,Pp,Pd,Nq,Cp,Ur,Tr,Tc,Co,Nr,Td' });
+  if (organic) result.organicKeywords = organic;
+
+  // Organic competitors
+  var comps = await semrushFetch('domain_organic_organic', { domain: domain, database: 'us', display_limit: 20, export_columns: 'Dn,Cr,Np,Or,Ot,Oc,Ad' });
+  if (comps) result.competitors = comps;
+
+  // Backlinks overview
+  var bl = await semrushFetch('backlinks_overview', { target: domain, target_type: 'root_domain', export_columns: 'total,domains_num,urls_num,ips_num,follows_num,nofollows_num,texts_num,images_num,forms_num,frames_num' });
+  if (bl && bl.length) result.backlinksOverview = bl[0];
+
+  // Top pages by organic traffic
+  var pages = await semrushFetch('domain_organic', { domain: domain, database: 'us', display_limit: 50, display_sort: 'tr_desc', export_columns: 'Ur,Ph,Po,Nq,Tr' });
+  if (pages) result.pages = pages;
+
+  // Domain history (organic)
+  var hist = await semrushFetch('domain_rank_history', { domain: domain, database: 'us', display_limit: 24, export_columns: 'Dt,Rk,Or,Ot,Oc,Ad,At,Ac' });
+  if (hist) result.historicData = hist;
+
+  semrushCache = { data: result, domain: domain, time: now };
+  return result;
+}
+
 // Square API config
 const SQUARE_ACCESS_TOKEN = process.env.SQUARE_ACCESS_TOKEN || '';
 const SQUARE_BASE = process.env.SQUARE_ENV === 'sandbox' ? 'https://connect.squareupsandbox.com' : 'https://connect.squareup.com';
@@ -5921,6 +5983,7 @@ app.get('/dashboard', requireAuth('owner'), async function(req, res) {
     html += '<a href="/seo">SEO</a>';
     html += '<a href="/tasks">TASKS</a>';
     html += '<a href="/audit">AUDIT</a>';
+    html += '<a href="/semrush">SEMRUSH</a>';
     html += '<a href="/weather-dashboard">WEATHER</a>';
     html += '<div class="nav-divider"></div>';
     html += '<a href="/auth/logout" class="logout">LOGOUT</a>';
@@ -14217,6 +14280,7 @@ app.get('/ads', function(req, res, next) {
       html += '<a href="/followup">FOLLOW UP</a>';
       html += '<a href="/ai">AI</a>';
       html += '<a href="/audit">AUDIT</a>';
+      html += '<a href="/semrush">SEMRUSH</a>';
       html += '<a href="/auth/logout" style="font-family:Orbitron;font-size:0.7em;letter-spacing:4px;padding:12px 30px;color:#ef4444;border:1px solid #ef444440;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6);">LOGOUT</a>';
       html += '</div>';
     } else {
@@ -15797,7 +15861,7 @@ app.get('/ai', requireAuth('owner'), async function(req, res) {
     html += '<div class="nav">';
     html += '<a href="/jarvis">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a>';
     html += '<a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
-    html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a><a href="/ai" class="active">AI</a><a href="/forecast">FORECAST</a><a href="/seo">SEO</a><a href="/audit">AUDIT</a>';
+    html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a><a href="/ai" class="active">AI</a><a href="/forecast">FORECAST</a><a href="/seo">SEO</a><a href="/audit">AUDIT</a><a href="/semrush">SEMRUSH</a>';
     html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
 
     html += '<h1>🧠 AI INTELLIGENCE HUB</h1>';
@@ -17152,7 +17216,7 @@ app.get('/seo', requireAuth(['owner','seo']), async function(req, res) {
       html += '<a href="/google-ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
       html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
       html += '<a href="/ai">AI</a><a href="/forecast">FORECAST</a>';
-      html += '<a href="/seo" class="active">SEO</a><a href="/audit">AUDIT</a>';
+      html += '<a href="/seo" class="active">SEO</a><a href="/audit">AUDIT</a><a href="/semrush">SEMRUSH</a>';
       html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
     }
     html += '</div>';
@@ -19442,7 +19506,7 @@ app.get('/forecast', requireAuth('owner'), async function(req, res) {
     html += '<a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a>';
     html += '<a href="/google-ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
     html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
-    html += '<a href="/ai">AI</a><a href="/forecast" class="active">FORECAST</a><a href="/seo">SEO</a><a href="/audit">AUDIT</a>';
+    html += '<a href="/ai">AI</a><a href="/forecast" class="active">FORECAST</a><a href="/seo">SEO</a><a href="/audit">AUDIT</a><a href="/semrush">SEMRUSH</a>';
     html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
     html += '</div>';
 
@@ -20324,6 +20388,7 @@ app.get('/tasks', requireAuth('owner'), async function(req, res) {
   html += '<a href="/followup">FOLLOW UP</a>';
   html += '<a href="/seo">SEO</a>';
   html += '<a href="/audit">AUDIT</a>';
+  html += '<a href="/semrush">SEMRUSH</a>';
   html += '</div>';
 
   html += '<div class="wrap">';
@@ -20669,7 +20734,7 @@ app.get('/square', requireAuth('owner'), async function(req, res) {
   html += '<div class="nav">';
   if (session && session.access === 'all') {
     html += '<a href="/dashboard">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a><a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a><a href="/ads">GOOGLE ADS</a>';
-    html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a><a href="/ai">AI</a><a href="/forecast">FORECAST</a><a href="/seo">SEO</a><a href="/audit">AUDIT</a>';
+    html += '<a href="/square" class="active">SQUARE</a><a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a><a href="/ai">AI</a><a href="/forecast">FORECAST</a><a href="/seo">SEO</a><a href="/audit">AUDIT</a><a href="/semrush">SEMRUSH</a>';
   } else { html += '<a href="/square" class="active">SQUARE</a>'; }
   html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a></div>';
   html += '<div class="container"><h1 style="display:inline;">SQUARE</h1> <button onclick="forceRefresh()" id="refreshBtn" style="background:#1a3a5a;color:#4af;border:1px solid #4af;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:10px;vertical-align:middle;">⟳ REFRESH DATA</button> <button onclick="toggleSquareVoice()" id="sqVoiceBtn" style="background:#1a3a5a;color:#a855f7;border:1px solid #a855f740;padding:4px 12px;cursor:pointer;font-family:inherit;font-size:0.8em;margin-left:6px;vertical-align:middle;">🎙 VOICE</button>';
@@ -24582,9 +24647,414 @@ app.get('/sop-test', requireAuth('owner'), async function(req, res) {
   }
 });
 
+// ===================== SEMrush Dashboard with Heatmaps =====================
+app.get('/semrush', requireAuth('owner'), async function(req, res) {
+  try {
+    var domain = req.query.domain || 'wildwoodsmallengine.com';
+    var data = await buildSemrushData(domain);
+    var html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    html += '<title>SEMrush Dashboard</title>';
+    html += '<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">';
+    html += '<style>';
+    html += 'body{margin:0;background:#020810;color:#c0d8f0;font-family:Rajdhani,sans-serif;overflow-x:hidden}';
+    html += '*{box-sizing:border-box}';
+    html += '.nav{display:flex;justify-content:center;gap:8px;padding:15px;flex-wrap:wrap;border-bottom:1px solid #0a1520}';
+    html += '.nav a{font-family:Orbitron;font-size:0.65em;letter-spacing:3px;padding:10px 20px;color:#4a6a8a;border:1px solid #1a2a3a;text-decoration:none;transition:all 0.3s;background:rgba(5,10,20,0.6)}';
+    html += '.nav a:hover,.nav a.active{color:#55f7d8;border-color:#55f7d8;background:rgba(85,247,216,0.05)}';
+    html += '.header{text-align:center;padding:30px 20px 10px}';
+    html += '.header h1{font-family:Orbitron;font-size:1.6em;letter-spacing:8px;color:#55f7d8;margin:0;text-shadow:0 0 30px rgba(85,247,216,0.3)}';
+    html += '.header .sub{color:#4a6a8a;font-size:0.85em;margin-top:5px}';
+    html += '.container{max-width:1500px;margin:0 auto;padding:20px}';
+    html += '.stats-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:15px}';
+    html += '.stat{flex:1;min-width:140px;text-align:center;padding:15px;background:rgba(10,20,35,0.8);border:1px solid #1a2a3a}';
+    html += '.stat .val{font-size:1.8em;font-weight:900;font-family:Orbitron}';
+    html += '.stat .lbl{color:#4a6a8a;font-size:0.7em;font-family:Orbitron;letter-spacing:2px;margin-top:3px}';
+    html += '.box{background:rgba(10,20,35,0.6);border:1px solid #1a2a3a;padding:15px;margin-bottom:12px}';
+    html += '.box-title{font-family:Orbitron;font-size:0.6em;letter-spacing:3px;color:#55f7d8;margin-bottom:10px;display:flex;align-items:center;gap:8px}';
+    html += '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}';
+    html += '.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}';
+    html += '@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}';
+    html += 'table{width:100%;border-collapse:collapse;font-size:0.9em}';
+    html += 'th{font-family:Orbitron;font-size:0.6em;letter-spacing:2px;color:#4a6a8a;text-align:left;padding:8px 10px;border-bottom:1px solid #1a2a3a}';
+    html += 'td{padding:8px 10px;border-bottom:1px solid #0a1520}';
+    html += 'tr:hover{background:rgba(85,247,216,0.02)}';
+    html += '.tag{display:inline-block;padding:2px 8px;font-size:0.7em;font-family:Orbitron;letter-spacing:1px}';
+    html += '.tag-green{background:#00ff6615;color:#00ff66;border:1px solid #00ff6630}';
+    html += '.tag-orange{background:#ff9f4315;color:#ff9f43;border:1px solid #ff9f4330}';
+    html += '.tag-red{background:#ff475715;color:#ff4757;border:1px solid #ff475730}';
+    html += '.tag-blue{background:#00d4ff15;color:#00d4ff;border:1px solid #00d4ff30}';
+    // Heatmap styles
+    html += '.heatmap-grid{display:grid;gap:2px;margin-top:8px}';
+    html += '.heatmap-cell{aspect-ratio:1;border-radius:2px;position:relative;cursor:pointer;transition:transform 0.15s}';
+    html += '.heatmap-cell:hover{transform:scale(1.3);z-index:10}';
+    html += '.heatmap-tooltip{display:none;position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#0a1520;border:1px solid #55f7d8;padding:6px 10px;font-size:0.75em;white-space:nowrap;z-index:100;pointer-events:none;font-family:Rajdhani}';
+    html += '.heatmap-cell:hover .heatmap-tooltip{display:block}';
+    html += '.heatmap-legend{display:flex;align-items:center;gap:4px;margin-top:8px;font-size:0.7em;color:#4a6a8a}';
+    html += '.heatmap-legend-cell{width:14px;height:14px;border-radius:2px}';
+    // Chart canvas
+    html += 'canvas{width:100%!important;max-height:250px}';
+    // Domain input
+    html += '.domain-form{display:flex;gap:8px;justify-content:center;margin:15px 0}';
+    html += '.domain-input{background:#0a1520;border:1px solid #1a2a3a;color:#c0d8f0;padding:10px 16px;font-family:Rajdhani;font-size:1em;width:300px;outline:none}';
+    html += '.domain-input:focus{border-color:#55f7d8}';
+    html += '.domain-btn{background:rgba(85,247,216,0.1);border:1px solid #55f7d8;color:#55f7d8;padding:10px 20px;cursor:pointer;font-family:Orbitron;font-size:0.65em;letter-spacing:2px;transition:all 0.2s}';
+    html += '.domain-btn:hover{background:rgba(85,247,216,0.2)}';
+    // Tabs
+    html += '.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:15px;border-bottom:1px solid #1a2a3a;padding-bottom:8px}';
+    html += '.tab{font-family:Orbitron;font-size:0.55em;letter-spacing:2px;padding:8px 16px;color:#4a6a8a;cursor:pointer;border:1px solid transparent;transition:all 0.2s}';
+    html += '.tab:hover{color:#c0d8f0;border-color:#1a2a3a}';
+    html += '.tab.active{color:#55f7d8;border-color:#55f7d8;background:rgba(85,247,216,0.05)}';
+    html += '.tab-panel{display:none}.tab-panel.active{display:block}';
+    html += '.search{background:#0a1520;border:1px solid #1a2a3a;color:#c0d8f0;padding:10px 14px;font-family:Rajdhani;font-size:1em;width:100%;outline:none;margin-bottom:10px}';
+    html += '.search:focus{border-color:#55f7d8}';
+    html += '</style></head><body>';
+
+    // Nav
+    html += '<div class="nav">';
+    html += '<a href="/">JARVIS</a><a href="/business">ATHENA</a><a href="/tookan">TOOKAN</a>';
+    html += '<a href="/business/chart">CHARTS</a><a href="/analytics">ANALYTICS</a>';
+    html += '<a href="/google-ads">GOOGLE ADS</a><a href="/square">SQUARE</a>';
+    html += '<a href="/discord">DISCORD</a><a href="/followup">FOLLOW UP</a>';
+    html += '<a href="/ai">AI</a><a href="/forecast">FORECAST</a>';
+    html += '<a href="/seo">SEO</a><a href="/audit">AUDIT</a>';
+    html += '<a href="/semrush" class="active">SEMRUSH</a>';
+    html += '<a href="/auth/logout" style="color:#ef4444;border-color:#ef444440;">LOGOUT</a>';
+    html += '</div>';
+
+    // Header
+    html += '<div class="header"><h1>SEMRUSH INTELLIGENCE</h1>';
+    html += '<div class="sub">Domain Analytics & Keyword Heatmaps — ' + data.domain + '</div></div>';
+
+    // Domain selector
+    html += '<div class="domain-form">';
+    html += '<input class="domain-input" id="domainInput" value="' + data.domain + '" placeholder="Enter domain...">';
+    html += '<button class="domain-btn" onclick="window.location.href=\'/semrush?domain=\'+document.getElementById(\'domainInput\').value">ANALYZE</button>';
+    html += '</div>';
+
+    html += '<div class="container">';
+
+    // Overview stats
+    var ov = data.overview || {};
+    html += '<div class="stats-row">';
+    html += '<div class="stat"><div class="val" style="color:#55f7d8">' + (ov.Rk || 'N/A') + '</div><div class="lbl">DOMAIN RANK</div></div>';
+    html += '<div class="stat"><div class="val" style="color:#00ff66">' + (ov.Or || '0') + '</div><div class="lbl">ORGANIC KEYWORDS</div></div>';
+    html += '<div class="stat"><div class="val" style="color:#4da8ff">' + (ov.Ot || '0') + '</div><div class="lbl">ORGANIC TRAFFIC</div></div>';
+    html += '<div class="stat"><div class="val" style="color:#ff9f43">' + (ov.Oc || '$0') + '</div><div class="lbl">TRAFFIC COST</div></div>';
+    html += '<div class="stat"><div class="val" style="color:#c084fc">' + (ov.Ad || '0') + '</div><div class="lbl">PAID KEYWORDS</div></div>';
+    html += '</div>';
+
+    // Backlinks stats
+    var bl = data.backlinksOverview || {};
+    html += '<div class="stats-row">';
+    html += '<div class="stat"><div class="val" style="color:#55f7d8">' + (bl.total || '0') + '</div><div class="lbl">TOTAL BACKLINKS</div></div>';
+    html += '<div class="stat"><div class="val" style="color:#00ff66">' + (bl.domains_num || '0') + '</div><div class="lbl">REF DOMAINS</div></div>';
+    html += '<div class="stat"><div class="val" style="color:#4da8ff">' + (bl.follows_num || '0') + '</div><div class="lbl">FOLLOW LINKS</div></div>';
+    html += '<div class="stat"><div class="val" style="color:#ff4757">' + (bl.nofollows_num || '0') + '</div><div class="lbl">NOFOLLOW LINKS</div></div>';
+    html += '</div>';
+
+    // Tabs
+    html += '<div class="tabs">';
+    html += '<div class="tab active" onclick="switchTab(\'keywords\')">KEYWORD HEATMAP</div>';
+    html += '<div class="tab" onclick="switchTab(\'positions\')">POSITION HEATMAP</div>';
+    html += '<div class="tab" onclick="switchTab(\'table\')">KEYWORD TABLE</div>';
+    html += '<div class="tab" onclick="switchTab(\'competitors\')">COMPETITORS</div>';
+    html += '<div class="tab" onclick="switchTab(\'pages\')">TOP PAGES</div>';
+    html += '<div class="tab" onclick="switchTab(\'history\')">HISTORY</div>';
+    html += '</div>';
+
+    // Serialize data for JS
+    html += '<script>var semData=' + JSON.stringify({
+      organicKeywords: data.organicKeywords || [],
+      competitors: data.competitors || [],
+      pages: data.pages || [],
+      historicData: data.historicData || []
+    }) + ';</script>';
+
+    // ===== TAB: KEYWORD HEATMAP =====
+    html += '<div class="tab-panel active" id="panel-keywords">';
+    html += '<div class="grid2">';
+
+    // Keyword Volume Heatmap
+    html += '<div class="box"><div class="box-title">KEYWORD SEARCH VOLUME HEATMAP</div>';
+    html += '<div id="volumeHeatmap"></div>';
+    html += '<div class="heatmap-legend"><span>Low</span>';
+    html += '<div class="heatmap-legend-cell" style="background:#0a1520"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#1a3a2a"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#2a6a3a"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#3aaa4a"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#00ff66"></div>';
+    html += '<span>High</span></div>';
+    html += '</div>';
+
+    // Keyword Competition Heatmap
+    html += '<div class="box"><div class="box-title">KEYWORD COMPETITION DENSITY</div>';
+    html += '<div id="compHeatmap"></div>';
+    html += '<div class="heatmap-legend"><span>Low</span>';
+    html += '<div class="heatmap-legend-cell" style="background:#0a1520"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#1a2a4a"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#2a4a8a"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#4a6acc"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#4da8ff"></div>';
+    html += '<span>High</span></div>';
+    html += '</div>';
+
+    html += '</div>'; // grid2
+
+    // Traffic Heatmap (full width)
+    html += '<div class="box"><div class="box-title">KEYWORD TRAFFIC CONTRIBUTION HEATMAP</div>';
+    html += '<div id="trafficHeatmap"></div>';
+    html += '<div class="heatmap-legend"><span>Low</span>';
+    html += '<div class="heatmap-legend-cell" style="background:#0a1520"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#2a1a20"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#5a2a30"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#aa4a40"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#ff4757"></div>';
+    html += '<span>High</span></div>';
+    html += '</div>';
+
+    html += '</div>'; // panel-keywords
+
+    // ===== TAB: POSITION HEATMAP =====
+    html += '<div class="tab-panel" id="panel-positions">';
+    html += '<div class="box"><div class="box-title">KEYWORD POSITION DISTRIBUTION HEATMAP</div>';
+    html += '<div class="sub" style="color:#4a6a8a;font-size:0.8em;margin-bottom:10px">Each cell = one keyword. Green = top positions, red = lower positions</div>';
+    html += '<div id="positionHeatmap"></div>';
+    html += '<div class="heatmap-legend"><span>#1</span>';
+    html += '<div class="heatmap-legend-cell" style="background:#00ff66"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#55f7d8"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#4da8ff"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#ff9f43"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#ff4757"></div>';
+    html += '<span>#100+</span></div>';
+    html += '</div>';
+
+    // Position change heatmap
+    html += '<div class="box"><div class="box-title">POSITION CHANGE HEATMAP</div>';
+    html += '<div class="sub" style="color:#4a6a8a;font-size:0.8em;margin-bottom:10px">Green = improved, Red = dropped, Gray = unchanged</div>';
+    html += '<div id="changeHeatmap"></div>';
+    html += '<div class="heatmap-legend"><span>Dropped</span>';
+    html += '<div class="heatmap-legend-cell" style="background:#ff4757"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#1a2a3a"></div>';
+    html += '<div class="heatmap-legend-cell" style="background:#00ff66"></div>';
+    html += '<span>Improved</span></div>';
+    html += '</div>';
+
+    html += '</div>'; // panel-positions
+
+    // ===== TAB: KEYWORD TABLE =====
+    html += '<div class="tab-panel" id="panel-table">';
+    html += '<input class="search" id="kwSearch" placeholder="Search keywords..." oninput="filterKeywords()">';
+    html += '<div class="box"><div class="box-title">ORGANIC KEYWORDS</div>';
+    html += '<div style="overflow-x:auto"><table><thead><tr>';
+    html += '<th>KEYWORD</th><th>POS</th><th>PREV</th><th>VOLUME</th><th>CPC</th><th>TRAFFIC %</th><th>COMPETITION</th><th>URL</th>';
+    html += '</tr></thead><tbody id="kwTableBody">';
+
+    var kws = data.organicKeywords || [];
+    for (var ki = 0; ki < kws.length; ki++) {
+      var kw = kws[ki];
+      var pos = parseInt(kw.Po) || 999;
+      var prevPos = parseInt(kw.Pp) || pos;
+      var diff = prevPos - pos;
+      var diffTag = diff > 0 ? '<span class="tag tag-green">+' + diff + '</span>' : diff < 0 ? '<span class="tag tag-red">' + diff + '</span>' : '<span class="tag" style="color:#4a6a8a">—</span>';
+      var posColor = pos <= 3 ? '#00ff66' : pos <= 10 ? '#55f7d8' : pos <= 20 ? '#4da8ff' : pos <= 50 ? '#ff9f43' : '#ff4757';
+      html += '<tr class="kw-row"><td>' + (kw.Ph || '') + '</td>';
+      html += '<td style="color:' + posColor + ';font-weight:700">' + pos + '</td>';
+      html += '<td>' + diffTag + '</td>';
+      html += '<td>' + (kw.Nq || '0') + '</td>';
+      html += '<td>$' + (kw.Cp || '0') + '</td>';
+      html += '<td>' + (kw.Tr || '0') + '%</td>';
+      html += '<td>' + (kw.Co || '0') + '</td>';
+      html += '<td style="font-size:0.8em;color:#4a6a8a;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (kw.Ur || '') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+    html += '</div>'; // panel-table
+
+    // ===== TAB: COMPETITORS =====
+    html += '<div class="tab-panel" id="panel-competitors">';
+    html += '<div class="box"><div class="box-title">ORGANIC COMPETITORS</div>';
+    html += '<div style="overflow-x:auto"><table><thead><tr>';
+    html += '<th>DOMAIN</th><th>COMPETITION</th><th>COMMON KW</th><th>ORGANIC KW</th><th>ORGANIC TRAFFIC</th><th>TRAFFIC COST</th>';
+    html += '</tr></thead><tbody>';
+
+    var comps = data.competitors || [];
+    for (var ci = 0; ci < comps.length; ci++) {
+      var cp = comps[ci];
+      var compLevel = parseFloat(cp.Cr) || 0;
+      var compColor = compLevel > 0.3 ? '#ff4757' : compLevel > 0.1 ? '#ff9f43' : '#00ff66';
+      html += '<tr>';
+      html += '<td style="color:#55f7d8">' + (cp.Dn || '') + '</td>';
+      html += '<td><div style="display:flex;align-items:center;gap:6px"><div style="width:60px;height:6px;background:#0a1520;overflow:hidden"><div style="width:' + (compLevel * 100) + '%;height:100%;background:' + compColor + '"></div></div><span style="color:' + compColor + '">' + (compLevel * 100).toFixed(0) + '%</span></div></td>';
+      html += '<td>' + (cp.Np || '0') + '</td>';
+      html += '<td>' + (cp.Or || '0') + '</td>';
+      html += '<td>' + (cp.Ot || '0') + '</td>';
+      html += '<td>$' + (cp.Oc || '0') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+
+    // Competitor heatmap
+    html += '<div class="box"><div class="box-title">COMPETITOR OVERLAP HEATMAP</div>';
+    html += '<div id="compOverlapHeatmap"></div>';
+    html += '</div>';
+
+    html += '</div>'; // panel-competitors
+
+    // ===== TAB: TOP PAGES =====
+    html += '<div class="tab-panel" id="panel-pages">';
+    html += '<div class="box"><div class="box-title">TOP PAGES BY ORGANIC TRAFFIC</div>';
+    html += '<div style="overflow-x:auto"><table><thead><tr>';
+    html += '<th>URL</th><th>TOP KEYWORD</th><th>POSITION</th><th>VOLUME</th><th>TRAFFIC %</th>';
+    html += '</tr></thead><tbody>';
+
+    var pages = data.pages || [];
+    for (var pi = 0; pi < pages.length; pi++) {
+      var pg = pages[pi];
+      var pgPos = parseInt(pg.Po) || 999;
+      var pgColor = pgPos <= 3 ? '#00ff66' : pgPos <= 10 ? '#55f7d8' : pgPos <= 20 ? '#4da8ff' : '#ff9f43';
+      html += '<tr>';
+      html += '<td style="color:#4da8ff;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (pg.Ur || '') + '</td>';
+      html += '<td>' + (pg.Ph || '') + '</td>';
+      html += '<td style="color:' + pgColor + ';font-weight:700">' + pgPos + '</td>';
+      html += '<td>' + (pg.Nq || '0') + '</td>';
+      html += '<td>' + (pg.Tr || '0') + '%</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+
+    // Page traffic heatmap
+    html += '<div class="box"><div class="box-title">PAGE TRAFFIC HEATMAP</div>';
+    html += '<div id="pageHeatmap"></div>';
+    html += '</div>';
+
+    html += '</div>'; // panel-pages
+
+    // ===== TAB: HISTORY =====
+    html += '<div class="tab-panel" id="panel-history">';
+    html += '<div class="grid2">';
+    html += '<div class="box"><div class="box-title">ORGANIC TRAFFIC TREND</div><canvas id="trafficChart"></canvas></div>';
+    html += '<div class="box"><div class="box-title">ORGANIC KEYWORDS TREND</div><canvas id="keywordsChart"></canvas></div>';
+    html += '</div>';
+    html += '<div class="box"><div class="box-title">RANK HISTORY</div>';
+    html += '<div style="overflow-x:auto"><table><thead><tr>';
+    html += '<th>DATE</th><th>RANK</th><th>ORGANIC KW</th><th>ORGANIC TRAFFIC</th><th>TRAFFIC COST</th><th>PAID KW</th>';
+    html += '</tr></thead><tbody>';
+
+    var hist = data.historicData || [];
+    for (var hi = 0; hi < hist.length; hi++) {
+      var h = hist[hi];
+      html += '<tr>';
+      html += '<td>' + (h.Dt || '') + '</td>';
+      html += '<td style="color:#55f7d8">' + (h.Rk || '') + '</td>';
+      html += '<td>' + (h.Or || '') + '</td>';
+      html += '<td>' + (h.Ot || '') + '</td>';
+      html += '<td>$' + (h.Oc || '0') + '</td>';
+      html += '<td>' + (h.Ad || '0') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+    html += '</div>'; // panel-history
+
+    html += '</div>'; // container
+
+    // JavaScript for heatmaps, tabs, charts
+    html += '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>';
+    html += '<script>';
+
+    // Tab switching
+    html += 'function switchTab(name){';
+    html += 'document.querySelectorAll(".tab-panel").forEach(function(p){p.classList.remove("active")});';
+    html += 'document.querySelectorAll(".tab").forEach(function(t){t.classList.remove("active")});';
+    html += 'document.getElementById("panel-"+name).classList.add("active");';
+    html += 'event.target.classList.add("active");';
+    html += 'if(name==="history")renderCharts();';
+    html += '}';
+
+    // Keyword search filter
+    html += 'function filterKeywords(){';
+    html += 'var q=document.getElementById("kwSearch").value.toLowerCase();';
+    html += 'document.querySelectorAll(".kw-row").forEach(function(r){';
+    html += 'r.style.display=r.textContent.toLowerCase().includes(q)?"":"none"});';
+    html += '}';
+
+    // Heatmap builder
+    html += 'function buildHeatmap(containerId,items,valueFn,colorFn,labelFn){';
+    html += 'var el=document.getElementById(containerId);if(!el||!items.length)return;';
+    html += 'var cols=Math.ceil(Math.sqrt(items.length));';
+    html += 'el.style.gridTemplateColumns="repeat("+cols+",1fr)";';
+    html += 'el.className="heatmap-grid";';
+    html += 'var maxVal=0;items.forEach(function(it){var v=valueFn(it);if(v>maxVal)maxVal=v});';
+    html += 'if(maxVal===0)maxVal=1;';
+    html += 'var frag=document.createDocumentFragment();';
+    html += 'items.forEach(function(it){';
+    html += 'var v=valueFn(it);var norm=v/maxVal;';
+    html += 'var cell=document.createElement("div");cell.className="heatmap-cell";';
+    html += 'cell.style.background=colorFn(norm,it);';
+    html += 'var tip=document.createElement("div");tip.className="heatmap-tooltip";';
+    html += 'tip.innerHTML=labelFn(it,v);cell.appendChild(tip);';
+    html += 'frag.appendChild(cell)});';
+    html += 'el.appendChild(frag)}';
+
+    // Color interpolators
+    html += 'function greenScale(t){var r=Math.round(10+t*0),g=Math.round(21+t*234),b=Math.round(32+t*70);return"rgb("+r+","+g+","+b+")"}';
+    html += 'function blueScale(t){var r=Math.round(10+t*67),g=Math.round(21+t*147),b=Math.round(32+t*223);return"rgb("+r+","+g+","+b+")"}';
+    html += 'function redScale(t){var r=Math.round(10+t*245),g=Math.round(21+t*50),b=Math.round(32+t*55);return"rgb("+r+","+g+","+b+")"}';
+    html += 'function posColor(norm,it){var p=parseInt(it.Po)||100;if(p<=3)return"#00ff66";if(p<=10)return"#55f7d8";if(p<=20)return"#4da8ff";if(p<=50)return"#ff9f43";return"#ff4757"}';
+    html += 'function changeColor(norm,it){var p=parseInt(it.Po)||0;var pp=parseInt(it.Pp)||p;var d=pp-p;if(d>5)return"#00ff66";if(d>0)return"#2a6a3a";if(d===0)return"#1a2a3a";if(d>-5)return"#5a2a30";return"#ff4757"}';
+
+    // Build all heatmaps on load
+    html += 'var kw=semData.organicKeywords||[];';
+
+    // Volume heatmap
+    html += 'buildHeatmap("volumeHeatmap",kw,function(it){return parseInt(it.Nq)||0},function(t){return greenScale(t)},function(it,v){return"<b>"+it.Ph+"</b><br>Volume: "+v});';
+
+    // Competition heatmap
+    html += 'buildHeatmap("compHeatmap",kw,function(it){return parseFloat(it.Co)||0},function(t){return blueScale(t)},function(it,v){return"<b>"+it.Ph+"</b><br>Competition: "+v});';
+
+    // Traffic heatmap
+    html += 'buildHeatmap("trafficHeatmap",kw,function(it){return parseFloat(it.Tr)||0},function(t){return redScale(t)},function(it,v){return"<b>"+it.Ph+"</b><br>Traffic: "+v+"%"});';
+
+    // Position heatmap
+    html += 'buildHeatmap("positionHeatmap",kw,function(it){return 101-(parseInt(it.Po)||100)},posColor,function(it){return"<b>"+it.Ph+"</b><br>Position: #"+(it.Po||"?")});';
+
+    // Change heatmap
+    html += 'buildHeatmap("changeHeatmap",kw,function(it){var d=(parseInt(it.Pp)||parseInt(it.Po)||0)-(parseInt(it.Po)||0);return Math.abs(d)+1},changeColor,function(it){var d=(parseInt(it.Pp)||parseInt(it.Po)||0)-(parseInt(it.Po)||0);return"<b>"+it.Ph+"</b><br>Pos: #"+it.Po+(d!==0?" ("+(d>0?"+":"")+d+")":"")});';
+
+    // Competitor overlap heatmap
+    html += 'var comps=semData.competitors||[];';
+    html += 'buildHeatmap("compOverlapHeatmap",comps,function(it){return parseInt(it.Np)||0},function(t){return blueScale(t)},function(it,v){return"<b>"+it.Dn+"</b><br>Common Keywords: "+v});';
+
+    // Page traffic heatmap
+    html += 'var pgs=semData.pages||[];';
+    html += 'buildHeatmap("pageHeatmap",pgs,function(it){return parseFloat(it.Tr)||0},function(t){return greenScale(t)},function(it,v){return"<b>"+(it.Ur||"").split("/").pop()+"</b><br>Traffic: "+v+"%"});';
+
+    // Charts (rendered when history tab opens)
+    html += 'var chartsRendered=false;';
+    html += 'function renderCharts(){';
+    html += 'if(chartsRendered)return;chartsRendered=true;';
+    html += 'var hist=semData.historicData||[];if(!hist.length)return;';
+    html += 'var labels=hist.map(function(h){return h.Dt||""});';
+    html += 'var trafficVals=hist.map(function(h){return parseInt(h.Ot)||0});';
+    html += 'var kwVals=hist.map(function(h){return parseInt(h.Or)||0});';
+
+    html += 'new Chart(document.getElementById("trafficChart"),{type:"line",data:{labels:labels,datasets:[{label:"Organic Traffic",data:trafficVals,borderColor:"#55f7d8",backgroundColor:"rgba(85,247,216,0.1)",fill:true,tension:0.3}]},options:{responsive:true,plugins:{legend:{labels:{color:"#4a6a8a"}}},scales:{x:{ticks:{color:"#4a6a8a"},grid:{color:"#0a1520"}},y:{ticks:{color:"#4a6a8a"},grid:{color:"#0a1520"}}}}});';
+
+    html += 'new Chart(document.getElementById("keywordsChart"),{type:"line",data:{labels:labels,datasets:[{label:"Organic Keywords",data:kwVals,borderColor:"#00ff66",backgroundColor:"rgba(0,255,102,0.1)",fill:true,tension:0.3}]},options:{responsive:true,plugins:{legend:{labels:{color:"#4a6a8a"}}},scales:{x:{ticks:{color:"#4a6a8a"},grid:{color:"#0a1520"}},y:{ticks:{color:"#4a6a8a"},grid:{color:"#0a1520"}}}}});';
+
+    html += '}';
+
+    html += '</script>';
+    html += '</body></html>';
+    res.send(html);
+  } catch (err) {
+    console.log('SEMrush dashboard error:', err);
+    res.status(500).send('Error loading SEMrush dashboard: ' + err.message);
+  }
+});
+
 app.listen(PORT, function() {
   console.log("LifeOS Jarvis running on port " + PORT);
-  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload /weather-dashboard /sop-test");
+  console.log("Endpoints: /tabs /tab/:name /scan /scan/full /search?q= /summary /priority /briefing /call /voice /conversation /whatsapp /gmail/auth /gmail/unread /gmail/summary /dashboard /business /tookan /chat /daily-questions /nightly-checkin /team /team/:name /team/assign /team/daily-tasks /team/coaching /team/workload /weather-dashboard /sop-test /semrush");
   // Start calendar watcher for 10-min-before calls
   startCalendarWatcher();
   console.log("Calendar watcher started — checking every 2 minutes");
